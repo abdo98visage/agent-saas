@@ -1,127 +1,332 @@
-"""Chat endpoints - send messages to agents."""
-from uuid import uuid4
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from uuid import UUID, uuid4
 from typing import Optional
+from datetime import date
+from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
 
-from app.agents.engine import agent_engine
-from app.core.db import supabase
-from app.services.memory import should_summarize, save_memory
+from app.core.db import get_db
+from app.api.auth import get_current_user
+from app.models.user import User
+from app.models.session import Session
+from app.models.message import Message
+from app.models.kpi import KPI
+from app.schemas.chat import ChatMessage
+from app.services.agent_service import AgentService
 
 router = APIRouter()
+agent_service = AgentService()
 
 
-class ChatMessage(BaseModel):
-    agent_slug: str
-    message: str
-    conversation_id: Optional[str] = None
-    organization_id: str
-
-
-class ConversationCreate(BaseModel):
-    agent_slug: str
-    organization_id: str
-    user_id: str
-    title: Optional[str] = None
+async def generate_sse(events):
+    """Generate SSE (Server-Sent Events) stream."""
+    import json
+    async for event in events:
+        yield f"event: {event.get('type', 'message')}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @router.post("/message")
-async def send_message(req: ChatMessage):
-    """Send a message to an agent."""
-    try:
-        # Auto-create conversation if none provided
-        conversation_id = req.conversation_id
-        if not conversation_id:
-            response = supabase.table("agents").select("id").eq("slug", req.agent_slug).single().execute()
-            if not response.data:
-                raise HTTPException(status_code=404, detail=f"Agent not found: {req.agent_slug}")
-            
-            agent_id = response.data["id"]
-            conversation_id = str(uuid4())
-            
-            supabase.table("conversations").insert({
-                "id": conversation_id,
-                "organization_id": req.organization_id,
-                "user_id": req.organization_id,  # TODO: Get actual user_id
-                "agent_id": agent_id,
-                "title": req.message[:50] + "..." if len(req.message) > 50 else req.message,
-            }).execute()
-        
-        # Run the agent
-        result = await agent_engine.run(
-            agent_slug=req.agent_slug,
-            user_message=req.message,
-            organization_id=req.organization_id,
-            conversation_id=conversation_id,
+async def send_message(
+    request: ChatMessage,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Send a message to the agent (non-streaming)."""
+    message = request.message
+    conversation_id = str(request.conversation_id) if request.conversation_id else None
+    agent_template_name = request.agent_template_name
+    project_context = request.project_context
+    profile_name = request.profile_name
+
+    if not user.is_activated:
+        raise HTTPException(status_code=403, detail="Account not activated. Please activate first.")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account deactivated. Contact admin.")
+
+    from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
+    if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
+        raise HTTPException(
+            status_code=429,
+            detail="Daily request quota exceeded. Contact admin."
         )
-        
-        # Check if we should summarize
-        if await should_summarize(conversation_id):
-            history_resp = supabase.table("messages").select("*").eq("conversation_id", conversation_id).execute()
-            messages = [{"role": m["role"], "content": m["content"]} for m in (history_resp.data or [])]
-            await save_memory(conversation_id, req.organization_id, messages, 0, len(messages))
-        
-        return {
-            "conversation_id": conversation_id,
-            **result,
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if not await check_token_quota(db, str(user.id), user.max_tokens_per_day):
+        raise HTTPException(
+            status_code=429,
+            detail="Daily token quota exceeded. Contact admin."
+        )
 
+    # SECURITY: Audit user action
+    from app.models.audit_log import AuditLog
+    audit = AuditLog(
+        user_id=user.id,
+        action="send_message",
+        details={"conversation_id": conversation_id, "template": agent_template_name, "msg_length": len(message)},
+    )
+    db.add(audit)
 
-@router.post("/conversation", status_code=201)
-async def create_conversation(req: ConversationCreate):
-    """Create a new conversation."""
+    # Resolve or create conversation
+    session_obj = None
+    if conversation_id:
+        result = await db.execute(
+            select(Session).where(
+                Session.id == UUID(conversation_id),
+                Session.user_id == user.id,
+            )
+        )
+        session_obj = result.scalar_one_or_none()
+        if not session_obj:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    else:
+        session_obj = Session(
+            id=uuid4(),
+            user_id=user.id,
+            agent_template_name=agent_template_name,
+        )
+        db.add(session_obj)
+        await db.flush()
+
+    conversation_id = str(session_obj.id)
+
+    # Call agent
     try:
-        response = supabase.table("agents").select("id").eq("slug", req.agent_slug).single().execute()
-        if not response.data:
-            raise HTTPException(status_code=404, detail=f"Agent not found: {req.agent_slug}")
-        
-        conv_id = str(uuid4())
-        supabase.table("conversations").insert({
-            "id": conv_id,
-            "organization_id": req.organization_id,
-            "user_id": req.user_id,
-            "agent_id": response.data["id"],
-            "title": req.title or "New Conversation",
-        }).execute()
-        
-        return {"conversation_id": conv_id}
-        
-    except HTTPException:
-        raise
+        result = await agent_service.run_agent(
+            db=db,
+            user_id=str(user.id),
+            conversation_id=conversation_id,
+            user_message=message,
+            agent_template_name=agent_template_name,
+            project_context=project_context,
+            profile_name=profile_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+
+    # Track KPI: increment daily messages
+    await _track_kpi(db, user.id)
+
+    # Track token usage
+    if result.get("tokens_used"):
+        await record_token_usage(
+            db, str(user.id), result.get("model", ""),
+            result["tokens_used"], 0.0
+        )
+
+    return {
+        "conversation_id": conversation_id,
+        "message_id": result.get("message_id"),
+        "content": result.get("content", ""),
+        "tokens_used": result.get("tokens_used"),
+        "model": result.get("model"),
+        "profile_name": result.get("profile_name"),
+    }
+
+
+@router.post("/message/stream")
+async def send_message_stream(
+    request: ChatMessage,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Send a message to the agent with SSE streaming response."""
+    message = request.message
+    conversation_id = str(request.conversation_id) if request.conversation_id else None
+    agent_template_name = request.agent_template_name
+    project_context = request.project_context
+    profile_name = request.profile_name
+
+    if not user.is_activated:
+        raise HTTPException(status_code=403, detail="Account not activated. Please activate first.")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account deactivated. Contact admin.")
+
+    from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
+    if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
+        raise HTTPException(
+            status_code=429,
+            detail="Daily request quota exceeded. Contact admin."
+        )
+    if not await check_token_quota(db, str(user.id), user.max_tokens_per_day):
+        raise HTTPException(
+            status_code=429,
+            detail="Daily token quota exceeded. Contact admin."
+        )
+
+    # SECURITY: Audit user action
+    from app.models.audit_log import AuditLog
+    audit = AuditLog(
+        user_id=user.id,
+        action="send_message_stream",
+        details={"conversation_id": conversation_id, "template": agent_template_name},
+    )
+    db.add(audit)
+
+    # Resolve or create conversation
+    session_obj = None
+    if conversation_id:
+        result = await db.execute(
+            select(Session).where(
+                Session.id == UUID(conversation_id),
+                Session.user_id == user.id,
+            )
+        )
+        session_obj = result.scalar_one_or_none()
+        if not session_obj:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    else:
+        session_obj = Session(
+            id=uuid4(),
+            user_id=user.id,
+            agent_template_name=agent_template_name,
+        )
+        db.add(session_obj)
+        await db.flush()
+
+    conversation_id = str(session_obj.id)
+
+    async def event_generator():
+        try:
+            # Send conversation start event
+            import json
+            yield f"event: start\ndata: {json.dumps({'conversation_id': conversation_id}, ensure_ascii=False)}\n\n"
+
+            async for chunk in agent_service.run_agent_stream(
+                db=db,
+                user_id=str(user.id),
+                conversation_id=conversation_id,
+                user_message=message,
+                agent_template_name=agent_template_name,
+                project_context=project_context,
+                profile_name=profile_name,
+            ):
+                event_type = chunk.get("type", "message")
+                data = {k: v for k, v in chunk.items() if k != "type"}
+                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+            # Track KPI
+            await _track_kpi(db, user.id)
+
+        except Exception as e:
+            import json
+            yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/conversations")
+async def list_conversations(
+    limit: int = Query(50, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List conversations for current user."""
+    result = await db.execute(
+        select(Session)
+        .where(Session.user_id == user.id)
+        .order_by(desc(Session.created_at))
+        .limit(limit)
+    )
+    sessions = result.scalars().all()
+    return {
+        "conversations": [
+            {
+                "conversation_id": str(s.id),
+                "title": s.title,
+                "agent_template_name": s.agent_template_name,
+                "profile_name": s.profile_name,
+                "created_at": str(s.created_at),
+            }
+            for s in sessions
+        ],
+        "count": len(sessions),
+    }
 
 
 @router.get("/conversations/{conversation_id}/messages")
-async def get_messages(conversation_id: str, limit: int = Query(50, le=200)):
+async def get_messages(
+    conversation_id: UUID,
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """Get messages for a conversation."""
-    try:
-        response = supabase.table("messages").select("*").eq("conversation_id", conversation_id).order("created_at", desc=False).limit(limit).execute()
-        return {
-            "conversation_id": conversation_id,
-            "messages": response.data or [],
-            "count": len(response.data or []),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await db.execute(
+        select(Session).where(
+            Session.id == conversation_id,
+            Session.user_id == user.id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    result = await db.execute(
+        select(Message)
+        .where(Message.session_id == conversation_id)
+        .order_by(Message.created_at.asc())
+        .limit(limit)
+    )
+    messages = result.scalars().all()
+    return {
+        "conversation_id": str(conversation_id),
+        "messages": [
+            {
+                "id": str(m.id),
+                "role": m.role,
+                "content": m.content,
+                "tokens_used": m.tokens_used,
+                "created_at": str(m.created_at),
+            }
+            for m in messages
+        ],
+        "count": len(messages),
+    }
 
 
-@router.get("/organization/{organization_id}/conversations")
-async def list_conversations(organization_id: str):
-    """List conversations for an organization."""
-    try:
-        response = supabase.table("conversations").select(
-            "*, agents(slug, name)"
-        ).eq("organization_id", organization_id).order("updated_at", desc=True).limit(50).execute()
-        
-        return {
-            "conversations": response.data or [],
-            "count": len(response.data or []),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/conversations/{conversation_id}/title")
+async def update_conversation_title(
+    conversation_id: UUID,
+    title: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update conversation title."""
+    result = await db.execute(
+        select(Session).where(
+            Session.id == conversation_id,
+            Session.user_id == user.id,
+        )
+    )
+    session_obj = result.scalar_one_or_none()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    session_obj.title = title
+    return {"conversation_id": str(conversation_id), "title": title}
+
+
+async def _track_kpi(db: AsyncSession, user_id):
+    """Track KPI: increment daily messages."""
+    today = date.today().isoformat()
+    user_id_str = str(user_id)
+    result = await db.execute(
+        select(KPI).where(KPI.user_id == user_id_str, KPI.date == today)
+    )
+    kpi = result.scalar_one_or_none()
+    if kpi:
+        kpi.messages_sent += 1
+    else:
+        kpi = KPI(
+            user_id=user_id_str,
+            date=today,
+            messages_sent=1,
+        )
+        db.add(kpi)

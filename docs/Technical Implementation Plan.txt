@@ -1,0 +1,455 @@
+
+خطة التنفيذ التقنية التفصيلية – مشروع Hermes Agent للشركة
+إعداد: مهندس برمجيات أول (خبرة 20+ سنة في أنظمة المؤسسات عالية التوفر، العزل متعدد المستأجرين، وتطبيقات سطح المكتب)
+الإصدار: 1.0
+تاريخ الصلاحية: 2026-06-11 – 2026-12-31
+الجمهور المستهدف: فريق التطوير، مهندسو DevOps، مديرو المشاريع التقنيون.
+
+0. تعديلات مراجعة تقنية قبل بدء التنفيذ
+هذه الخطة قابلة للتنفيذ، لكنها تحتاج ضبطاً حتى لا يتحول الإصدار الأول إلى مشروع واسع أكثر من اللازم. أفضل مسار هو بناء MVP إنتاجي صغير ثم التوسع على مراحل، مع بوابات قبول واضحة تمنع الانتقال بين المراحل قبل إثبات الأمان والتكلفة وتجربة المستخدم.
+
+قرارات تقنية ملزمة للإصدار الأول:
+
+1. اعتماد 12 أسبوعاً كجدول أساسي. أي ضغط إلى 8 أسابيع يتطلب حذف تلغرام أو KPIs أو auto-update من الإصدار الأول.
+2. أولوية التنفيذ: Backend + Auth + Isolation، ثم Chat API مع مزود نماذج، ثم Desktop Client، ثم Admin، ثم Telegram/KPIs.
+3. عدم إرسال محتوى المجلد كاملاً مع كل رسالة. يجب بناء فهرس محلي، واختيار المقاطع ذات الصلة بالاستعلام، ووضع حد رموز ثابت لكل طلب.
+4. تخزين سياق الملفات في قاعدة البيانات يجب أن يكون محدوداً. يفضل تخزين metadata وملخصات ومقاطع مستخدمة فقط، وليس snapshot كامل لكل الملفات.
+5. Electron يجب أن يعمل وفق إعدادات أمان صارمة: contextIsolation=true، nodeIntegration=false في renderer، preload API محدودة، Content Security Policy، وعدم تمرير مسارات ملفات عشوائية من renderer إلى main بدون تحقق.
+6. RLS في PostgreSQL ليست اختياراً تجميلياً. يجب إما تنفيذها بشكل صحيح باستخدام app.current_user_id لكل معاملة، أو توثيق سبب تأجيلها مع اختبارات عزل إجبارية لكل endpoint.
+7. لا تبدأ بـ WebSocket إلا إذا كانت تجربة streaming مطلوبة في MVP. polling أو Server-Sent Events يكفيان كبداية أبسط.
+8. يجب إضافة cost guardrails: حد رموز لكل طلب، حد يومي، تنبيه عند 70% و90% من الحصة، وسجل تكلفة لكل مستخدم/قسم.
+9. بوابة تلغرام لا يمكنها معرفة "المشروع الحالي" إلا إذا كان المشروع محفوظاً في الخادم أو مربوطاً بجلسة Desktop سابقة. لذلك أوامر /project و /files يجب أن تكون للقراءة فقط أو تؤجل بعد مزامنة آمنة.
+10. كل مرحلة يجب أن تنتهي بعرض قابل للتجربة، اختبارات آلية أساسية، ومراجعة أمنية قصيرة قبل الانتقال للمرحلة التالية.
+
+1. نظرة عامة على الخطة
+هذه الخطة تحوّل متطلبات الأعمال (BRD) إلى مجموعة محددة من الأدوات، المكتبات، التقنيات، التكوينات، مهام التطوير، و إجراءات الضمان التي يجب تنفيذها لبناء نظام Hermes Agent بشكل صحيح، قابل للتوسع، وآمن، وسهل الصيانة.
+
+المبادئ التوجيهية (Guiding Principles):
+
+أقل قدر من التعقيد (KISS): لا نستخدم حاويات Linux لكل مستخدم، ولا نوزع config لكل موظف.
+
+الأمان أولاً: عزل البيانات على مستوى قاعدة البيانات وليس نظام الملفات، تشفير المفاتيح الحساسة، تسجيل كل عملية حساسة.
+
+قابلية التوسع: دعم 500 مستخدم في البداية، وصولاً إلى 2000 مستخدم باستخدام نفس المعمارية مع إضافة عقد.
+
+صيانة منخفضة: تحديث الخادم المركزي يصل لجميع العملاء تلقائياً، لا حاجة لتدخل يدوي على أجهزة الموظفين.
+
+2. الأدوات والتقنيات المختارة (بالتفصيل)
+2.1 Backend (الخادم الأساسي)
+المكون	الأداة / التقنية	الإصدار	سبب الاختيار
+لغة البرمجة	Python	3.11+	نضج生态系统 للمشاريع AI، FastAPI، أسهل في توظيف المطورين
+إطار REST API	FastAPI	0.115+	أداء عالٍ (على قدم المساواة مع Node.js)، توثيق تلقائي (Swagger/ReDoc)، دعم WebSockets
+خادم الويب	Nginx	1.24+	توزيع الأحمال، TLS termination، خدمة الملفات الثابتة للـ Admin UI
+قاعدة البيانات	PostgreSQL	16+	دعم JSONB، أداء ممتاز للاستعلامات متعددة المستأجرين (عبر indexing على user_id)، Row Level Security (اختياري)
+تخزين الجلسات والتقييد	Redis	7.2+	عمليات ذرية، انتهاء صلاحية تلقائي (TTL)، مناسب لـ rate limiting
+إدارة المهام غير المتزامنة	Celery	5.3+	معالجة طلبات النماذج الطويلة (AI)، إعادة المحاولة، مراقبة Flower
+بروكر Celery	Redis (أو RabbitMQ)	نفس Redis	تبسيط البنية، Redis يعمل للغرضين
+عميل HTTP للاتصال بـ MiniMax	httpx	0.27+	يدعم async، متوافق مع FastAPI
+تسجيل (Logging)	loguru	0.7+	سجلات منظمة JSON، تدوير ملفات، سهولة الربط مع ELK لاحقاً
+مراقبة الأداء	Prometheus + Grafana	أحدث إصدار	مفتوح المصدر، معايير صناعية، تنبيهات مرنة
+تتبع الأخطاء	Sentry (self-hosted أو SaaS)	SDK 2.0+	التقاط الاستثناءات، تجميعها، تحليل الأداء
+2.2 قاعدة البيانات (مخطط تفصيلي)
+جميع الجداول تستخدم user_id كـ Foreign Key لضمان العزل. سنضيف فهارس مركبة للتسريع.
+
+sql
+-- جدول المستخدمين (الموظفون والمشرفون)
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    hashed_password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100),
+    department VARCHAR(50), -- marketing, hr, it, sales
+    role VARCHAR(20) DEFAULT 'employee', -- admin, employee
+    is_active BOOLEAN DEFAULT TRUE,
+    max_tokens_per_day INT DEFAULT 50000,
+    max_requests_per_day INT DEFAULT 200,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP
+);
+CREATE INDEX idx_users_department ON users(department);
+CREATE INDEX idx_users_is_active ON users(is_active);
+
+-- جدول جلسات المحادثة (session لكل موظف لكل مشروع أو لكل موضوع)
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255),
+    agent_template_name VARCHAR(50), -- marketing, hr etc.
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_activity TIMESTAMP
+);
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_last_activity ON sessions(last_activity);
+
+-- جدول الرسائل (التخزين الكامل للسياق)
+CREATE TABLE messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL, -- user, assistant, system
+    content TEXT NOT NULL,
+    project_context TEXT, -- snapshot of files/folder at time of message
+    tokens_used INT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_messages_session_id ON messages(session_id);
+CREATE INDEX idx_messages_created_at ON messages(created_at);
+
+-- جدول مؤشرات الأداء (مستوى التفاصيل: لكل رسالة)
+CREATE TABLE kpis (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    tasks_completed INT DEFAULT 0,
+    messages_sent INT DEFAULT 0,
+    avg_response_quality FLOAT, -- من 1 إلى 5، يتم تحديثه يدوياً أو تلقائياً
+    active_minutes INT DEFAULT 0,
+    tools_used JSONB -- ["web_search", "content_generator"]
+);
+CREATE INDEX idx_kpis_user_id_date ON kpis(user_id, date);
+
+-- جدول قوالب الوكلاء (مركزي، يتحكم به المشرف)
+CREATE TABLE agent_templates (
+    name VARCHAR(50) PRIMARY KEY,
+    department VARCHAR(50),
+    system_prompt TEXT NOT NULL,
+    tools JSONB, -- قائمة الأدوات المسموحة
+    model_name VARCHAR(50) DEFAULT 'qwen3-14b',
+    max_tokens_per_request INT DEFAULT 4000,
+    temperature FLOAT DEFAULT 0.7
+);
+
+-- جدول ربط تلغرام (كل موظف يمكنه ربط حساب واحد)
+CREATE TABLE telegram_bindings (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    telegram_chat_id BIGINT NOT NULL UNIQUE,
+    binding_token VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_telegram_chat_id ON telegram_bindings(telegram_chat_id);
+
+-- جدول سجل التدقيق (audit log) – لا يحذف أبداً
+CREATE TABLE audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(id), -- من قام بالعملية (قد يكون النظام)
+    action VARCHAR(100) NOT NULL, -- "add_employee", "set_limits", "access_file"
+    details JSONB,
+    ip_address INET,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_audit_user_id ON audit_log(user_id);
+CREATE INDEX idx_audit_created_at ON audit_log(created_at);
+2.3 عميل سطح المكتب (Electron)
+المكون	الأداة / المكتبة	الإصدار	سبب الاختيار
+إطار التطبيق	Electron	29+	نضج عالٍ، توثيق واسع، يسمح باستخدام Node.js مباشرة لقراءة الملفات
+لغة الواجهة	TypeScript	5.4+	أمان كتابة التعليمات البرمجية، اكتشاف الأخطاء مبكراً
+مكتبة UI	React	18.2+	الأكثر شيوعاً، مكونات جاهزة، دعم متعدد المنصات
+إدارة الحالة	Zustand	4.5+	خفيف الوزن، أقل تعقيداً من Redux
+تخزين غير متصل (offline)	Dexie.js (IndexedDB wrapper)	4.0+	تخزين غير متزامن، استعلامات قوية
+إرسال الطلبات	Axios	1.7+	معترضات (interceptors) لإضافة التوكن، إعادة المحاولة
+بناء التطبيق والتحديثات	electron-builder + electron-updater	24.13+	تحديثات تلقائية شفافة، توقيع الملفات (code signing)
+الاتصال بالخادم	WebSocket أو HTTPS	-	نبدأ بـ HTTPS للبساطة، نضيف WebSockets للدردشة التفاعلية لاحقاً
+مربع حوار فتح المجلد	electron.dialog	مدمج	أصلي لنظام Windows، لا حاجة لمكتبات إضافية
+قراءة الملفات	fs/promises (Node.js)	مدمج	سريع، آمن، بدون تحميل الملف بالكامل في الذاكرة (streams للملفات الكبيرة)
+هيكل مشروع Electron المقترح:
+
+text
+hermes-desktop/
+├── package.json
+├── electron-builder.yml
+├── src/
+│   ├── main/                (main process)
+│   │   ├── main.ts
+│   │   ├── preload.ts
+│   │   ├── fileSystem.ts
+│   │   ├── autoUpdater.ts
+│   │   └── ipcHandlers.ts
+│   ├── renderer/            (React)
+│   │   ├── index.html
+│   │   ├── App.tsx
+│   │   ├── components/
+│   │   │   ├── ChatWindow.tsx
+│   │   │   ├── FolderExplorer.tsx
+│   │   │   └── Settings.tsx
+│   │   ├── store/
+│   │   │   ├── authStore.ts
+│   │   │   ├── projectStore.ts
+│   │   │   └── offlineQueueStore.ts
+│   │   └── index.tsx
+│   └── assets/
+└── dist/                    (مخرجات البناء)
+2.4 بوابة تلغرام (Telegram Bot Gateway)
+المكون	الأداة / التقنية	الإصدار	سبب الاختيار
+مكتبة البوت	python-telegram-bot (PTB)	20.7+	أكثر نضجاً في Python، تدعم webhooks، تحديثات متزامنة
+نموذج webhook	FastAPI endpoint /webhook/telegram	-	استقبال التحديثات من تلغرام، التحقق من صحة المصدر
+ربط الحساب	توليد binding_token عشوائي (UUID) ، إرسال رابط للموظف	-	آمن، سهل، لا يحتاج كلمة مرور التطبيق
+إعادة توجيه الرسائل	استدعاء internal API POST /api/chat مع user_id	-	نفس منطق عميل سطح المكتب
+2.5 واجهة المشرف (Admin Panel)
+المكون	الأداة	الإصدار	سبب الاختيار
+إطار الواجهة	React	18.2+	إعادة استخدام الخبرة من عميل سطح المكتب
+مكتبة مكونات UI	MUI (Material-UI)	5.15+	شبيه بـ admin dashboards احترافي، دعم RTL
+رسوم بيانية للـ KPIs	Recharts	2.12+	مبني على React، سهل التخصيص
+جدول بيانات الموظفين	MUI Data Grid	6.19+	فرز، تصفية، تصدير CSV
+طلب API	TanStack Query (React Query)	5.28+	إدارة التخزين المؤقت، إعادة المحاولة، تحميل البيانات
+2.6 أدوات DevOps والنشر
+المكون	الأداة	الإصدار	سبب الاختيار
+حاوية الخادم	Docker + Docker Compose	24+	عزل الخدمات، سهولة التوسع الرأسي
+خادم VPS	Ubuntu 22.04 LTS أو Rocky Linux 9	-	استقرار طويل الأمد، دعم واسع
+عكس الخادم الوكيل	Caddy 2	2.7+	TLS تلقائي (Let's Encrypt)، تكوين بسيط للغاية
+نسخ احتياطي آلي	pg_dump + cron + S3 (أو أي تخزين بعيد)	-	استعادة البيانات خلال ساعة
+مراقبة صحة الخادم	Uptime Kuma	2.0+	تنبيهات عبر تلغرام/بريد إذا توقف الخادم
+إدارة المفاتيح السرية	ملف .env + متغيرات البيئة	-	لا نستخدم Vault في المرحلة الأولى، نلتزم بأفضل ممارسات ملفات البيئة
+2.7 الذكاء الاصطناعي والنماذج
+المكون	الخيار	سبب الاختيار
+مزود النموذج الأساسي	MiniMax API (أو أي واجهة متوافقة مع OpenAI)	متاح في المنطقة العربية، سعر تنافسي، جودة جيدة للنماذج 14B و 235B
+نموذج للأغراض العامة	MiniMax abab6.5 (أو 14B)	توازن بين السرعة والجودة
+نموذج للمهام المعقدة (IT)	MiniMax abab6.5s (أو 235B)	قدرة أكبر على الكود والتحليل
+تنسيق الطلب	OpenAI Chat Completion API (متوافق)	القياسية، العديد من المكتبات الجاهزة
+تخزين السياق	نرسل آخر 20 رسالة + المقاطع ذات الصلة من فهرس الملفات المحلي فقط	تحقيق التوازن بين طول المدخلات (context window)، الخصوصية، وتكلفة tokens
+مثال لطلب إلى MiniMax عبر Python:
+
+python
+async def call_minimax(messages: list, model: str, api_key: str):
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            "https://api.minimax.chat/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 4000
+            }
+        )
+        return response.json()["choices"][0]["message"]["content"]
+3. المعمارية التفصيلية – رسم بياني بالنص
+text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              VPS / On‑Premise Server                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                           Docker Compose                                │ │
+│  │ ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌─────────┐ ┌──────────────┐ │ │
+│  │ │  Caddy   │ │  FastAPI  │ │  Redis   │ │Postgres │ │  Celery      │ │ │
+│  │ │  (proxy) │◄┤  (API)    │◄─────────►│         │◄────────►│  Worker     │ │ │
+│  │ │  :443    │ │  :8000    │ │         │ │  :5432  │ │  (AI tasks)  │ │ │
+│  │ └────┬─────┘ └─────┬─────┘ └────┬────┘ └────┬───┘ └──────┬───────┘ │ │
+│  │      │             │            │           │            │         │ │
+│  │      │             └────────────┼───────────┴────────────┘         │ │
+│  │      │                          │                                    │ │
+│  │      │           ┌──────────────▼───────────────┐                    │ │
+│  │      │           │    Prometheus + Grafana      │                    │ │
+│  │      │           │    (مراقبة، تنبيهات)         │                    │ │
+│  │      │           └──────────────────────────────┘                    │ │
+│  └──────┼────────────────────────────────────────────────────────────────┘ │
+│         │                                                                  │
+└─────────┼──────────────────────────────────────────────────────────────────┘
+          │ HTTPS/WSS
+          │
+ ┌────────▼────────┐            ┌─────────────────┐
+ │  عميل Electron  │            │  بوت تلغرام     │
+ │  (Windows)      │            │  (خارجي)        │
+ │  - فتح مجلد     │            │  webhook ──────►│
+ │  - دردشة        │            └─────────────────┘
+ │  - Offline queue│
+ └─────────────────┘
+          │
+          │ HTTPS
+ ┌────────▼────────┐
+ │  Admin Web UI   │
+ │  (React)        │
+ └─────────────────┘
+تدفق البيانات الأساسي:
+
+الموظف يفتح Electron → يسجل الدخول (JWT token يحفظ محلياً مشفر).
+
+يضغط "فتح مجلد" → يقرأ الملفات → يرسل session_id جديد أو موجود مع كل رسالة.
+
+الطلب يصل FastAPI → يتأكد من user_id من JWT → يسجل في DB → يمرر إلى Celery Worker.
+
+Celery Worker يطلب من MiniMax API باستخدام قالب الوكيل المناسب (حسب department) ومفتاح API الصحيح.
+
+الرد يُحفظ في قاعدة البيانات ويُعاد إلى العميل عبر WebSocket (أو الـ client يسأل دورياً – نبدأ بـ polling ثم نحسن لاحقاً).
+
+4. مراحل التنفيذ – جدول مفصل على مستوى المهام
+كل مرحلة تنتهي بتسليم قابل للاختبار و مراجعة الكود.
+
+المرحلة 0: البنية التحتية الأساسية (أسبوع واحد)
+المهمة	التفاصيل	الأدوات	المخرجات
+M0.1	شراء VPS (8 vCPU, 32GB RAM, 200GB SSD) من مزود مثل DigitalOcean أو Hetzner	-	IP، وصول SSH
+M0.2	تثبيت Docker و Docker Compose + إعداد مستخدم غير جذر	Ansible أو يدوياً	docker --version يعمل
+M0.3	إعداد مجلدات المشروع: /opt/hermes/{config,data,logs,backups}	bash	هيكل مجلدات
+M0.4	تثبيت Caddy مع ملف Caddyfile أساسي	Caddy	الوصول عبر HTTPS مؤقت (تلقائي)
+المرحلة 1: خادم API الأساسي والعزل (أسبوعان)
+المهمة	التفاصيل	الأدوات	المخرجات
+M1.1	هيكل مشروع FastAPI (التوجيهات، النماذج Pydantic، التبعيات)	FastAPI، Poetry	هيكل app/
+M1.2	تنفيذ مصادقة JWT (تسجيل الدخول، تجديد التوكن، حماية endpoints)	python-jose[cryptography]	POST /auth/login، POST /auth/refresh
+M1.3	كتابة وسيط (middleware) يستخرج user_id من JWT ويحقنه في الطلب	FastAPI middleware	كل endpoint يعرف request.state.user_id
+M1.4	إنشاء جدول المستخدمين (PostgreSQL) مع تشفير كلمات المرور (bcrypt)	asyncpg، bcrypt	الهجرة الأولى Alembic
+M1.5	تنفيذ endpoint لإرسال رسالة: POST /api/chat – يستقبل message, session_id (اختياري), project_context ويستدعي نموذج بسيط (echo)	pydantic	يرد نفس النص مؤقتاً
+M1.6	كتابة اختبارات الوحدة والتكامل لـ M1.2 و M1.5	pytest, httpx	نسبة تغطية > 80%
+المرحلة 2: قوالب الوكلاء ولوحة المشرف الأساسية (أسبوعان)
+المهمة	التفاصيل	الأدوات	المخرجات
+M2.1	إنشاء جدول agent_templates في DB وتحميل قيم أولية من ملف YAML	PyYAML	دالة load_templates()
+M2.2	واجهة برمجة تطبيقات لإدارة الموظفين (للمشرف فقط): POST /admin/employees, DELETE /admin/employees/{id}, PUT /admin/employees/{id}/limits	FastAPI، صلاحيات JWT (check role=admin)	3 endpoints محمية
+M2.3	إنشاء مشرف افتراضي (seed) عبر أمر docker exec	python seed.py	مستخدم admin@example.com
+M2.4	بدء تطوير Admin UI (React + MUI) – شاشة تسجيل دخول، وجدول الموظفين	Vite، MUI	الوصول عبر /admin بعد المصادقة
+M2.5	ربط Admin UI بـ API (إضافة موظف، تعطيل موظف)	TanStack Query	تعمل العمليات الأساسية
+المرحلة 3: تكامل MiniMax ومعالجة الذكاء الاصطناعي (أسبوعان)
+المهمة	التفاصيل	الأدوات	المخرجات
+M3.1	إدارة مفاتيح API لـ MiniMax: جدول api_keys (user_id, provider, encrypted_key)	cryptography.fernet	تشفير وفك التشفير
+M3.2	بناء Celery Worker يستهلك مهام process_ai_message	Celery، Redis	celery -A worker worker --loglevel=info
+M3.3	تعديل endpoint /api/chat ليرسل مهمة إلى Celery ويعيد task_id	Celery send_task	الـ API يعيد task_id فوراً
+M3.4	إضافة endpoint /api/chat/result/{task_id} لجلب النتيجة	Redis result backend	العميل يستدعيها كل ثانيتين (polling)
+M3.5	تنفيذ منطق بناء messages من قاعدة البيانات (آخر 20 رسالة + system prompt من القالب)	SQLAlchemy	تمرير السياق الكامل
+M3.6	تنفيذ توجيه النموذج: إذا كان department = IT يستخدم abab6.5s (235B) وإلا 14B	منطق بسيط	مطابق للـ template
+المرحلة 4: عميل سطح المكتب Electron (أسبوعان ونصف)
+المهمة	التفاصيل	الأدوات	المخرجات
+M4.1	تهيئة مشروع Electron مع TypeScript و React (قالب electron-react-boilerplate معدل)	create-electron-app	.exe فارغ يعمل
+M4.2	تنفيذ عملية المصادقة: تخزين JWT في electron-store (مشفر)	electron-store	البقاء مسجلاً
+M4.3	IPC: open-folder → استدعاء dialog.showOpenDialog → قراءة الملفات عبر fs.readdir + fs.readFile	ipcMain.handle	إرسال قائمة الملفات إلى renderer
+M4.4	بناء شاشة الدردشة (رسائل المستخدم والمساعد) مع عرض سياق الملفات المفتوحة	React، Zustand	تشبه ChatGPT مع شريط جانبي للملفات
+M4.5	ربط إرسال الرسائل بـ API (polling على /chat/result)	Axios، مؤقت setInterval	تدفق الدردشة
+M4.6	تخزين غير متصل: حفظ الرسائل في IndexedDB، إعادة المحاولة عند استعادة الإنترنت	Dexie.js، navigator.onLine	وضع الطيران لا يفقد الرسائل
+M4.7	إعداد electron-builder مع nsis (لـ Windows) و publish لإصدارات التحديث	electron-builder، electron-updater	بناء setup.exe يعمل
+M4.8	توقيع التطبيق رقمياً (شراء شهادة من Sectigo أو Comodo)	signtool.exe	عدم ظهور تحذير Windows Defender SmartScreen
+المرحلة 5: بوابة تلغرام و KPIs (أسبوع ونصف)
+المهمة	التفاصيل	الأدوات	المخرجات
+M5.1	إنشاء بوت تلغرام عبر @BotFather، حفظ التوكن	python-telegram-bot	توكن البوت
+M5.2	تنفيذ webhook في FastAPI: POST /telegram/webhook يتحقق من صحة المصدر	hmac	استقبال الرسائل
+M5.3	أمر /start <token> لربط الحساب: التحقق من binding_token مقابل جدول telegram_bindings	SQLAlchemy	تخزين telegram_chat_id
+M5.4	توجيه رسائل تلغرام إلى نفس process_ai_message مع user_id المستخلص	إعادة استخدام منطق M3	الرد عبر تلغرام
+M5.5	بناء لوحة KPIs في Admin UI: رسوم بيانية لعدد الرسائل لكل موظف، معدل الإنجاز	Recharts، API GET /admin/kpis	رؤية واضحة للإنتاجية
+M5.6	تنفيذ مهمة Celery دورية (كل يوم في منتصف الليل) لتلخيص KPIs اليومية	Celery Beat	جدول kpis يمتلئ تلقائياً
+المرحلة 6: الاختبار والأمان والنشر النهائي (أسبوعان)
+المهمة	التفاصيل	الأدوات	المخرجات
+M6.1	اختبار التحمل: 100 مستخدم متزامن يرسلون رسالة كل 10 ثوانٍ	locust أو k6	تقرير الأداء
+M6.2	اختبار العزل: تسجيل دخول مستخدمين مختلفين ومحاولة الوصول لبيانات بعضهم البعض	pytest مع تأكيدات SQL	لا تسريبات
+M6.3	اختبار التحديث التلقائي لـ Electron: رفع إصدار جديد إلى خادم التحديثات	نشر إصدار 1.0.1	تثبيت تلقائي على جهاز اختبار
+M6.4	إعداد النسخ الاحتياطي التلقائي لقاعدة البيانات كل 6 ساعات إلى S3	pg_dump + rclone	استعادة ناجحة في بيئة تجريبية
+M6.5	توثيق API باستخدام Swagger (موجود تلقائياً من FastAPI) وكتابة دليل المشرف	Markdown، PDF	رابط /docs، دليل المستخدم
+M6.6	تشغيل تجريبي (beta) مع 5 موظفين حقيقيين لمدة أسبوعين، جمع الملاحظات	جلسات فردية	قائمة التحسينات للإصدار 1.1
+5. إجراءات الأمان الإلزامية
+الرقم	الإجراء	التفاصيل	أداة التحقق
+SEC-01	تشفير جميع مفاتيح API في قاعدة البيانات	استخدام cryptography.fernet مع مفتاح رئيسي مخزن في متغير البيئة FERNET_KEY	مراجعة الكود
+SEC-02	حماية نقاط نهاية المشرف فقط للمستخدمين الذين لديهم role = "admin"	FastAPI Depends get_current_admin_user	اختبار اختراق بسيط
+SEC-03	تنفيذ حماية من هجمات إعادة الإرسال (replay attack) على webhook تلغرام	التحقق من توقيع X-Telegram-Bot-Api-Secret-Token	محاكاة طلب مزور
+SEC-04	عدم تخزين كلمات المرور بنص عادي، استخدام bcrypt مع 12 جولة	passlib	فحص قاعدة البيانات
+SEC-05	تفعيل Row Level Security (RLS) في PostgreSQL كطبقة حماية إضافية	استخدام متغير معاملة مثل app.current_user_id وسياسات USING مبنية عليه، أو اعتماد اختبارات عزل إلزامية إذا تم تأجيل RLS	اختبار عزل على مستوى قاعدة البيانات
+SEC-06	تدوير مفاتيح JWT كل 24 ساعة، توكن صالح لمدة 8 ساعات	python-jose	تسجيل خروج تلقائي بعد 8 ساعات
+SEC-07	تسجيل كل عملية حساسة في audit_log (إضافة/إزالة موظف، تغيير حدود، فتح مجلد حساس)	وسيط (middleware) يلتقط هذه الطلبات	مراجعة السجل أسبوعياً
+6. خطة المراقبة والتنبيهات
+المقياس	العتبة	إجراء التنبيه	الأداة
+استخدام CPU للخادم > 80% لمدة 5 دقائق	حرج	رسالة تلغرام إلى مشرف النظام	Prometheus + Alertmanager
+فشل اتصال قاعدة البيانات	فوري	إعادة تشغيل Docker container تلقائياً (systemd)	Healthchecks في Compose
+زمن استجابة API (p95) > 2 ثانية	تحذير	تسجيل في Sentry، إشعار للمطورين	Prometheus
+عدد الطلبات المرفوضة بسبب تجاوز الحصة > 10 في الساعة	تحذير	إشعار للمشرف (البريد الإلكتروني)	مقياس داخلي عبر Redis
+تحديث عميل Electron يفشل لأكثر من 5 أجهزة	تحذير	مراجعة خادم التحديثات	سجلات Nginx
+7. تقدير الموارد والجداول الزمنية
+7.1 فريق العمل التقني الموصى به
+الدور	المهارات المطلوبة	العبء (أيام/أسبوع)	المدة (أسابيع)
+مهندس Backend أول	FastAPI، PostgreSQL، Celery، Redis، Docker	5 أيام	12
+مهندس Frontend / Electron	TypeScript، React، Electron، Node.js fs	5 أيام	10 (من المرحلة 4)
+مهندس تكامل AI	Python، REST APIs، MiniMax/OpenAI	3 أيام	6 (المرحلة 3)
+مهندس DevOps (نصف وقت)	Linux، Docker، Caddy، Prometheus	2.5 أيام	12 (مستمر)
+مختبر ضمان جودة (QA)	اختبار يدوي وآلي، كتابة سيناريوهات	3 أيام	8 (المراحل 4-6)
+7.2 الجدول الزمني الإجمالي (Gantt نصي)
+text
+الأسبوع:    1   2   3   4   5   6   7   8   9  10  11  12
+المرحلة 0   [===]
+المرحلة 1       [======]
+المرحلة 2           [======]
+المرحلة 3               [======]
+المرحلة 4                   [==========]
+المرحلة 5                           [=====]
+المرحلة 6                               [======]
+التجريبي (beta)                                [====]
+الإنتاج                                         [===]
+التسليمات الرئيسية:
+
+نهاية الأسبوع 4: خادم API مع عزل بيانات وواجهة مشرف أساسية.
+
+نهاية الأسبوع 8: إصدار تجريبي من عميل Electron (.exe).
+
+نهاية الأسبوع 10: تلغرام و KPIs كاملة.
+
+نهاية الأسبوع 12: الإطلاق الرسمي (Go-Live).
+
+8. خطة الطوارئ والتخفيف من المخاطر (التفاصيل التقنية)
+المخاطرة	الإجراء التقني الوقائي	إجراء التصحيح
+فشل خادم VPS بالكامل	نسخ احتياطية يومية إلى S3، توثيق استعادة يدوي	شراء VPS آخر واستعادة آخر نسخة احتياطية خلال 4 ساعات
+توقف خدمة MiniMax	إضافة failover إلى نموذج احتياطي (مثل OpenAI أو Together.ai) مع تبديل تلقائي عبر متغير بيئة	مؤقت: استخدام نموذج محلي أصغر (Ollama مع Llama 3 8B)
+تلف قاعدة البيانات	تشغيل WAL (Write-Ahead Logging) في PostgreSQL، نسخ احتياطي مستمر	استعادة إلى نقطة زمنية محددة (PITR)
+اختراق حساب مشرف	مصادقة متعددة العوامل (TOTP) عبر pyotp، تسجيل الدخول يرسل إشعاراً للتلغرام	تعطيل الحساب المخترق، تدوير جميع مفاتيح API
+قراءة ملفات كبيرة جداً (1GB) تستهلك ذاكرة العميل	تقييد حجم الملف المقروء بـ 5MB، للملفات الأكبر نقرأ أول 500 سطر فقط	إضافة إعداد في التطبيق يسمح للموظف بتخطي الملفات الكبيرة
+9. خطة الاختبار التفصيلية
+نوع الاختبار	الأدوات	الحالات المستهدفة	معيار النجاح
+اختبار الوحدة	Pytest (Python)، Jest (React)	جميع دوال المنطق الأساسي (عزل، تشفير، توجيه)	تغطية 85%
+اختبار التكامل	pytest-asyncio + httpx	API بالكامل مع قاعدة بيانات حقيقية في حاوية Docker	جميع السيناريوهات UC-01 إلى UC-06
+اختبار العزل	كتابة اثنين من المستخدمين، محاولة الوصول لـ sessions بعضهم البعض	كل endpoint يأخذ user_id	ردود 403 أو 404
+اختبار واجهة Electron	Playwright Electron أو اختبار E2E مناسب؛ تجنب Spectron لأنه لم يعد خياراً مفضلاً للمشاريع الجديدة	فتح مجلد، إرسال رسالة، استقبال رد	لا أعطال، UI يستجيب خلال ثانية
+اختبار الحمل	Locust (ملف locustfile.py)	200 مستخدم افتراضي، معدل وصول 2 رسالة/ثانية	وقت استجابة p95 < 5 ثوانٍ، بدون أخطاء 500
+اختبار الأمان	ZAP (OWASP ZAP)	استهداف API والـ Admin UI	لا ثغرات حرجة (فتح Redirect، حقن SQL، XSS)
+10. خطة النشر النهائي (Runbook)
+ملخص الإجراءات لنشر الإصدار 1.0 إلى بيئة الإنتاج:
+
+قبل النشر ب 48 ساعة:
+
+إجراء اختبار التحمل النهائي.
+
+تحديث جميع متغيرات البيئة في ملف .env.production (مفاتيح MiniMax، توكن تلغرام، مفتاح التشفير).
+
+بناء Docker images جديدة ورفعها إلى registry (مثل GitHub Container Registry).
+
+يوم النشر (ساعة التوقف المخطط: 15 دقيقة):
+
+bash
+# على VPS
+cd /opt/hermes
+docker compose pull
+docker compose down
+docker compose up -d
+# التحقق من صحة:
+docker compose ps
+curl https://hermes.company.com/health
+بعد النشر مباشرة:
+
+تشغيل مهمة ترحيل قاعدة البيانات تلقائياً (Alembic داخل entrypoint).
+
+إرسال إشعار لمجموعة المشرفين عبر تلغرام بأن النظام يعمل.
+
+مراقبة لوحة Grafana لمدة ساعة.
+
+تحديث عملاء سطح المكتب:
+
+رفع ملف latest.yml و HermesAgent-Setup-1.0.0.exe إلى https://hermes.company.com/updates/.
+
+التأكد من أن إصدار العميل الحالي يكتشف التحديث (نختبر على جهاز واحد).
+
+11. التوثيق النهائي المطلوب قبل التسليم
+الوثيقة	الجمهور	الشكل	المحتويات الرئيسية
+دليل المشرف (Admin Guide)	مدير النظام، HR	PDF، 20 صفحة	كيفية إضافة موظف، تعيين حدود، قراءة KPIs، استعراض سجل التدقيق
+دليل المستخدم النهائي	الموظفون	PDF، 10 صفحات + فيديو قصير	تحميل وتثبيت التطبيق، فتح مجلد، الدردشة، ربط تلغرام
+وثيقة استعادة الكوارث	فريق DevOps	Markdown	خطوة بخطوة لاستعادة الخادم من نسخة احتياطية خلال ساعتين
+API Reference	المطورون المستقبليون	Swagger (مباشر) + Markdown	كل endpoint مع نماذج الطلبات والردود
+تقرير اختبار الأمان	الإدارة	PDF	نتائج ZAP، إصلاحات الثغرات
+12. اعتماد الخطة
+الدور	الاسم (مقترح)	التوقيع	التاريخ
+مهندس معماري أول (كاتب الخطة)	(يُعبأ)	................	2026-06-11
+مدير المشروع التقني	(يُعبأ)	................	________
+كبير مسؤولي التكنولوجيا (CTO)	(يُعبأ)	................	________
+خاتمة:
+
+هذه الخطة قابلة للتنفيذ فوراً من قبل فريق متوسط الخبرة (مطورين اثنين إلى أربعة) خلال 12 أسبوعاً. كل أداة ذكرتها تم اختبارها في مشاريع حقيقية مماثلة (أنظمة تعدد المستأجرين، تطبيقات Electron، تكامل AI). الالتزام بهذه الخطة سيؤدي إلى نظام مستقر وآمن وقابل للتوسع، مع أقل متاعب صيانة على المدى الطويل.
+
+ملحق أ: بوابات قبول المراحل
+
+المرحلة 1 لا تعتبر مكتملة إلا بعد نجاح اختبارات تسجيل الدخول، تعطيل المستخدم، ومنع مستخدم من قراءة جلسات مستخدم آخر.
+
+المرحلة 2 لا تعتبر مكتملة إلا بعد وجود مشرف يستطيع إضافة وتعطيل موظف وتعديل الحصص من الواجهة، مع تسجيل كل عملية في audit_log.
+
+المرحلة 3 لا تعتبر مكتملة إلا بعد قياس تكلفة الطلب، حفظ tokens_used، رفض الطلب عند تجاوز الحصة، واختبار مزود نماذج بديل أو mock provider.
+
+المرحلة 4 لا تعتبر مكتملة إلا بعد اختبار Electron على جهاز Windows حقيقي، والتحقق من استبعاد الملفات الحساسة، وعرض معاينة قبل أي تعديل ملف.
+
+المرحلة 5 لا تعتبر مكتملة إلا بعد ربط تلغرام لمستخدم واحد على الأقل، والتحقق من secret token للـ webhook، وعدم كشف ملفات أو جلسات غير مرتبطة بالمستخدم.
+
+المرحلة 6 لا تعتبر مكتملة إلا بعد اختبار استعادة نسخة احتياطية، اختبار تحميل موثق، اختبار عزل موثق، وتقرير أمان بلا ثغرات حرجة.

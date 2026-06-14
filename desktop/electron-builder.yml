@@ -1,0 +1,18 @@
+appId: com.fqsaas.desktop
+productName: FQ-SaaS Workspace
+directories:
+  output: dist
+  buildResources: build
+files:
+  - src/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  sign: false
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true

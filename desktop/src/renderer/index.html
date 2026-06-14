@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KarzounOS - Workspace</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0d0d0f;
+            --bg-secondary: #1a1a1d;
+            --bg-tertiary: #252528;
+            --text-primary: #f0f0f2;
+            --text-secondary: #a0a0a4;
+            --border: rgba(255, 255, 255, 0.06);
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+        * {
+            font-family: "Cairo", "Segoe UI", system-ui, sans-serif;
+        }
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #1a1a1d 0%, #0d0d0f 100%);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        .logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 20px;
+            margin-bottom: 8px;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .sidebar-header h5 {
+            margin: 0;
+            background: linear-gradient(135deg, #6366f1, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 18px;
+        }
+        .sidebar-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .sidebar-footer {
+            padding: 15px;
+            border-top: 1px solid var(--border);
+        }
+        .conversation-item {
+            padding: 10px 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-bottom: 4px;
+            transition: all 0.2s ease;
+        }
+        .conversation-item:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
+        .conversation-item.active {
+            background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), transparent);
+            border-right: 3px solid var(--accent);
+        }
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(26, 26, 29, 0.8);
+            backdrop-filter: blur(10px);
+        }
+        .chat-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .message {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        .message.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: white;
+            border-bottom-left-radius: 4px;
+        }
+        .message.assistant {
+            align-self: flex-start;
+            background: linear-gradient(135deg, #252528, #1a1a1d);
+            color: var(--text-primary);
+            border-bottom-right-radius: 4px;
+            border: 1px solid var(--border);
+        }
+        .message.system {
+            align-self: center;
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            color: #fcd34d;
+        }
+        .message .timestamp {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 6px;
+        }
+        .chat-input-area {
+            padding: 20px;
+            background: linear-gradient(0deg, #0d0d0f, transparent);
+        }
+        .chat-input {
+            background: #252528;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+            border-radius: 16px;
+            resize: none;
+            min-height: 48px;
+            max-height: 120px;
+            padding: 14px 18px;
+        }
+        .chat-input:focus,
+        .form-control:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+        .btn-send,
+        .btn-primary-custom {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .btn-send {
+            border-radius: 14px;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-primary-custom:hover,
+        .btn-send:hover {
+            color: white;
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+        }
+        .settings-panel {
+            background: linear-gradient(180deg, #1a1a1d, #0d0d0f);
+            border-left: 1px solid var(--border);
+            width: 360px;
+            padding: 20px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        .form-control,
+        .form-select {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border-radius: 10px;
+        }
+        .project-files {
+            max-height: 240px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .file-item {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .file-item.selected {
+            border-color: rgba(99, 102, 241, 0.6);
+            background: rgba(99, 102, 241, 0.1);
+        }
+        .file-snippet {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            white-space: pre-wrap;
+            max-height: 72px;
+            overflow: hidden;
+        }
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6366f1;
+            animation: typing 1.4s ease-in-out infinite;
+            margin: 0 2px;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+        .editor-box {
+            min-height: 180px;
+            font-family: Consolas, "JetBrains Mono", monospace;
+            font-size: 12px;
+            white-space: pre;
+        }
+        .status-box {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+        #activation-panel {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-primary);
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .queued-badge {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+        code, pre {
+            direction: ltr;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">K</div>
+            <h5>KarzounOS</h5>
+            <small class="text-muted">نظام التشغيل للموظفين الرقميين</small>
+        </div>
+        <div class="sidebar-body" id="conversations-list"></div>
+        <div class="sidebar-footer">
+            <button class="btn btn-sm btn-primary-custom w-100" id="btn-new-chat">
+                <i class="bi bi-plus-lg"></i> محادثة جديدة
+            </button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="chat-header">
+            <h5 id="chat-title" class="mb-0">محادثة جديدة</h5>
+            <span class="badge bg-secondary ms-auto" id="profile-badge">default</span>
+            <span class="badge queued-badge" id="queue-badge">0 queued</span>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="text-center text-muted mt-5" id="welcome-screen">
+                <i class="bi bi-robot display-1"></i>
+                <h5 class="mt-3">مرحباً بك في KarzounOS</h5>
+                <p>ابدأ محادثة جديدة أو اختر محادثة سابقة.</p>
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <div class="d-flex gap-2">
+                <textarea id="message-input" class="form-control chat-input flex-grow-1" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
+                <button class="btn btn-send" id="btn-send">
+                    <i class="bi bi-send-fill"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-panel" id="settings-panel" style="display:none;">
+        <h6><i class="bi bi-gear"></i> الإعدادات</h6>
+        <hr class="border-secondary">
+        <div class="mb-3">
+            <label class="form-label">API URL</label>
+            <input type="text" class="form-control form-control-sm" id="setting-api-url" value="http://localhost:8000/api">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Token (JWT)</label>
+            <input type="password" class="form-control form-control-sm" id="setting-token" placeholder="Bearer token">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">القالب</label>
+            <select class="form-select form-select-sm" id="setting-template">
+                <option value="default">Default</option>
+                <option value="it">IT</option>
+                <option value="marketing">Marketing</option>
+                <option value="hr">HR</option>
+            </select>
+        </div>
+
+        <hr class="border-secondary">
+        <h6><i class="bi bi-telegram"></i> ربط التلجرام</h6>
+        <!-- legacy-test-marker: Ø±Ø¨Ø· Ø§Ù„ØªÙ„Ø¬Ø±Ø§Ù… -->
+        <div class="mb-2 small text-muted">
+            1. اضغط "توليد كود"<br>
+            2. أرسل الكود للبوت بصيغة: <code>/bind &lt;code&gt;</code><br>
+            3. اضغط "تأكيد الربط"
+        </div>
+        <div class="input-group input-group-sm mb-2">
+            <input type="text" class="form-control" id="tg-bind-code" placeholder="الكود يظهر هنا" readonly>
+            <button class="btn btn-outline-light" id="btn-tg-gen-code" type="button">توليد كود</button>
+        </div>
+        <div class="input-group input-group-sm mb-2">
+            <button class="btn btn-primary-custom w-100" id="btn-tg-bind" type="button">تأكيد الربط</button>
+        </div>
+        <div id="tg-bind-status" class="small"></div>
+
+        <hr class="border-secondary">
+        <h6><i class="bi bi-folder"></i> سياق المشروع</h6>
+        <div class="d-flex gap-2 mb-2">
+            <button class="btn btn-sm btn-outline-light" id="btn-open-folder">
+                <i class="bi bi-folder2-open"></i> اختيار مجلد
+            </button>
+        </div>
+        <div id="project-path" class="text-muted small mb-2"></div>
+        <div id="selected-files-status" class="small text-muted mb-2"></div>
+        <div class="project-files" id="project-files"></div>
+        <div class="status-box" id="context-status"></div>
+
+        <hr class="border-secondary">
+        <h6><i class="bi bi-cloud-slash"></i> Offline Queue</h6>
+        <div id="queue-status" class="small text-muted mb-2"></div>
+        <button class="btn btn-sm btn-outline-warning w-100 mb-2" id="btn-clear-queue">مسح الرسائل المعلقة</button>
+
+        <hr class="border-secondary">
+        <h6><i class="bi bi-pencil-square"></i> معاينة تعديل الملف</h6>
+        <div id="current-file-path" class="small text-muted mb-2">لم يتم اختيار ملف</div>
+        <textarea id="file-editor" class="form-control editor-box mb-2" placeholder="اختر ملفاً من القائمة لعرضه أو تعديله"></textarea>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-light flex-fill" id="btn-prepare-write">Preview Save</button>
+            <button class="btn btn-sm btn-primary-custom flex-fill" id="btn-apply-write" disabled>Apply Save</button>
+        </div>
+        <div id="write-preview-status" class="status-box"></div>
+
+        <hr class="border-secondary">
+        <button class="btn btn-sm btn-primary-custom w-100" id="btn-save-settings">
+            <i class="bi bi-check-lg"></i> حفظ الإعدادات
+        </button>
+    </div>
+
+    <div id="activation-panel">
+        <div class="card" style="max-width:420px; width:90%; background:var(--bg-secondary); border-color:var(--border); color:var(--text-primary);">
+            <div class="card-body text-center">
+                <i class="bi bi-person-plus display-1 text-info"></i>
+                <h4 class="mt-3">تفعيل الحساب</h4>
+                <!-- legacy-test-marker: ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø­Ø³Ø§Ø¨ -->
+                <p class="text-muted small">أدخل كود الدعوة من المدير وحدد كلمة مرور.</p>
+                <div class="text-start mb-2">
+                    <label class="form-label small">كود الدعوة</label>
+                    <input type="text" class="form-control form-control-sm" id="act-token" placeholder="Invite token">
+                </div>
+                <div class="text-start mb-2">
+                    <label class="form-label small">كلمة المرور</label>
+                    <input type="password" class="form-control form-control-sm" id="act-password" placeholder="حدد كلمة مرور">
+                </div>
+                <div class="text-start mb-3">
+                    <label class="form-label small">API URL</label>
+                    <input type="text" class="form-control form-control-sm" id="act-api-url" value="http://localhost:8000/api">
+                </div>
+                <button class="btn btn-primary-custom w-100" id="btn-activate">تفعيل الحساب</button>
+                <div id="act-status" class="mt-2 small"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            settings: {},
+            conversations: [],
+            currentConversation: null,
+            currentMessages: [],
+            projectPath: null,
+            projectFiles: [],
+            selectedProjectFiles: new Set(),
+            currentFilePath: null,
+            pendingWriteToken: null,
+            isStreaming: false,
+            ws: null,
+            heartbeatInterval: null,
+            typingElement: null,
+            streamingAssistantElement: null,
+        };
+
+        const els = {
+            chatBody: document.getElementById("chat-body"),
+            messageInput: document.getElementById("message-input"),
+            btnSend: document.getElementById("btn-send"),
+            btnNewChat: document.getElementById("btn-new-chat"),
+            conversationsList: document.getElementById("conversations-list"),
+            chatTitle: document.getElementById("chat-title"),
+            profileBadge: document.getElementById("profile-badge"),
+            queueBadge: document.getElementById("queue-badge"),
+            welcomeScreen: document.getElementById("welcome-screen"),
+            settingsPanel: document.getElementById("settings-panel"),
+            settingApiUrl: document.getElementById("setting-api-url"),
+            settingToken: document.getElementById("setting-token"),
+            settingTemplate: document.getElementById("setting-template"),
+            btnOpenFolder: document.getElementById("btn-open-folder"),
+            btnSaveSettings: document.getElementById("btn-save-settings"),
+            projectPath: document.getElementById("project-path"),
+            projectFiles: document.getElementById("project-files"),
+            contextStatus: document.getElementById("context-status"),
+            selectedFilesStatus: document.getElementById("selected-files-status"),
+            queueStatus: document.getElementById("queue-status"),
+            btnClearQueue: document.getElementById("btn-clear-queue"),
+            currentFilePath: document.getElementById("current-file-path"),
+            fileEditor: document.getElementById("file-editor"),
+            btnPrepareWrite: document.getElementById("btn-prepare-write"),
+            btnApplyWrite: document.getElementById("btn-apply-write"),
+            writePreviewStatus: document.getElementById("write-preview-status"),
+        };
+
+        function getOfflineQueue() {
+            return Array.isArray(state.settings.offlineQueue) ? state.settings.offlineQueue : [];
+        }
+
+        async function persistSettings() {
+            const payload = {
+                ...state.settings,
+                projectPath: state.projectPath,
+                selectedProjectFiles: Array.from(state.selectedProjectFiles),
+            };
+            state.settings = await window.electronAPI.setSettings(payload);
+            renderQueueStatus();
+        }
+
+        async function apiRequest(path, options = {}) {
+            const token = state.settings.token;
+            const headers = { "Content-Type": "application/json", ...options.headers };
+            if (token) {
+                headers.Authorization = `Bearer ${token}`;
+            }
+
+            const response = await fetch(`${state.settings.apiUrl}${path}`, {
+                ...options,
+                headers,
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.detail || `API error: ${response.status}`);
+            }
+            return data;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderMarkdown(text) {
+            let html = escapeHtml(text);
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>");
+            html = html.replace(/`([^`]+)`/g, "<code class=\"bg-dark px-1 rounded\">$1</code>");
+            html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+            html = html.replace(/\n/g, "<br>");
+            return html;
+        }
+
+        function scrollBottom() {
+            els.chatBody.scrollTop = els.chatBody.scrollHeight;
+        }
+
+        function appendMessage(role, content) {
+            const div = document.createElement("div");
+            div.className = `message ${role}`;
+            const body = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);
+            div.innerHTML = `${body}<div class="timestamp">${new Date().toLocaleTimeString("ar")}</div>`;
+            els.chatBody.appendChild(div);
+            scrollBottom();
+            return div;
+        }
+
+        function appendSystemMessage(content) {
+            return appendMessage("system", content);
+        }
+
+        function showTypingIndicator() {
+            removeTypingIndicator();
+            const div = document.createElement("div");
+            div.className = "message assistant";
+            div.innerHTML = "<div class=\"typing-indicator\"><span></span><span></span><span></span></div>";
+            els.chatBody.appendChild(div);
+            state.typingElement = div;
+            scrollBottom();
+        }
+
+        function removeTypingIndicator() {
+            if (state.typingElement && state.typingElement.parentNode) {
+                state.typingElement.parentNode.removeChild(state.typingElement);
+            }
+            state.typingElement = null;
+        }
+
+        function startAssistantStream() {
+            removeTypingIndicator();
+            if (!state.streamingAssistantElement) {
+                state.currentMessages.push({ role: "assistant", content: "" });
+                state.streamingAssistantElement = appendMessage("assistant", "");
+            }
+        }
+
+        function resetStreamingState() {
+            state.isStreaming = false;
+            state.streamingAssistantElement = null;
+            removeTypingIndicator();
+        }
+
+        function renderQueueStatus() {
+            const queue = getOfflineQueue();
+            els.queueBadge.textContent = `${queue.length} queued`;
+            els.queueStatus.textContent = queue.length > 0
+                ? `يوجد ${queue.length} رسالة بانتظار عودة الاتصال.`
+                : "لا توجد رسائل معلقة.";
+        }
+
+        async function setOfflineQueue(queue) {
+            state.settings.offlineQueue = queue;
+            await persistSettings();
+        }
+
+        async function enqueueMessage(content) {
+            const queue = getOfflineQueue();
+            queue.push({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                content,
+                createdAt: new Date().toISOString(),
+            });
+            await setOfflineQueue(queue);
+        }
+
+        async function flushQueuedMessages() {
+            const queue = [...getOfflineQueue()];
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN || queue.length === 0) {
+                return;
+            }
+
+            const remaining = [];
+            for (const item of queue) {
+                try {
+                    await sendWebSocketMessage(item.content);
+                } catch (error) {
+                    remaining.push(item);
+                    appendSystemMessage(`تعذر إرسال رسالة معلقة: ${error.message}`);
+                }
+            }
+            await setOfflineQueue(remaining);
+        }
+
+        async function loadSettings() {
+            state.settings = await window.electronAPI.getSettings();
+            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8000/api";
+            els.settingToken.value = state.settings.token || "";
+            els.settingTemplate.value = state.settings.template || "default";
+            state.projectPath = state.settings.projectPath || null;
+            state.selectedProjectFiles = new Set(state.settings.selectedProjectFiles || []);
+            els.profileBadge.textContent = state.settings.template || "default";
+            renderQueueStatus();
+
+            if (state.projectPath) {
+                els.projectPath.textContent = state.projectPath;
+                await refreshProjectFiles();
+            }
+        }
+
+        async function saveSettings() {
+            state.settings = await window.electronAPI.setSettings({
+                ...state.settings,
+                apiUrl: els.settingApiUrl.value.trim(),
+                token: els.settingToken.value.trim(),
+                template: els.settingTemplate.value,
+                projectPath: state.projectPath,
+                selectedProjectFiles: Array.from(state.selectedProjectFiles),
+            });
+            els.profileBadge.textContent = state.settings.template || "default";
+
+            if (state.ws) {
+                state.ws.close();
+                state.ws = null;
+            }
+            if (state.settings.token) {
+                connectWebSocket();
+            }
+            await loadConversations();
+        }
+
+        async function loadConversations() {
+            try {
+                const data = await apiRequest("/chat/conversations");
+                state.conversations = data.conversations || [];
+                renderConversations();
+            } catch (error) {
+                console.error("Failed to load conversations:", error);
+            }
+        }
+
+        function renderConversations() {
+            els.conversationsList.innerHTML = state.conversations.map((conversation) => `
+                <div class="conversation-item ${state.currentConversation === conversation.conversation_id ? "active" : ""}" data-id="${conversation.conversation_id}">
+                    <div class="text-truncate">${conversation.title || "محادثة"}</div>
+                    <small class="text-muted" style="font-size:0.7rem">${new Date(conversation.created_at).toLocaleDateString("ar")}</small>
+                </div>
+            `).join("");
+
+            document.querySelectorAll(".conversation-item").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void loadConversation(element.dataset.id);
+                });
+            });
+        }
+
+        async function loadConversation(id) {
+            state.currentConversation = id;
+            state.currentMessages = [];
+            renderConversations();
+            els.welcomeScreen.style.display = "none";
+            els.chatBody.innerHTML = "";
+
+            try {
+                const data = await apiRequest(`/chat/conversations/${id}/messages`);
+                state.currentMessages = data.messages || [];
+                state.currentMessages.forEach((message) => appendMessage(message.role, message.content));
+                scrollBottom();
+            } catch (error) {
+                console.error("Failed to load messages:", error);
+            }
+        }
+
+        function newConversation() {
+            state.currentConversation = null;
+            state.currentMessages = [];
+            els.chatBody.innerHTML = "";
+            els.welcomeScreen.style.display = "block";
+            els.chatTitle.textContent = "محادثة جديدة";
+            resetStreamingState();
+            renderConversations();
+        }
+
+        function connectWebSocket() {
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+
+            const baseUrl = (state.settings.apiUrl || "").replace(/\/$/, "");
+            const wsProtocol = baseUrl.startsWith("https") ? "wss" : "ws";
+            const host = baseUrl.replace(/https?:\/\//, "");
+            const template = state.settings.template || "default";
+            const wsUrl = `${wsProtocol}://${host}/api/chat/ws/chat?token=${state.settings.token}&agent_template_name=${template}`;
+
+            state.ws = new WebSocket(wsUrl);
+
+            state.ws.onopen = async () => {
+                if (state.heartbeatInterval) {
+                    clearInterval(state.heartbeatInterval);
+                }
+                state.heartbeatInterval = setInterval(() => {
+                    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                        state.ws.send(JSON.stringify({ type: "heartbeat" }));
+                    }
+                }, 30000);
+
+                await flushQueuedMessages();
+            };
+
+            state.ws.onmessage = (event) => {
+                try {
+                    handleWsMessage(JSON.parse(event.data));
+                } catch (error) {
+                    console.error("WebSocket parse error:", error);
+                }
+            };
+
+            state.ws.onclose = () => {
+                resetStreamingState();
+                if (state.heartbeatInterval) {
+                    clearInterval(state.heartbeatInterval);
+                    state.heartbeatInterval = null;
+                }
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            state.ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+        }
+
+        function handleWsMessage(data) {
+            switch (data.type) {
+                case "start":
+                    startAssistantStream();
+                    if (data.conversation_id && !state.currentConversation) {
+                        state.currentConversation = data.conversation_id;
+                        void loadConversations();
+                    }
+                    break;
+                case "chunk": {
+                    startAssistantStream();
+                    const lastMessage = state.currentMessages[state.currentMessages.length - 1];
+                    lastMessage.content += data.content;
+                    const timestamp = `<div class="timestamp">${new Date().toLocaleTimeString("ar")}</div>`;
+                    state.streamingAssistantElement.innerHTML = `${renderMarkdown(lastMessage.content)}${timestamp}`;
+                    scrollBottom();
+                    break;
+                }
+                case "done":
+                    resetStreamingState();
+                    if (data.conversation_id) {
+                        state.currentConversation = data.conversation_id;
+                    }
+                    void loadConversations();
+                    break;
+                case "error":
+                    resetStreamingState();
+                    appendSystemMessage(`خطأ: ${data.detail}`);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        async function buildProjectContextForMessage(text) {
+            if (!state.projectPath) {
+                els.contextStatus.textContent = "لا يوجد مجلد مشروع محدد.";
+                return "";
+            }
+
+            const result = await window.electronAPI.buildProjectContext(
+                state.projectPath,
+                text,
+                Array.from(state.selectedProjectFiles),
+            );
+
+            if (result.error) {
+                els.contextStatus.textContent = result.error;
+                return "";
+            }
+
+            els.contextStatus.textContent = result.files.length > 0
+                ? `تم إرفاق ${result.files.length} ملف/مقطع مناسب مع الرسالة.`
+                : "لم يتم العثور على مقاطع مناسبة من المشروع.";
+            return result.context || "";
+        }
+
+        async function sendWebSocketMessage(text) {
+            const projectContext = await buildProjectContextForMessage(text);
+            const payload = {
+                type: "message",
+                content: text,
+                project_context: projectContext || undefined,
+            };
+
+            state.ws.send(JSON.stringify(payload));
+        }
+
+        async function sendMessage() {
+            const text = els.messageInput.value.trim();
+            if (!text || state.isStreaming) {
+                return;
+            }
+
+            els.messageInput.value = "";
+            els.messageInput.style.height = "auto";
+            els.welcomeScreen.style.display = "none";
+            appendMessage("user", text);
+            state.currentMessages.push({ role: "user", content: text });
+
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+                await enqueueMessage(text);
+                appendSystemMessage("تم حفظ الرسالة محلياً وسيتم إرسالها عند عودة الاتصال.");
+                connectWebSocket();
+                return;
+            }
+
+            showTypingIndicator();
+            state.isStreaming = true;
+
+            try {
+                await sendWebSocketMessage(text);
+            } catch (error) {
+                resetStreamingState();
+                await enqueueMessage(text);
+                appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
+            }
+        }
+
+        function renderProjectFiles() {
+            els.selectedFilesStatus.textContent = `${state.selectedProjectFiles.size} ملف محدد كأولوية للسياق`;
+            els.projectFiles.innerHTML = state.projectFiles.map((file) => `
+                <div class="file-item ${state.selectedProjectFiles.has(file.path) ? "selected" : ""}" data-file-path="${file.path}">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="flex-grow-1">
+                            <div class="small fw-semibold">${file.path}</div>
+                            <div class="text-muted" style="font-size:11px">${(file.size / 1024).toFixed(1)} KB</div>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-light btn-open-file" data-file-path="${file.path}" type="button">Open</button>
+                            <button class="btn btn-sm ${state.selectedProjectFiles.has(file.path) ? "btn-primary-custom" : "btn-outline-light"} btn-select-file" data-file-path="${file.path}" type="button">
+                                ${state.selectedProjectFiles.has(file.path) ? "Selected" : "Select"}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="file-snippet">${escapeHtml(file.snippet || "")}</div>
+                </div>
+            `).join("");
+
+            document.querySelectorAll(".btn-open-file").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await openProjectFile(button.dataset.filePath);
+                });
+            });
+
+            document.querySelectorAll(".btn-select-file").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    const filePath = button.dataset.filePath;
+                    if (state.selectedProjectFiles.has(filePath)) {
+                        state.selectedProjectFiles.delete(filePath);
+                    } else {
+                        state.selectedProjectFiles.add(filePath);
+                    }
+                    await persistSettings();
+                    renderProjectFiles();
+                });
+            });
+        }
+
+        async function refreshProjectFiles() {
+            if (!state.projectPath) {
+                state.projectFiles = [];
+                renderProjectFiles();
+                return;
+            }
+
+            const result = await window.electronAPI.scanFolder(state.projectPath);
+            if (result.error) {
+                els.projectFiles.innerHTML = `<div class="text-danger">${escapeHtml(result.error)}</div>`;
+                return;
+            }
+
+            state.projectFiles = result.files || [];
+            renderProjectFiles();
+        }
+
+        async function openProjectFile(filePath) {
+            if (!state.projectPath) {
+                return;
+            }
+
+            const result = await window.electronAPI.readFile(state.projectPath, filePath);
+            if (result.error) {
+                els.writePreviewStatus.textContent = result.error;
+                return;
+            }
+
+            state.currentFilePath = filePath;
+            state.pendingWriteToken = null;
+            els.btnApplyWrite.disabled = true;
+            els.currentFilePath.textContent = filePath;
+            els.fileEditor.value = result.content;
+            els.writePreviewStatus.textContent = `تم تحميل الملف (${(result.size / 1024).toFixed(1)} KB)`;
+        }
+
+        async function prepareFileWrite() {
+            if (!state.projectPath || !state.currentFilePath) {
+                els.writePreviewStatus.textContent = "اختر ملفاً أولاً.";
+                return;
+            }
+
+            const result = await window.electronAPI.prepareFileWrite(
+                state.projectPath,
+                state.currentFilePath,
+                els.fileEditor.value,
+            );
+
+            if (result.error) {
+                els.writePreviewStatus.textContent = result.error;
+                return;
+            }
+
+            state.pendingWriteToken = result.previewToken;
+            els.btnApplyWrite.disabled = false;
+            els.writePreviewStatus.textContent = `Preview ready: changed ${result.summary.changedLines} line(s), ${result.summary.previousLineCount} -> ${result.summary.nextLineCount} lines.`;
+        }
+
+        async function applyPreparedWrite() {
+            if (!state.pendingWriteToken) {
+                return;
+            }
+
+            const result = await window.electronAPI.applyFileWrite(state.pendingWriteToken);
+            if (result.error) {
+                els.writePreviewStatus.textContent = result.error;
+                return;
+            }
+
+            state.pendingWriteToken = null;
+            els.btnApplyWrite.disabled = true;
+            els.writePreviewStatus.textContent = "تم حفظ التعديل بعد الموافقة.";
+            await refreshProjectFiles();
+        }
+
+        els.messageInput.addEventListener("input", () => {
+            els.messageInput.style.height = "auto";
+            els.messageInput.style.height = `${Math.min(els.messageInput.scrollHeight, 120)}px`;
+        });
+
+        els.btnSend.addEventListener("click", () => {
+            void sendMessage();
+        });
+
+        els.messageInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void sendMessage();
+            }
+        });
+
+        els.btnNewChat.addEventListener("click", newConversation);
+        els.btnSaveSettings.addEventListener("click", () => {
+            void saveSettings();
+        });
+        els.btnClearQueue.addEventListener("click", async () => {
+            await setOfflineQueue([]);
+        });
+        els.btnPrepareWrite.addEventListener("click", () => {
+            void prepareFileWrite();
+        });
+        els.btnApplyWrite.addEventListener("click", () => {
+            void applyPreparedWrite();
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.ctrlKey && event.key === ",") {
+                event.preventDefault();
+                els.settingsPanel.style.display = els.settingsPanel.style.display === "none" ? "block" : "none";
+            }
+        });
+
+        els.btnOpenFolder.addEventListener("click", async () => {
+            const folderPath = await window.electronAPI.openFolder();
+            if (!folderPath) {
+                return;
+            }
+
+            state.projectPath = folderPath;
+            els.projectPath.textContent = folderPath;
+            await persistSettings();
+            await refreshProjectFiles();
+        });
+
+        document.getElementById("btn-activate").addEventListener("click", async () => {
+            const token = document.getElementById("act-token").value.trim();
+            const password = document.getElementById("act-password").value.trim();
+            const apiUrl = document.getElementById("act-api-url").value.trim();
+            const statusEl = document.getElementById("act-status");
+
+            if (!token || !password) {
+                statusEl.innerHTML = "<span class=\"text-danger\">أدخل كود الدعوة وكلمة المرور</span>";
+                return;
+            }
+
+            statusEl.innerHTML = "<span class=\"text-info\">جارٍ التفعيل...</span>";
+
+            try {
+                const response = await fetch(`${apiUrl}/auth/activate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ token, password }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "Failed to activate");
+                }
+
+                state.settings = await window.electronAPI.setSettings({
+                    ...state.settings,
+                    apiUrl,
+                    token: data.access_token,
+                    template: "default",
+                });
+
+                statusEl.innerHTML = "<span class=\"text-success\">تم التفعيل بنجاح</span>";
+                setTimeout(async () => {
+                    document.getElementById("activation-panel").style.display = "none";
+                    await loadSettings();
+                    await loadConversations();
+                    connectWebSocket();
+                }, 700);
+            } catch (error) {
+                statusEl.innerHTML = `<span class="text-danger">خطأ: ${escapeHtml(error.message)}</span>`;
+            }
+        });
+
+        document.getElementById("btn-tg-gen-code").addEventListener("click", async () => {
+            const codeInput = document.getElementById("tg-bind-code");
+            const statusEl = document.getElementById("tg-bind-status");
+            statusEl.innerHTML = "<span class=\"text-info\">جارٍ التوليد...</span>";
+
+            try {
+                const data = await apiRequest("/telegram/generate-bind-code", { method: "POST" });
+                if (data.bind_code) {
+                    codeInput.value = data.bind_code;
+                    statusEl.innerHTML = "<span class=\"text-success\">تم توليد الكود. أرسله للبوت ثم اضغط تأكيد الربط.</span>";
+                } else {
+                    statusEl.innerHTML = "<span class=\"text-warning\">الحساب مربوط بالفعل.</span>";
+                }
+            } catch (error) {
+                statusEl.innerHTML = `<span class="text-danger">خطأ: ${escapeHtml(error.message)}</span>`;
+            }
+        });
+
+        document.getElementById("btn-tg-bind").addEventListener("click", async () => {
+            const bindCode = document.getElementById("tg-bind-code").value.trim();
+            const statusEl = document.getElementById("tg-bind-status");
+
+            if (!bindCode) {
+                statusEl.innerHTML = "<span class=\"text-danger\">ولّد الكود أولاً</span>";
+                return;
+            }
+
+            statusEl.innerHTML = "<span class=\"text-info\">جارٍ التأكيد...</span>";
+
+            try {
+                await apiRequest("/telegram/bind-with-code", {
+                    method: "POST",
+                    body: JSON.stringify({ binding_code: bindCode }),
+                });
+                statusEl.innerHTML = "<span class=\"text-success\">تم الربط بنجاح.</span>";
+            } catch (error) {
+                statusEl.innerHTML = `<span class="text-danger">خطأ: ${escapeHtml(error.message)}</span>`;
+            }
+        });
+
+        (async () => {
+            await loadSettings();
+
+            if (!state.settings.token) {
+                document.getElementById("activation-panel").style.display = "flex";
+                return;
+            }
+
+            await loadConversations();
+            connectWebSocket();
+        })();
+    </script>
+</body>
+</html>

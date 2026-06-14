@@ -1,8 +1,32 @@
-from supabase import create_client, Client
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
 
-# Service role client - has full permissions (backend only)
-supabase: Client = create_client(
-    settings.supabase_url,
-    settings.supabase_service_key
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.debug,
+    pool_size=20,
+    max_overflow=30,
 )
+
+async_session = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+async def get_db():
+    """Dependency: yield async DB session."""
+    async with async_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+class Base(DeclarativeBase):
+    """SQLAlchemy declarative base."""
+    pass

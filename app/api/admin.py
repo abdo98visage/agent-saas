@@ -1,0 +1,814 @@
+from uuid import UUID
+from typing import Optional
+from datetime import date, datetime
+from fastapi import APIRouter, HTTPException, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc, func
+
+from app.core.db import get_db
+from app.api.auth import get_current_user, get_current_admin_user
+from app.models.user import User
+from app.models.audit_log import AuditLog
+from app.models.kpi import KPI
+from app.models.agent_template import AgentTemplate
+from app.models.profile import Profile
+from app.models.profile_user import ProfileUser
+from app.models.user_api_key import UserApiKey
+from app.models.session import Session
+from app.models.message import Message
+from app.core.security import get_password_hash
+from app.schemas.admin import (
+    EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
+    ProfileCreate, ProfileUpdate,
+    AssignmentCreate,
+    AgentTemplateCreate, AgentTemplateUpdate,
+    ApiKeyCreate, ApiKeyUpdate,
+)
+
+router = APIRouter()
+
+
+# ==================== EMPLOYEES ====================
+
+@router.get("/employees")
+async def list_employees(
+    department: Optional[str] = None,
+    role: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    limit: int = Query(100, le=500),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    query = select(User)
+    if department: query = query.where(User.department == department)
+    if role: query = query.where(User.role == role)
+    if is_active is not None: query = query.where(User.is_active == is_active)
+    query = query.limit(limit)
+    result = await db.execute(query)
+    users = result.scalars().all()
+    return {
+        "employees": [{
+            "id": str(u.id), "email": u.email, "full_name": u.full_name,
+            "department": u.department, "role": u.role, "is_active": u.is_active,
+            "is_activated": u.is_activated,
+            "has_invite_token": u.invite_token is not None,  # SECURITY: Don't expose actual token
+            "max_tokens_per_day": u.max_tokens_per_day,
+            "max_requests_per_day": u.max_requests_per_day,
+            "created_at": str(u.created_at),
+        } for u in users], "count": len(users),
+    }
+
+
+@router.post("/employees", status_code=201)
+async def create_employee(
+    req: EmployeeCreate, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    import secrets
+    result = await db.execute(select(User).where(User.email == req.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    invite_token = secrets.token_urlsafe(48)
+
+    user = User(
+        email=req.email,
+        hashed_password=get_password_hash("default123"),
+        full_name=req.full_name,
+        department=req.department,
+        role=req.role,
+        is_active=False,
+        is_activated=False,
+        invite_token=invite_token,
+        max_tokens_per_day=req.max_tokens_per_day,
+        max_requests_per_day=req.max_requests_per_day,
+    )
+    db.add(user)
+    await db.flush()
+    audit = AuditLog(user_id=str(admin.id), action="add_employee",
+                     details={"email": user.email, "department": user.department})
+    db.add(audit)
+    return {
+        "id": str(user.id), "email": user.email,
+        "invite_token": invite_token,
+        "message": "Employee created. Share invite token for activation."
+    }
+
+
+@router.put("/employees/{user_id}")
+async def update_employee(
+    user_id: UUID, req: EmployeeUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user: raise HTTPException(status_code=404, detail="Employee not found")
+    if req.full_name is not None: user.full_name = req.full_name
+    if req.department is not None: user.department = req.department
+    if req.role is not None: user.role = req.role
+    if req.is_active is not None: user.is_active = req.is_active
+    if req.max_tokens_per_day is not None: user.max_tokens_per_day = req.max_tokens_per_day
+    if req.max_requests_per_day is not None: user.max_requests_per_day = req.max_requests_per_day
+    audit = AuditLog(user_id=str(admin.id), action="update_employee",
+                     details={"user_id": str(user_id)})
+    db.add(audit)
+    return {"id": str(user.id), "message": "Employee updated"}
+
+
+@router.delete("/employees/{user_id}")
+async def disable_employee(
+    user_id: UUID, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user: raise HTTPException(status_code=404, detail="Employee not found")
+    user.is_active = False
+    audit = AuditLog(user_id=str(admin.id), action="disable_employee",
+                     details={"user_id": str(user_id), "email": user.email})
+    db.add(audit)
+    return {"message": "Employee disabled"}
+
+
+@router.put("/employees/{user_id}/quotas")
+async def update_quotas(
+    user_id: UUID, req: EmployeeQuotas,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user: raise HTTPException(status_code=404, detail="Employee not found")
+    user.max_tokens_per_day = req.max_tokens_per_day
+    user.max_requests_per_day = req.max_requests_per_day
+    audit = AuditLog(user_id=str(admin.id), action="set_limits",
+                     details={"user_id": str(user_id), "tokens": req.max_tokens_per_day,
+                              "requests": req.max_requests_per_day})
+    db.add(audit)
+    return {"message": "Quotas updated"}
+
+
+# ==================== PROFILES ====================
+
+@router.get("/profiles")
+async def list_profiles(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(Profile).order_by(Profile.name))
+    profiles = result.scalars().all()
+    return {
+        "profiles": [{
+            "id": str(p.id), "name": p.name, "slug": p.slug,
+            "soul_md": p.soul_md, "skills": p.skills,
+            "is_active": p.is_active,
+            "agents_md": p.agents_md,
+            "agents_md_preview": p.agents_md[:200] if p.agents_md else "",
+            "system_prompt": p.system_prompt,
+            "created_at": str(p.created_at),
+        } for p in profiles],
+    }
+
+
+@router.post("/profiles", status_code=201)
+async def create_profile(
+    req: ProfileCreate, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(Profile).where(Profile.slug == req.slug))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Profile slug already exists")
+    profile = Profile(
+        name=req.name, slug=req.slug,
+        soul_md=req.soul_md,
+        agents_md=req.agents_md,
+        skills=req.skills,
+        system_prompt=req.system_prompt,
+    )
+    db.add(profile)
+    await db.flush()
+    audit = AuditLog(user_id=str(admin.id), action="add_profile",
+                     details={"name": req.name, "slug": req.slug})
+    db.add(audit)
+    return {"id": str(profile.id), "name": profile.name, "message": "Profile created"}
+
+
+@router.put("/profiles/{profile_id}")
+async def update_profile(
+    profile_id: UUID, req: ProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    profile = result.scalar_one_or_none()
+    if not profile: raise HTTPException(status_code=404, detail="Profile not found")
+    if req.name is not None: profile.name = req.name
+    if req.soul_md is not None: profile.soul_md = req.soul_md
+    if req.agents_md is not None: profile.agents_md = req.agents_md
+    if req.skills is not None: profile.skills = req.skills
+    if req.system_prompt is not None: profile.system_prompt = req.system_prompt
+    if req.is_active is not None: profile.is_active = req.is_active
+    audit = AuditLog(user_id=str(admin.id), action="update_profile",
+                     details={"profile_id": str(profile_id)})
+    db.add(audit)
+    return {"id": str(profile.id), "name": profile.name, "message": "Profile updated"}
+
+
+@router.delete("/profiles/{profile_id}")
+async def delete_profile(
+    profile_id: UUID, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    profile = result.scalar_one_or_none()
+    if not profile: raise HTTPException(status_code=404, detail="Profile not found")
+    db.delete(profile)
+    audit = AuditLog(user_id=str(admin.id), action="delete_profile",
+                     details={"profile_id": str(profile_id), "name": profile.name})
+    db.add(audit)
+    return {"message": "Profile deleted"}
+
+
+# ==================== PROFILE-USER ASSIGNMENTS ====================
+
+@router.get("/assignments")
+async def list_assignments(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(ProfileUser).join(User).join(Profile))
+    assignments = result.scalars().all()
+    return {
+        "assignments": [{
+            "id": str(a.id), "user_id": str(a.user_id),
+            "profile_id": str(a.profile_id), "priority": a.priority,
+            "user_email": a.user.email, "profile_name": a.profile.name,
+        } for a in assignments],
+    }
+
+
+@router.post("/assignments", status_code=201)
+async def assign_profile_to_user(
+    req: AssignmentCreate, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    user_id = req.user_id
+    profile_id = req.profile_id
+    u = await db.execute(select(User).where(User.id == user_id))
+    p = await db.execute(select(Profile).where(Profile.id == profile_id))
+    if not u.scalar_one_or_none(): raise HTTPException(status_code=404, detail="User not found")
+    if not p.scalar_one_or_none(): raise HTTPException(status_code=404, detail="Profile not found")
+    assignment = ProfileUser(
+        user_id=user_id, profile_id=profile_id,
+        priority=req.priority,
+    )
+    db.add(assignment)
+    await db.flush()
+    audit = AuditLog(user_id=str(admin.id), action="assign_profile",
+                     details={"user_id": str(user_id), "profile_id": str(profile_id)})
+    db.add(audit)
+    return {"id": str(assignment.id), "message": "Profile assigned to user"}
+
+
+@router.delete("/assignments/{assignment_id}")
+async def remove_assignment(
+    assignment_id: UUID, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(ProfileUser).where(ProfileUser.id == assignment_id))
+    assignment = result.scalar_one_or_none()
+    if not assignment: raise HTTPException(status_code=404, detail="Assignment not found")
+    db.delete(assignment)
+    return {"message": "Assignment removed"}
+
+
+# ==================== SESSIONS VIEWER ====================
+
+@router.get("/sessions")
+async def view_sessions(
+    user_id: Optional[str] = None,
+    profile_name: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = Query(100, le=500),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    query = select(Session).order_by(desc(Session.created_at))
+    if user_id: query = query.where(Session.user_id == user_id)
+    if profile_name: query = query.where(Session.profile_name == profile_name)
+    if date_from: query = query.where(Session.created_at >= date_from)
+    if date_to: query = query.where(Session.created_at <= date_to)
+    query = query.limit(limit)
+    result = await db.execute(query)
+    sessions = result.scalars().all()
+    return {
+        "sessions": [{
+            "id": str(s.id), "user_id": str(s.user_id),
+            "title": s.title, "profile_name": s.profile_name,
+            "created_at": str(s.created_at),
+        } for s in sessions], "count": len(sessions),
+    }
+
+
+@router.get("/sessions/{session_id}")
+async def view_session_messages(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    # Admin can view any session
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Session not found")
+    msg_result = await db.execute(
+        select(Message).where(Message.session_id == session_id)
+        .order_by(Message.created_at.asc())
+    )
+    messages = msg_result.scalars().all()
+    return {
+        "session_id": str(session_id),
+        "messages": [{
+            "id": str(m.id), "role": m.role, "content": m.content,
+            "created_at": str(m.created_at),
+        } for m in messages], "count": len(messages),
+    }
+
+
+# ==================== USER API KEYS ====================
+
+@router.get("/api-keys")
+async def list_api_keys(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(UserApiKey))
+    keys = result.scalars().all()
+    return {
+        "api_keys": [{
+            "id": str(k.id), "user_id": str(k.user_id),
+            "provider": k.provider, "key_prefix": k.key_prefix,
+            "is_active": k.is_active, "daily_budget": k.daily_budget,
+            "spent_today": k.spent_today,
+        } for k in keys],
+    }
+
+
+@router.post("/api-keys", status_code=201)
+async def create_api_key(
+    req: ApiKeyCreate, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    if not req.api_key: raise HTTPException(status_code=400, detail="API key required")
+    from cryptography.fernet import Fernet
+    from app.core.config import settings
+    f = Fernet(settings.fernet_key.encode())
+    encrypted = f.encrypt(req.api_key.encode()).decode()
+    key_obj = UserApiKey(
+        user_id=req.user_id, provider=req.provider,
+        encrypted_key=encrypted, key_prefix=req.api_key[:6],
+        daily_budget=req.daily_budget,
+    )
+    db.add(key_obj)
+    await db.flush()
+    audit = AuditLog(user_id=str(admin.id), action="add_api_key",
+                     details={"user_id": str(req.user_id), "provider": req.provider})
+    db.add(audit)
+    return {"id": str(key_obj.id), "provider": req.provider, "key_prefix": req.api_key[:6]}
+
+
+@router.put("/api-keys/{key_id}")
+async def update_api_key(
+    key_id: UUID, req: ApiKeyUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(UserApiKey).where(UserApiKey.id == key_id))
+    key_obj = result.scalar_one_or_none()
+    if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
+    if req.is_active is not None: key_obj.is_active = req.is_active
+    if req.daily_budget is not None: key_obj.daily_budget = req.daily_budget
+    if req.api_key is not None:
+        from cryptography.fernet import Fernet
+        from app.core.config import settings
+        f = Fernet(settings.fernet_key.encode())
+        key_obj.encrypted_key = f.encrypt(req.api_key.encode()).decode()
+        key_obj.key_prefix = req.api_key[:6]
+    return {"message": "API key updated"}
+
+
+@router.delete("/api-keys/{key_id}")
+async def delete_api_key(
+    key_id: UUID, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(UserApiKey).where(UserApiKey.id == key_id))
+    key_obj = result.scalar_one_or_none()
+    if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
+    db.delete(key_obj)
+    audit = AuditLog(user_id=str(admin.id), action="delete_api_key",
+                     details={"key_id": str(key_id), "provider": key_obj.provider})
+    db.add(audit)
+    return {"message": "API key deleted"}
+
+
+@router.post("/api-keys/{key_id}/rotate", status_code=200)
+async def rotate_api_key(
+    key_id: UUID, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Rotate an API key: deactivate the old key and create a new one with same settings."""
+    result = await db.execute(select(UserApiKey).where(UserApiKey.id == key_id))
+    key_obj = result.scalar_one_or_none()
+    if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
+
+    # Deactivate old key
+    key_obj.is_active = False
+    audit = AuditLog(user_id=str(admin.id), action="rotate_api_key",
+                     details={"old_key_id": str(key_id), "provider": key_obj.provider,
+                              "user_id": str(key_obj.user_id)})
+    db.add(audit)
+    await db.flush()
+
+    return {"message": "API key rotated (deactivated). Create a new key to replace it."}
+
+
+# ==================== EXISTING ENDPOINTS ====================
+
+@router.get("/kpis")
+async def get_kpis(
+    user_id: Optional[str] = None, date: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    query = select(KPI)
+    if user_id: query = query.where(KPI.user_id == user_id)
+    if date: query = query.where(KPI.date == date)
+    result = await db.execute(query)
+    kpis = result.scalars().all()
+    # Cost monitoring: include cost_alert and cost data
+    return {
+        "kpis": [{
+            "user_id": k.user_id,
+            "date": k.date,
+            "tasks_completed": k.tasks_completed,
+            "messages_sent": k.messages_sent,
+            "avg_response_quality": k.avg_response_quality,
+            "active_minutes": k.active_minutes,
+            "tools_used": k.tools_used,
+            "tokens_used": k.tokens_used,
+            "total_cost": k.total_cost,
+            "models_used": k.models_used,
+            "cost_alert": k.cost_alert if hasattr(k, "cost_alert") else False,
+        } for k in kpis],
+        "count": len(kpis),
+    }
+
+
+@router.get("/audit-log")
+async def get_audit_log(
+    action: Optional[str] = None, user_id: Optional[str] = None,
+    limit: int = Query(100, le=500),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    query = select(AuditLog).order_by(AuditLog.created_at.desc())
+    if action: query = query.where(AuditLog.action == action)
+    if user_id: query = query.where(AuditLog.user_id == user_id)
+    query = query.limit(limit)
+    result = await db.execute(query)
+    logs = result.scalars().all()
+    return {"audit_log": [{
+        "id": l.id, "user_id": l.user_id, "action": l.action,
+        "details": l.details, "ip_address": l.ip_address,
+        "created_at": str(l.created_at),
+    } for l in logs], "count": len(logs)}
+
+
+@router.get("/agent-templates")
+async def list_templates(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(AgentTemplate))
+    templates = result.scalars().all()
+    return {"templates": [{
+        "name": t.name, "department": t.department, "model_name": t.model_name,
+        "tools": t.tools, "temperature": t.temperature,
+    } for t in templates]}
+
+
+@router.post("/agent-templates", status_code=201)
+async def create_agent_template(
+    req: AgentTemplateCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    existing = await db.execute(select(AgentTemplate).where(AgentTemplate.name == req.name))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Agent template already exists")
+    template = AgentTemplate(
+        name=req.name,
+        department=req.department,
+        system_prompt=req.system_prompt,
+        tools=req.tools,
+        model_name=req.model_name,
+        max_tokens_per_request=req.max_tokens_per_request,
+        temperature=req.temperature,
+    )
+    db.add(template)
+    await db.flush()
+    audit = AuditLog(user_id=str(admin.id), action="add_agent_template",
+                     details={"name": req.name, "department": template.department})
+    db.add(audit)
+    return {
+        "name": template.name, "department": template.department,
+        "model_name": template.model_name, "message": "Agent template created",
+    }
+
+
+@router.put("/agent-templates/{name}")
+async def update_agent_template(
+    name: str,
+    req: AgentTemplateUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(AgentTemplate).where(AgentTemplate.name == name))
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Agent template not found")
+    if req.department is not None: template.department = req.department
+    if req.system_prompt is not None: template.system_prompt = req.system_prompt
+    if req.tools is not None: template.tools = req.tools
+    if req.model_name is not None: template.model_name = req.model_name
+    if req.max_tokens_per_request is not None: template.max_tokens_per_request = req.max_tokens_per_request
+    if req.temperature is not None: template.temperature = req.temperature
+    audit = AuditLog(user_id=str(admin.id), action="update_agent_template",
+                     details={"name": name})
+    db.add(audit)
+    return {"name": template.name, "message": "Agent template updated"}
+
+
+@router.delete("/agent-templates/{name}")
+async def delete_agent_template(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Delete an agent template."""
+    result = await db.execute(select(AgentTemplate).where(AgentTemplate.name == name))
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Agent template not found")
+    db.delete(template)
+    audit = AuditLog(user_id=str(admin.id), action="delete_agent_template",
+                     details={"name": name})
+    db.add(audit)
+    return {"message": "Agent template deleted"}
+
+
+# ==================== SESSION DELETE ====================
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Delete a session and all its associated messages."""
+    # Delete messages first (FK constraint)
+    from sqlalchemy import delete
+    await db.execute(delete(Message).where(Message.session_id == session_id))
+    # Delete the session
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    db.delete(session)
+    audit = AuditLog(user_id=str(admin.id), action="delete_session",
+                     details={"session_id": str(session_id), "user_id": str(session.user_id)})
+    db.add(audit)
+    return {"message": "Session and messages deleted"}
+
+
+# ==================== MONITORING & DASHBOARD ====================
+
+@router.get("/monitoring/online-users")
+async def get_online_users(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Get users who are currently online (last_seen within 2 minutes)."""
+    from datetime import timedelta, timezone
+    from sqlalchemy import and_
+    
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+    
+    result = await db.execute(
+        select(User)
+        .where(
+            and_(
+                User.is_active == True,
+                User.is_activated == True,
+                User.role == "employee",
+                User.last_seen_at >= cutoff,
+            )
+        )
+    )
+    online_users = result.scalars().all()
+    
+    return {
+        "online_count": len(online_users),
+        "online_users": [{
+            "id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "department": u.department,
+            "role": u.role,
+            "last_seen": str(u.last_seen_at) if u.last_seen_at else None,
+        } for u in online_users],
+    }
+
+
+@router.get("/monitoring/activity-feed")
+async def get_activity_feed(
+    user_id: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = Query(100, le=500),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Get real-time activity feed for monitoring."""
+    from app.models.user_activity import UserActivity
+    
+    query = select(UserActivity).join(User).order_by(desc(UserActivity.created_at))
+    
+    if user_id:
+        query = query.where(UserActivity.user_id == user_id)
+    if action:
+        query = query.where(UserActivity.action == action)
+    
+    query = query.limit(limit)
+    result = await db.execute(query)
+    activities = result.scalars().all()
+    
+    return {
+        "activities": [{
+            "id": a.id,
+            "user_id": str(a.user_id),
+            "user_email": a.user.email,
+            "user_name": a.user.full_name or a.user.email,
+            "action": a.action,
+            "details": a.details,
+            "session_id": str(a.session_id) if a.session_id else None,
+            "created_at": str(a.created_at),
+        } for a in activities],
+        "count": len(activities),
+    }
+
+
+@router.get("/monitoring/dashboard-stats")
+async def get_dashboard_stats(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Get comprehensive dashboard statistics for the admin panel."""
+    from datetime import timedelta, timezone, date
+    from app.models.user_activity import UserActivity
+    
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    cutoff_online = datetime.now(timezone.utc) - timedelta(minutes=2)
+    
+    # Total employees
+    total_employees = await db.execute(
+        select(func.count(User.id)).where(User.role == "employee")
+    )
+    total_employees = total_employees.scalar() or 0
+    
+    # Active employees
+    active_employees = await db.execute(
+        select(func.count(User.id)).where(
+            User.role == "employee",
+            User.is_active == True,
+            User.is_activated == True,
+        )
+    )
+    active_employees = active_employees.scalar() or 0
+    
+    # Online now
+    online_now = await db.execute(
+        select(func.count(User.id)).where(
+            User.role == "employee",
+            User.is_active == True,
+            User.is_activated == True,
+            User.last_seen_at >= cutoff_online,
+        )
+    )
+    online_now = online_now.scalar() or 0
+    
+    # Messages today
+    kpi_today = await db.execute(
+        select(func.coalesce(func.sum(KPI.messages_sent), 0)).where(KPI.date == today)
+    )
+    messages_today = kpi_today.scalar() or 0
+    
+    # Messages yesterday
+    kpi_yesterday = await db.execute(
+        select(func.coalesce(func.sum(KPI.messages_sent), 0)).where(KPI.date == yesterday)
+    )
+    messages_yesterday = kpi_yesterday.scalar() or 0
+    
+    # Total sessions
+    total_sessions = await db.execute(select(func.count(Session.id)))
+    total_sessions = total_sessions.scalar() or 0
+    
+    # Sessions today
+    today_str = f"{date.today()}T00:00:00"
+    sessions_today = await db.execute(
+        select(func.count(Session.id)).where(Session.created_at >= today_str)
+    )
+    sessions_today = sessions_today.scalar() or 0
+    
+    # Token usage today
+    tokens_today = await db.execute(
+        select(func.coalesce(func.sum(KPI.tokens_used), 0)).where(KPI.date == today)
+    )
+    tokens_today = tokens_today.scalar() or 0
+    
+    # Messages this week
+    week_messages = await db.execute(
+        select(func.coalesce(func.sum(KPI.messages_sent), 0)).where(KPI.date >= week_ago)
+    )
+    week_messages = week_messages.scalar() or 0
+    
+    # Calculate percentage change
+    messages_change = 0
+    if messages_yesterday > 0:
+        messages_change = round(((messages_today - messages_yesterday) / messages_yesterday) * 100, 1)
+    
+    # Top 5 most active users today
+    top_users_result = await db.execute(
+        select(User, KPI)
+        .join(KPI, User.id == KPI.user_id)
+        .where(KPI.date == today)
+        .order_by(desc(KPI.messages_sent))
+        .limit(5)
+    )
+    top_users = top_users_result.all()
+    
+    # Activity counts by type today
+    activity_counts = await db.execute(
+        select(UserActivity.action, func.count(UserActivity.id))
+        .where(UserActivity.created_at >= today_str)
+        .group_by(UserActivity.action)
+    )
+    activity_counts = {row[0]: row[1] for row in activity_counts.all()}
+    
+    # Messages per day for last 7 days (chart data)
+    messages_per_day = []
+    for i in range(7):
+        day = (date.today() - timedelta(days=i)).isoformat()
+        result = await db.execute(
+            select(func.coalesce(func.sum(KPI.messages_sent), 0)).where(KPI.date == day)
+        )
+        messages_per_day.append({"date": day, "messages": result.scalar()})
+    messages_per_day.reverse()
+    
+    # Token usage per day for last 7 days
+    tokens_per_day = []
+    for i in range(7):
+        day = (date.today() - timedelta(days=i)).isoformat()
+        result = await db.execute(
+            select(func.coalesce(func.sum(KPI.tokens_used), 0)).where(KPI.date == day)
+        )
+        tokens_per_day.append({"date": day, "tokens": result.scalar() or 0})
+    tokens_per_day.reverse()
+    
+    return {
+        "summary": {
+            "total_employees": total_employees,
+            "active_employees": active_employees,
+            "online_now": online_now,
+            "messages_today": messages_today,
+            "messages_yesterday": messages_yesterday,
+            "messages_change_pct": messages_change,
+            "sessions_today": sessions_today,
+            "total_sessions": total_sessions,
+            "tokens_today": tokens_today,
+            "week_messages": week_messages,
+        },
+        "top_users": [{
+            "id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "messages_sent": kpi.messages_sent,
+            "tokens_used": kpi.tokens_used if hasattr(kpi, 'tokens_used') else 0,
+        } for u, kpi in top_users],
+        "activity_counts": activity_counts,
+        "messages_per_day": messages_per_day,
+        "tokens_per_day": tokens_per_day,
+    }

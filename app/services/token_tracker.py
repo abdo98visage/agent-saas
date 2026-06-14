@@ -1,49 +1,98 @@
-from uuid import uuid4
-from app.core.db import supabase
+"""Token tracking service — quota checks and usage recording."""
+import datetime
+
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.kpi import KPI
+from app.models.user_api_key import UserApiKey
 
 
-async def track_token_usage(organization_id: str, model: str, input_tokens: int, output_tokens: int, estimated_cost: float, agent_run_id: str = None):
-    """Track token usage for an organization."""
-    try:
-        supabase.table("token_usage").insert({
-            "id": str(uuid4()),
-            "organization_id": organization_id,
-            "agent_run_id": agent_run_id,
-            "model": model,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "estimated_cost": round(estimated_cost, 6),
-        }).execute()
-    except Exception as e:
-        print(f"Error tracking token usage: {e}")
+async def _get_today_kpi(db: AsyncSession, user_id: str) -> KPI | None:
+    today = datetime.date.today().isoformat()
+    result = await db.execute(
+        select(KPI).where(KPI.user_id == user_id, KPI.date == today)
+    )
+    return result.scalar_one_or_none()
 
 
-async def get_org_token_usage(organization_id: str, days: int = 30) -> dict:
-    """Get token usage summary for an organization."""
-    try:
-        response = supabase.rpc(
-            "get_org_token_usage",
-            {
-                "org_id": organization_id,
-                "days": days,
-            }
-        ).execute()
-        return response.data or {}
-    except Exception:
-        # Fallback: direct query
-        response = supabase.table("token_usage").select("*").eq("organization_id", organization_id).execute()
-        
-        usage = {
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cost": 0,
-            "num_runs": 0,
-        }
-        
-        for row in (response.data or []):
-            usage["total_input_tokens"] += row.get("input_tokens", 0)
-            usage["total_output_tokens"] += row.get("output_tokens", 0)
-            usage["total_cost"] += row.get("estimated_cost", 0)
-            usage["num_runs"] += 1
-        
-        return usage
+async def check_token_quota(
+    db: AsyncSession,
+    user_id: str,
+    max_tokens_per_day: int,
+) -> bool:
+    """Check if the user or the active API key has exhausted today's token budget."""
+    kpi = await _get_today_kpi(db, user_id)
+    tokens_used = kpi.tokens_used if kpi else 0
+    if tokens_used >= max_tokens_per_day:
+        return False
+
+    key_result = await db.execute(
+        select(UserApiKey).where(
+            UserApiKey.user_id == user_id,
+            UserApiKey.is_active == True,
+        )
+    )
+    active_key = key_result.scalar_one_or_none()
+    if active_key and active_key.spent_today >= active_key.daily_budget:
+        return False
+
+    return True
+
+
+async def check_request_quota(
+    db: AsyncSession,
+    user_id: str,
+    max_requests_per_day: int,
+) -> bool:
+    """Check if the user has exceeded today's request quota."""
+    kpi = await _get_today_kpi(db, user_id)
+    if kpi:
+        return kpi.messages_sent < max_requests_per_day
+    return True
+
+
+async def record_token_usage(
+    db: AsyncSession,
+    user_id: str,
+    model: str,
+    tokens_used: int,
+    cost: float,
+):
+    """Record token usage for a user and the active API key."""
+    today = datetime.date.today().isoformat()
+    kpi = await _get_today_kpi(db, user_id)
+
+    if kpi:
+        kpi.tokens_used += tokens_used
+        kpi.total_cost += cost
+        models = kpi.models_used or {}
+        models[model] = models.get(model, 0) + tokens_used
+        kpi.models_used = models
+    else:
+        kpi = KPI(
+            user_id=user_id,
+            date=today,
+            messages_sent=0,
+            tokens_used=tokens_used,
+            total_cost=cost,
+            models_used={model: tokens_used},
+        )
+        db.add(kpi)
+
+    key_result = await db.execute(
+        select(UserApiKey).where(
+            UserApiKey.user_id == user_id,
+            UserApiKey.is_active == True,
+        )
+    )
+    active_key = key_result.scalar_one_or_none()
+    if active_key:
+        active_key.spent_today += tokens_used
+
+
+async def reset_daily_usage(db: AsyncSession):
+    """Reset daily spent counters for API keys (called via Celery beat)."""
+    stmt = update(UserApiKey).values(spent_today=0)
+    await db.execute(stmt)
+    await db.commit()

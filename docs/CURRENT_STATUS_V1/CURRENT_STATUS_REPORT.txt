@@ -1,0 +1,59 @@
+Audit Update
+
+Date: 2026-06-14
+
+This report supersedes the earlier broken-state audit.
+
+What is now true
+
+- Python validation is working through `.venv314`
+- `pytest -q` passes: 73 passed
+- Frontend lint passes
+- Frontend production build passes
+- Migration chain inconsistency was fixed
+- Missing KPI migration columns were added
+- Chat body contract was fixed to accept JSON request models
+- Token/request quota enforcement is now wired into chat
+- Profile selection and session persistence bugs were fixed
+- Admin profile editing now receives full `AGENTS.md` and `system_prompt`
+- Employee quota updates now persist correctly
+
+What is still not true
+
+- The project is not 100% BRD/TIP complete
+- The desktop app is not yet production-safe for the stated employee workflow
+- The deployment stack is not yet hardened for VPS production use
+- There is still no credible evidence of full end-to-end validation for:
+  - MiniMax live provider flows
+  - real Telegram binding and message exchange
+  - Electron desktop offline/reconnect behavior
+  - production backup/restore
+  - security isolation beyond the current local test suite
+
+Remaining critical gaps
+
+1. Desktop app hardening
+   - add offline queue
+   - add file edit preview/approval workflow
+   - tighten context sharing and renderer security posture
+   - remove reliance on weak desktop trust assumptions
+
+2. Production deployment hardening
+   - split dev/prod runtime settings
+   - add reverse proxy with HTTPS/WSS
+   - remove development flags from production startup
+   - validate backups and restore path
+
+3. Test depth
+   - current tests are useful and real, but they are still not enough to claim production confidence
+   - missing integration/E2E coverage remains a real gap
+
+4. Packaging/runtime consistency
+   - local validation currently depends on a Python 3.14-compatible environment
+   - pinned requirements still need cleanup for reproducible setup across target machines
+
+Bottom line
+
+The project has moved from "partially broken prototype" to "working prototype with passing local gates".
+
+It is still not honest to describe it as fully implemented, fully validated, or production-ready for VPS deployment plus desktop employee rollout.

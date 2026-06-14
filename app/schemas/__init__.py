@@ -1,35 +1,11 @@
-from pydantic import BaseModel
-from typing import Optional
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.schemas.user import UserCreate, UserUpdate, UserResponse, UserQuotaUpdate
+from app.schemas.chat import ChatMessage, ChatResponse, ConversationCreate, ConversationResponse
+from app.schemas.admin_responses import AdminUserList, AdminKPIResponse, AuditLogResponse
 
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    full_name: Optional[str] = None
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
-class ChatRequest(BaseModel):
-    agent_slug: str
-    message: str
-    conversation_id: Optional[str] = None
-
-
-class RunAgentRequest(BaseModel):
-    agent_slug: str
-    prompt: str
-    model: Optional[str] = None
-    temperature: Optional[float] = None
-
-
-class DocumentUploadRequest(BaseModel):
-    organization_id: str
+__all__ = [
+    "LoginRequest", "RegisterRequest", "TokenResponse",
+    "UserCreate", "UserUpdate", "UserResponse", "UserQuotaUpdate",
+    "ChatMessage", "ChatResponse", "ConversationCreate", "ConversationResponse",
+    "AdminUserList", "AdminKPIResponse", "AuditLogResponse",
+]

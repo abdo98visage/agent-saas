@@ -1,135 +1,186 @@
-# AgentSaaS
+# FQ-SaaS — Enterprise AI Agent Platform
 
-**AI Agent SaaS Platform** - Config-driven, multi-tenant business agents built with FastAPI + Supabase.
+Multi-user AI agent platform with complete data isolation, admin control, and quota management.
 
 ## Architecture
 
 ```
-┌─────────────┐
-│   Frontend   │  (Next.js - future)
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│   FastAPI   │  ← This codebase
-└──────┬──────┘
-       │
-  ┌────┴────┐
-  ▼         ▼
-Supabase   OpenAI
+┌──────────────┐     ┌─────────────┐     ┌──────────────┐
+│  Desktop     │────▶│  FastAPI    │────▶│  PostgreSQL  │
+│  (Electron)  │     │  Backend    │     │  + Redis     │
+└──────────────┘     └─────────────┘     └──────────────┘
+                          │
+                          ▼
+                   ┌─────────────┐
+                   │  LLM API    │
+                   │ (MiniMax)   │
+                   └─────────────┘
 ```
 
-## Core Principles
+## Features
 
-- **One Agent Platform** - All agents share the same engine
-- **Config-Driven** - Agents, prompts, tools stored in DB
-- **Multi-Tenant** - Every table has `organization_id`
-- **Simple First** - No premature optimization
+- **Multi-user isolation** — Each employee has isolated data via `user_id`
+- **JWT authentication** — 8-hour tokens with role-based access
+- **Admin dashboard APIs** — Employee CRUD, quota management, KPIs, audit log
+- **Agent templates** — YAML-based templates per department (IT, marketing, HR, sales)
+- **Model routing** — IT gets powerful models (235B), others get standard (14B)
+- **Daily quotas** — Token and request limits per user
+- **Audit logging** — All sensitive operations are tracked
+- **Telegram gateway** — Webhook-based Telegram bot integration
+- **Chat with project context** — Attach local file context to messages
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- Docker & Docker Compose
+- PostgreSQL 16+ (via Docker)
+
+### Setup
+
+```bash
+# 1. Start infrastructure
+docker-compose up -d
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run migrations
+alembic upgrade head
+
+# 4. Seed default data (templates + admin)
+python seed_templates.py
+
+# 5. Run the server
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Configure
+
+Copy `.env.example` to `.env` and set your values:
+
+```bash
+APP_NAME=FQ-SaaS
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/fqsaas
+REDIS_URL=redis://localhost:6379/0
+LLM_PROVIDER=minimax
+MINIMAX_API_KEY=your-key-here
+MINIMAX_BASE_URL=https://api.minimax.chat/v1/chat/completions
+SECRET_KEY=your-jwt-secret-key
+```
+
+## API Endpoints
+
+### Auth
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/auth/register | Register new user |
+| POST | /api/auth/login | Login and get JWT |
+| GET | /api/auth/me | Get current user profile |
+
+### Chat
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/chat/message | Send message to agent |
+| GET | /api/chat/conversations | List user conversations |
+| GET | /api/chat/conversations/{id}/messages | Get conversation messages |
+
+### Admin (role=admin required)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/admin/employees | List all employees |
+| POST | /api/admin/employees | Create employee |
+| PUT | /api/admin/employees/{id} | Update employee |
+| DELETE | /api/admin/employees/{id} | Disable employee |
+| PUT | /api/admin/employees/{id}/quotas | Set daily limits |
+| GET | /api/admin/kpis | Get KPI data |
+| GET | /api/admin/audit-log | Get audit trail |
+| GET | /api/admin/agent-templates | List agent templates |
+
+### Telegram
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/telegram/webhook | Telegram webhook handler |
 
 ## Project Structure
 
 ```
-AgentSaaS/
-├── app/
-│   ├── api/             # FastAPI route handlers
-│   │   ├── health.py
-│   │   ├── auth.py
-│   │   ├── agents.py
-│   │   ├── chat.py
-│   │   └── documents.py
-│   ├── agents/          # Agent runtime engine
-│   │   └── engine.py
-│   ├── services/        # Business logic
-│   │   ├── auth.py
-│   │   ├── memory.py
-│   │   ├── logger.py
-│   │   └── token_tracker.py
-│   ├── tools/           # Tool implementations
-│   │   ├── base.py
-│   │   ├── web_search.py
-│   │   ├── competitor_analyzer.py
-│   │   ├── ad_copy_generator.py
-│   │   ├── crm_lead_saver.py
-│   │   └── proposal_generator.py
-│   ├── core/            # Core config & DB client
-│   │   ├── config.py
-│   │   └── db.py
-│   ├── models/          # Pydantic models
-│   ├── schemas/         # Request/response schemas
-│   └── main.py          # Application entry point
-├── migrations/          # SQL migrations for Supabase
-├── PLAN.md              # Full architecture plan
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── .env.example
+app/
+├── main.py                    # FastAPI app entry point
+├── core/
+│   ├── config.py              # Settings (LLM, JWT, DB)
+│   ├── db.py                  # AsyncPostgreSQL engine + session
+│   └── security.py            # JWT create/decode + bcrypt
+├── models/                    # SQLAlchemy models
+│   ├── user.py                # users (department, role, quotas)
+│   ├── session.py             # sessions (conversations per user)
+│   ├── message.py             # messages (with project_context)
+│   ├── agent_template.py      # agent_templates (YAML-based)
+│   ├── telegram_binding.py    # telegram_bindings
+│   ├── audit_log.py           # audit_log
+│   └── kpi.py                 # kpis
+├── schemas/                   # Pydantic validation
+│   ├── auth.py                # Login, Register, Token
+│   ├── user.py                # User CRUD schemas
+│   ├── chat.py                # Chat message schemas
+│   └── admin.py               # Admin response schemas
+├── api/                       # Route routers
+│   ├── health.py              # Health check
+│   ├── auth.py                # Auth endpoints + JWT dependency
+│   ├── chat.py                # Chat endpoints
+│   ├── admin.py               # Admin CRUD endpoints
+│   └── telegram.py            # Telegram webhook
+└── services/
+    ├── agent_service.py       # LLM caller + model routing
+    ├── token_tracker.py       # Quota checking
+    └── audit_service.py       # Audit logging
 ```
 
-## Quick Start
+## Database Schema
 
-### 1. Set up Supabase
+| Table | Description |
+|-------|-------------|
+| users | Employee accounts with department, role, quotas |
+| sessions | Conversations linked to users |
+| messages | Chat messages with optional project context |
+| agent_templates | Department-specific agent configurations |
+| telegram_bindings | User ↔ Telegram account links |
+| audit_log | Immutable log of admin actions |
+| kpis | Per-user daily performance metrics |
 
-1. Create a project at [supabase.com](https://supabase.com)
-2. Copy the SQL from `migrations/001_initial_schema.sql`
-3. Run it in the Supabase SQL Editor
+## LLM Providers
 
-### 2. Configure Environment
+Supports multiple providers via `LLM_PROVIDER` env variable:
+
+| Provider | Config |
+|----------|--------|
+| mock | No API key needed (testing) |
+| minimax | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` |
+| openai | `OPENAI_API_KEY` |
+| ollama | `OLLAMA_BASE_URL`, `DEFAULT_MODEL` |
+
+## Security
+
+- bcrypt (12 rounds) for password hashing
+- JWT tokens with 8-hour expiry
+- Role-based access (admin vs employee)
+- Per-user data isolation (all queries filtered by user_id)
+- Audit log for all admin actions
+- Daily token/request quotas per user
+- Webhook secret validation for Telegram
+
+## Testing
 
 ```bash
-cp .env.example .env
-# Edit .env with your Supabase and OpenAI keys
-```
-
-### 3. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Run
-
-```bash
-python -m app.main
-# or
+# Run with mock provider for testing
+export LLM_PROVIDER=mock
 uvicorn app.main:app --reload
 ```
 
-Server runs at `http://localhost:8000`
+## Default Seed Data
 
-## API Endpoints
+Running `seed_templates.py` creates:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/status` | Platform status |
-| POST | `/api/auth/register` | Register new user |
-| GET | `/api/agents/` | List all agents |
-| GET | `/api/agents/{slug}` | Get agent details |
-| POST | `/api/chat/message` | Send message to agent |
-| GET | `/api/chat/conversations/{id}/messages` | Get messages |
-| POST | `/api/documents/upload` | Upload document |
-
-## Current Agents
-
-| Agent | Slug | Purpose |
-|-------|------|---------|
-| Marketing Agent | `marketing` | Campaigns, ad copy, content calendars |
-| Sales Agent | `sales` | Leads, proposals, follow-ups |
-| SEO Agent | `seo` | Content optimization, keywords |
-| Support Agent | `support` | Customer service responses |
-
-## Deployment
-
-```bash
-docker build -t agentsaas .
-docker run -p 8000:8000 --env-file .env agentsaas
-```
-
-## Development Roadmap
-
-- [x] **Step 1:** Core SaaS Foundation (this phase)
-- [ ] **Step 2:** Marketing Agent with real tools
-- [ ] **Step 3:** Sales Agent
-- [ ] **Step 4:** WhatsApp Integration
-- [ ] **Step 5:** Document Intelligence
-- [ ] **Step 6:** Team Collaboration
-- [ ] **Step 7:** Enterprise APIs
+- **Admin user**: `admin@fqsaas.com` / `admin123`
+- **4 Agent Templates**: default, it, marketing, hr
