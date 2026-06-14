@@ -10,9 +10,11 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { adminApi, type Profile } from "@/lib/api/agentService";
 import { toast } from "sonner";
-import { Plus, Trash2, Eye, Edit } from "lucide-react";
+import { Plus, Trash2, Eye, Edit, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { getErrorMessage } from "@/lib/api/errors";
+
+const parseCsv = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -28,6 +30,13 @@ export default function ProfilesPage() {
     agents_md: "",
     skills: "",
     system_prompt: "",
+    max_tokens_per_day: "",
+    max_requests_per_day: "",
+    daily_cost_budget: "",
+    allowed_providers: "minimax",
+    allowed_mcp_servers: "",
+    allowed_tools: "",
+    approval_required_tools: "",
   });
   const [editFormData, setEditFormData] = useState({
     name: "",
@@ -36,6 +45,13 @@ export default function ProfilesPage() {
     skills: "",
     system_prompt: "",
     is_active: true,
+    max_tokens_per_day: "",
+    max_requests_per_day: "",
+    daily_cost_budget: "",
+    allowed_providers: "",
+    allowed_mcp_servers: "",
+    allowed_tools: "",
+    approval_required_tools: "",
   });
 
   const load = async () => {
@@ -67,11 +83,22 @@ export default function ProfilesPage() {
       await apiClient.post("/admin/profiles", {
         ...formData,
         slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, "-"),
-        skills: formData.skills.split(",").map((skill) => skill.trim()).filter(Boolean),
+        skills: parseCsv(formData.skills),
+        max_tokens_per_day: formData.max_tokens_per_day ? Number.parseInt(formData.max_tokens_per_day, 10) : null,
+        max_requests_per_day: formData.max_requests_per_day ? Number.parseInt(formData.max_requests_per_day, 10) : null,
+        daily_cost_budget: formData.daily_cost_budget ? Number.parseInt(formData.daily_cost_budget, 10) : null,
+        allowed_providers: parseCsv(formData.allowed_providers),
+        allowed_mcp_servers: parseCsv(formData.allowed_mcp_servers),
+        allowed_tools: parseCsv(formData.allowed_tools),
+        approval_required_tools: parseCsv(formData.approval_required_tools),
       });
       toast.success("Profile created");
       setShowDialog(false);
-      setFormData({ name: "", slug: "", soul_md: "", agents_md: "", skills: "", system_prompt: "" });
+      setFormData({
+        name: "", slug: "", soul_md: "", agents_md: "", skills: "", system_prompt: "",
+        max_tokens_per_day: "", max_requests_per_day: "", daily_cost_budget: "",
+        allowed_providers: "minimax", allowed_mcp_servers: "", allowed_tools: "", approval_required_tools: "",
+      });
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Failed to create profile"));
@@ -87,6 +114,13 @@ export default function ProfilesPage() {
       skills: (profile.skills || []).join(", "),
       system_prompt: profile.system_prompt || "",
       is_active: profile.is_active,
+      max_tokens_per_day: profile.max_tokens_per_day?.toString() || "",
+      max_requests_per_day: profile.max_requests_per_day?.toString() || "",
+      daily_cost_budget: profile.daily_cost_budget?.toString() || "",
+      allowed_providers: (profile.allowed_providers || []).join(", "),
+      allowed_mcp_servers: (profile.allowed_mcp_servers || []).join(", "),
+      allowed_tools: (profile.allowed_tools || []).join(", "),
+      approval_required_tools: (profile.approval_required_tools || []).join(", "),
     });
     setShowEditDialog(true);
   };
@@ -99,9 +133,16 @@ export default function ProfilesPage() {
         name: editFormData.name,
         soul_md: editFormData.soul_md,
         agents_md: editFormData.agents_md,
-        skills: editFormData.skills.split(",").map((skill) => skill.trim()).filter(Boolean),
+        skills: parseCsv(editFormData.skills),
         system_prompt: editFormData.system_prompt,
         is_active: editFormData.is_active,
+        max_tokens_per_day: editFormData.max_tokens_per_day ? Number.parseInt(editFormData.max_tokens_per_day, 10) : null,
+        max_requests_per_day: editFormData.max_requests_per_day ? Number.parseInt(editFormData.max_requests_per_day, 10) : null,
+        daily_cost_budget: editFormData.daily_cost_budget ? Number.parseInt(editFormData.daily_cost_budget, 10) : null,
+        allowed_providers: parseCsv(editFormData.allowed_providers),
+        allowed_mcp_servers: parseCsv(editFormData.allowed_mcp_servers),
+        allowed_tools: parseCsv(editFormData.allowed_tools),
+        approval_required_tools: parseCsv(editFormData.approval_required_tools),
       });
       toast.success("Profile updated");
       setShowEditDialog(false);
@@ -121,6 +162,16 @@ export default function ProfilesPage() {
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Failed to delete profile"));
+    }
+  };
+
+  const handleSync = async (id: string) => {
+    try {
+      await apiClient.post(`/admin/profiles/${id}/sync`);
+      toast.success("Profile sync requested");
+      await load();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Failed to sync profile"));
     }
   };
 
@@ -171,6 +222,38 @@ export default function ProfilesPage() {
                 <Label>System Prompt</Label>
                 <Input value={formData.system_prompt} onChange={(event) => setFormData({ ...formData, system_prompt: event.target.value })} className="kos-input" />
               </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Daily Tokens</Label>
+                  <Input type="number" value={formData.max_tokens_per_day} onChange={(event) => setFormData({ ...formData, max_tokens_per_day: event.target.value })} className="kos-input" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Daily Requests</Label>
+                  <Input type="number" value={formData.max_requests_per_day} onChange={(event) => setFormData({ ...formData, max_requests_per_day: event.target.value })} className="kos-input" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cost Budget</Label>
+                  <Input type="number" value={formData.daily_cost_budget} onChange={(event) => setFormData({ ...formData, daily_cost_budget: event.target.value })} className="kos-input" />
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Allowed Providers</Label>
+                  <Input value={formData.allowed_providers} onChange={(event) => setFormData({ ...formData, allowed_providers: event.target.value })} className="kos-input" />
+                </div>
+                <div className="space-y-2">
+                  <Label>MCP Servers</Label>
+                  <Input value={formData.allowed_mcp_servers} onChange={(event) => setFormData({ ...formData, allowed_mcp_servers: event.target.value })} className="kos-input" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Allowed Tools</Label>
+                  <Input value={formData.allowed_tools} onChange={(event) => setFormData({ ...formData, allowed_tools: event.target.value })} className="kos-input" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Approval Tools</Label>
+                  <Input value={formData.approval_required_tools} onChange={(event) => setFormData({ ...formData, approval_required_tools: event.target.value })} className="kos-input" />
+                </div>
+              </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
                 Create Profile
               </Button>
@@ -202,6 +285,21 @@ export default function ProfilesPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <p className="text-sm">{profile.soul_md || "—"}</p>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="outline">{profile.runtime_type || "hermes"}</Badge>
+                      <Badge
+                        variant="outline"
+                        className={profile.hermes_sync_status === "synced" ? "text-emerald-700 border-emerald-200" : "text-amber-700 border-amber-200"}
+                      >
+                        {profile.hermes_sync_status || "pending"}
+                      </Badge>
+                      {profile.version && <Badge variant="outline">v{profile.version}</Badge>}
+                    </div>
+                    {profile.hermes_sync_error && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md p-2">
+                        {profile.hermes_sync_error}
+                      </p>
+                    )}
                     <div>
                       <span className="text-xs text-muted-foreground">Skills:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
@@ -220,6 +318,10 @@ export default function ProfilesPage() {
                       <Button variant="outline" size="sm" onClick={() => handleEdit(profile)}>
                         <Edit className="h-3 w-3 text-blue-500 mr-1" />
                         Edit
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleSync(profile.id)}>
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Sync
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => handleDelete(profile.id)}>
                         <Trash2 className="h-3 w-3 text-red-500" />
@@ -276,6 +378,38 @@ export default function ProfilesPage() {
             <div className="space-y-2">
               <Label>System Prompt</Label>
               <Input value={editFormData.system_prompt} onChange={(event) => setEditFormData({ ...editFormData, system_prompt: event.target.value })} className="kos-input" />
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Daily Tokens</Label>
+                <Input type="number" value={editFormData.max_tokens_per_day} onChange={(event) => setEditFormData({ ...editFormData, max_tokens_per_day: event.target.value })} className="kos-input" />
+              </div>
+              <div className="space-y-2">
+                <Label>Daily Requests</Label>
+                <Input type="number" value={editFormData.max_requests_per_day} onChange={(event) => setEditFormData({ ...editFormData, max_requests_per_day: event.target.value })} className="kos-input" />
+              </div>
+              <div className="space-y-2">
+                <Label>Cost Budget</Label>
+                <Input type="number" value={editFormData.daily_cost_budget} onChange={(event) => setEditFormData({ ...editFormData, daily_cost_budget: event.target.value })} className="kos-input" />
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Allowed Providers</Label>
+                <Input value={editFormData.allowed_providers} onChange={(event) => setEditFormData({ ...editFormData, allowed_providers: event.target.value })} className="kos-input" />
+              </div>
+              <div className="space-y-2">
+                <Label>MCP Servers</Label>
+                <Input value={editFormData.allowed_mcp_servers} onChange={(event) => setEditFormData({ ...editFormData, allowed_mcp_servers: event.target.value })} className="kos-input" />
+              </div>
+              <div className="space-y-2">
+                <Label>Allowed Tools</Label>
+                <Input value={editFormData.allowed_tools} onChange={(event) => setEditFormData({ ...editFormData, allowed_tools: event.target.value })} className="kos-input" />
+              </div>
+              <div className="space-y-2">
+                <Label>Approval Tools</Label>
+                <Input value={editFormData.approval_required_tools} onChange={(event) => setEditFormData({ ...editFormData, approval_required_tools: event.target.value })} className="kos-input" />
+              </div>
             </div>
             <div className="flex items-center justify-between">
               <Label>Active</Label>

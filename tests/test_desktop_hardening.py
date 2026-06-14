@@ -20,6 +20,8 @@ def test_main_process_has_workspace_path_restrictions():
     assert "resolveWorkspaceFile" in content
     assert "setWindowOpenHandler" in content
     assert "will-navigate" in content
+    assert "setPermissionRequestHandler" in content
+    assert "Content-Security-Policy" in content
 
 
 def test_main_process_uses_context_snippets_not_full_scan_payloads():
@@ -30,6 +32,9 @@ def test_main_process_uses_context_snippets_not_full_scan_payloads():
     assert "MAX_CONTEXT_FILE_CHARS" in content
     assert "snippet" in content
     assert "build-project-context" in content
+    assert "EXCLUDED_FILE_PREFIXES" in content
+    assert "EXCLUDED_FILE_EXTENSIONS" in content
+    assert "SECRET_FILE_PATTERNS" in content
 
 
 def test_preload_exposes_reviewed_write_flow():
@@ -39,3 +44,24 @@ def test_preload_exposes_reviewed_write_flow():
     assert "prepareFileWrite" in content
     assert "applyFileWrite" in content
     assert "buildProjectContext" in content
+
+
+def test_renderer_uses_local_assets_and_csp():
+    with open("desktop/src/renderer/index.html") as file:
+        content = file.read()
+
+    assert "Content-Security-Policy" in content
+    assert "vendor.css" in content
+    assert "cdn.jsdelivr" not in content
+    assert "fonts.googleapis" not in content
+
+
+def test_desktop_has_update_feed_hook():
+    with open("desktop/src/main/main.js") as file:
+        main_content = file.read()
+    with open("desktop/package.json") as file:
+        package_content = file.read()
+
+    assert "UPDATE_FEED_URL" in main_content
+    assert "autoUpdater" in main_content
+    assert '"provider": "generic"' in package_content

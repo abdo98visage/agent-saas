@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1/chat/completions"
     ollama_base_url: str = "http://localhost:11434"
 
+    # Hermes runtime / orchestrator
+    hermes_orchestrator_url: str = ""
+    hermes_orchestrator_secret: str = ""
+    hermes_request_timeout_seconds: float = 30.0
+
     # Telegram
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""

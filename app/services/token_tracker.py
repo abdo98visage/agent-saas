@@ -1,5 +1,6 @@
 """Token tracking service — quota checks and usage recording."""
 import datetime
+from typing import Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +17,38 @@ async def _get_today_kpi(db: AsyncSession, user_id: str) -> KPI | None:
     return result.scalar_one_or_none()
 
 
+async def _resolve_active_key(
+    db: AsyncSession,
+    user_id: str,
+    provider: str,
+    profile_id: Optional[str] = None,
+) -> UserApiKey | None:
+    candidates = [(UserApiKey.owner_type == "user", UserApiKey.user_id == user_id)]
+    if profile_id:
+        candidates.append((UserApiKey.owner_type == "profile", UserApiKey.profile_id == profile_id))
+    candidates.append((UserApiKey.owner_type == "platform", UserApiKey.user_id.is_(None)))
+
+    for owner_filter, id_filter in candidates:
+        result = await db.execute(
+            select(UserApiKey).where(
+                owner_filter,
+                id_filter,
+                UserApiKey.provider == provider,
+                UserApiKey.is_active == True,
+            )
+        )
+        key_obj = result.scalar_one_or_none()
+        if key_obj:
+            return key_obj
+    return None
+
+
 async def check_token_quota(
     db: AsyncSession,
     user_id: str,
     max_tokens_per_day: int,
+    provider: str = "minimax",
+    profile_id: Optional[str] = None,
 ) -> bool:
     """Check if the user or the active API key has exhausted today's token budget."""
     kpi = await _get_today_kpi(db, user_id)
@@ -27,13 +56,7 @@ async def check_token_quota(
     if tokens_used >= max_tokens_per_day:
         return False
 
-    key_result = await db.execute(
-        select(UserApiKey).where(
-            UserApiKey.user_id == user_id,
-            UserApiKey.is_active == True,
-        )
-    )
-    active_key = key_result.scalar_one_or_none()
+    active_key = await _resolve_active_key(db, user_id, provider, profile_id)
     if active_key and active_key.spent_today >= active_key.daily_budget:
         return False
 
@@ -58,6 +81,8 @@ async def record_token_usage(
     model: str,
     tokens_used: int,
     cost: float,
+    provider: str = "minimax",
+    profile_id: Optional[str] = None,
 ):
     """Record token usage for a user and the active API key."""
     today = datetime.date.today().isoformat()
@@ -80,13 +105,7 @@ async def record_token_usage(
         )
         db.add(kpi)
 
-    key_result = await db.execute(
-        select(UserApiKey).where(
-            UserApiKey.user_id == user_id,
-            UserApiKey.is_active == True,
-        )
-    )
-    active_key = key_result.scalar_one_or_none()
+    active_key = await _resolve_active_key(db, user_id, provider, profile_id)
     if active_key:
         active_key.spent_today += tokens_used
 

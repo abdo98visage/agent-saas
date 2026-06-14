@@ -75,6 +75,22 @@ export interface Profile {
   agents_md?: string;
   agents_md_preview: string;
   system_prompt?: string;
+  runtime_type?: "hermes" | "direct_llm";
+  hermes_profile_id?: string | null;
+  hermes_workspace_path?: string | null;
+  hermes_sync_status?: string;
+  hermes_sync_error?: string | null;
+  version?: number;
+  last_synced_at?: string | null;
+  provider_key_id?: string | null;
+  max_tokens_per_day?: number | null;
+  max_requests_per_day?: number | null;
+  daily_cost_budget?: number | null;
+  allowed_providers?: string[];
+  allowed_mcp_servers?: string[];
+  allowed_tools?: string[];
+  approval_required_tools?: string[];
+  memory_settings?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -85,6 +101,10 @@ export interface ProfileAssignment {
   priority: number;
   user_email: string | null;
   profile_name: string | null;
+  profile_runtime_type?: string;
+  profile_sync_status?: string;
+  profile_version?: number;
+  profile_provider_key_id?: string | null;
 }
 
 export interface Session {
@@ -97,7 +117,9 @@ export interface Session {
 
 export interface UserApiKey {
   id: string;
-  user_id: string;
+  owner_type: "user" | "profile" | "platform";
+  user_id: string | null;
+  profile_id: string | null;
   provider: string;
   key_prefix: string;
   is_active: boolean;
@@ -168,7 +190,14 @@ export const adminApi = {
   getApiKeys: () =>
     apiClient.get("/admin/api-keys"),
 
-  createApiKey: (data: { user_id: string; provider: string; api_key: string; daily_budget?: number }) =>
+  createApiKey: (data: {
+    owner_type: "user" | "profile" | "platform";
+    user_id?: string | null;
+    profile_id?: string | null;
+    provider: string;
+    api_key: string;
+    daily_budget?: number;
+  }) =>
     apiClient.post("/admin/api-keys", data),
 
   updateApiKey: (keyId: string, data: { is_active?: boolean; daily_budget?: number; api_key?: string }) =>
@@ -176,6 +205,16 @@ export const adminApi = {
 
   deleteApiKey: (keyId: string) =>
     apiClient.delete(`/admin/api-keys/${keyId}`),
+
+  // Hermes runtime
+  getHermesStatus: () =>
+    apiClient.get("/admin/hermes/status"),
+
+  hermesAction: (action: "install" | "start" | "restart" | "stop" | "repair-sync") =>
+    apiClient.post(`/admin/hermes/${action}`),
+
+  getHermesLogs: (limit = 200) =>
+    apiClient.get("/admin/hermes/logs", { params: { limit } }),
 };
 
 export const authApi = {

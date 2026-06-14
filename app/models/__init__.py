@@ -8,10 +8,11 @@ from app.models.kpi import KPI
 from app.models.profile import Profile
 from app.models.profile_user import ProfileUser
 from app.models.user_api_key import UserApiKey
+from app.models.agent_run import AgentRun, AgentRunEvent
 from app.models.user_activity import UserActivity
 
 __all__ = [
     "User", "Session", "Message", "AgentTemplate",
     "TelegramBinding", "AuditLog", "KPI", "UserActivity",
-    "Profile", "ProfileUser", "UserApiKey",
+    "Profile", "ProfileUser", "UserApiKey", "AgentRun", "AgentRunEvent",
 ]

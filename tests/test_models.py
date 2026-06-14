@@ -12,6 +12,7 @@ from app.models.kpi import KPI
 from app.models.audit_log import AuditLog
 from app.models.user_api_key import UserApiKey
 from app.models.profile_user import ProfileUser
+from app.models.agent_run import AgentRun, AgentRunEvent
 
 
 class TestUserModel:
@@ -55,6 +56,13 @@ class TestProfileModel:
         # name and slug are required, rest have defaults
         assert p.name == "test"
         assert p.slug == "test"
+
+    def test_profile_has_hermes_runtime_fields(self):
+        p = Profile(name="marketing", slug="marketing")
+        assert hasattr(p, "runtime_type")
+        assert hasattr(p, "hermes_sync_status")
+        assert hasattr(p, "version")
+        assert hasattr(p, "allowed_mcp_servers")
 
 
 class TestTelegramBindingModel:
@@ -115,8 +123,9 @@ class TestUserApiKeyModel:
     def test_api_key_fields(self):
         uid = uuid.uuid4()
         k = UserApiKey(
-            user_id=uid, provider="minimax", encrypted_key="enc", key_prefix="sk-123"
+            owner_type="user", user_id=uid, provider="minimax", encrypted_key="enc", key_prefix="sk-123"
         )
+        assert k.owner_type == "user"
         assert k.provider == "minimax"
         assert k.key_prefix == "sk-123"
 
@@ -129,3 +138,20 @@ class TestProfileUserModel:
         assert pu.user_id == uid
         assert pu.profile_id == pid
         assert pu.priority == 5
+
+
+class TestAgentRunModel:
+    def test_agent_run_fields(self):
+        sid = uuid.uuid4()
+        uid = uuid.uuid4()
+        run = AgentRun(session_id=sid, user_id=uid, runtime_type="hermes", status="running")
+        assert run.session_id == sid
+        assert run.user_id == uid
+        assert run.runtime_type == "hermes"
+
+    def test_agent_run_event_fields(self):
+        rid = uuid.uuid4()
+        event = AgentRunEvent(run_id=rid, event_type="tool_call", payload={"name": "search"})
+        assert event.run_id == rid
+        assert event.event_type == "tool_call"
+        assert event.payload == {"name": "search"}

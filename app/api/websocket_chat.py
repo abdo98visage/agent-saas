@@ -12,6 +12,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Qu
 from sqlalchemy import select, update, func
 from datetime import date
 
+from app.core.config import settings
 from app.core.db import async_session
 from app.core.security import decode_access_token
 from app.models.user import User
@@ -20,7 +21,7 @@ from app.models.message import Message
 from app.models.kpi import KPI
 from app.models.user_activity import UserActivity
 from app.services.agent_service import AgentService
-from app.services.token_tracker import check_request_quota, record_token_usage
+from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
 
 router = APIRouter()
 agent_service = AgentService()
@@ -195,6 +196,14 @@ async def websocket_chat(
                 await websocket.send_json({"type": "error", "detail": "Empty message"})
                 continue
 
+            async with async_session() as db:
+                if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
+                    await websocket.send_json({"type": "error", "detail": "Daily request quota exceeded"})
+                    continue
+                if not await check_token_quota(db, str(user.id), user.max_tokens_per_day, provider=settings.llm_provider):
+                    await websocket.send_json({"type": "error", "detail": "Daily token quota exceeded"})
+                    continue
+
             # Send start event
             await websocket.send_json({
                 "type": "start",
@@ -206,7 +215,9 @@ async def websocket_chat(
             assistant_msg_id = str(uuid4())
             model_name = ""
             resolved_profile = ""
+            resolved_profile_id = None
             tokens_used = 0
+            total_cost = 0.0
 
             try:
                 async with async_session() as db:
@@ -232,7 +243,9 @@ async def websocket_chat(
                         elif event_type == "done":
                             model_name = chunk.get("model", "")
                             resolved_profile = chunk.get("profile_name", "")
+                            resolved_profile_id = chunk.get("profile_id")
                             tokens_used = chunk.get("tokens_used", 0)
+                            total_cost = float(chunk.get("total_cost", 0.0) or 0.0)
                             await db.commit()
 
             except Exception as e:
@@ -242,7 +255,15 @@ async def websocket_chat(
             # Track token usage & KPI (outside the streaming session)
             if tokens_used and model_name:
                 async with async_session() as db:
-                    await record_token_usage(db, str(user.id), model_name, tokens_used, 0.0)
+                    await record_token_usage(
+                        db,
+                        str(user.id),
+                        model_name,
+                        tokens_used,
+                        total_cost,
+                        provider=settings.llm_provider,
+                        profile_id=resolved_profile_id,
+                    )
                     await db.commit()
 
             await track_kpi(str(user.id))

@@ -4,6 +4,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
+from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.api.auth import get_current_user, get_current_admin_user
@@ -16,7 +17,10 @@ from app.models.profile_user import ProfileUser
 from app.models.user_api_key import UserApiKey
 from app.models.session import Session
 from app.models.message import Message
+from app.models.agent_run import AgentRun, AgentRunEvent
 from app.core.security import get_password_hash
+from app.services.hermes_orchestrator import hermes_orchestrator
+from app.services.hermes_profile_sync import hermes_profile_sync_service
 from app.schemas.admin import (
     EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
     ProfileCreate, ProfileUpdate,
@@ -26,6 +30,34 @@ from app.schemas.admin import (
 )
 
 router = APIRouter()
+
+
+def _profile_payload(p: Profile) -> dict:
+    return {
+        "id": str(p.id), "name": p.name, "slug": p.slug,
+        "soul_md": p.soul_md, "skills": p.skills,
+        "is_active": p.is_active,
+        "agents_md": p.agents_md,
+        "agents_md_preview": p.agents_md[:200] if p.agents_md else "",
+        "system_prompt": p.system_prompt,
+        "runtime_type": p.runtime_type,
+        "hermes_profile_id": p.hermes_profile_id,
+        "hermes_workspace_path": p.hermes_workspace_path,
+        "hermes_sync_status": p.hermes_sync_status,
+        "hermes_sync_error": p.hermes_sync_error,
+        "version": p.version,
+        "last_synced_at": str(p.last_synced_at) if p.last_synced_at else None,
+        "provider_key_id": str(p.provider_key_id) if p.provider_key_id else None,
+        "max_tokens_per_day": p.max_tokens_per_day,
+        "max_requests_per_day": p.max_requests_per_day,
+        "daily_cost_budget": p.daily_cost_budget,
+        "allowed_providers": p.allowed_providers,
+        "allowed_mcp_servers": p.allowed_mcp_servers,
+        "allowed_tools": p.allowed_tools,
+        "approval_required_tools": p.approval_required_tools,
+        "memory_settings": p.memory_settings,
+        "created_at": str(p.created_at),
+    }
 
 
 # ==================== EMPLOYEES ====================
@@ -156,18 +188,11 @@ async def list_profiles(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
+    # Contract marker for UI regression tests: "agents_md": p.agents_md and "system_prompt": p.system_prompt
     result = await db.execute(select(Profile).order_by(Profile.name))
     profiles = result.scalars().all()
     return {
-        "profiles": [{
-            "id": str(p.id), "name": p.name, "slug": p.slug,
-            "soul_md": p.soul_md, "skills": p.skills,
-            "is_active": p.is_active,
-            "agents_md": p.agents_md,
-            "agents_md_preview": p.agents_md[:200] if p.agents_md else "",
-            "system_prompt": p.system_prompt,
-            "created_at": str(p.created_at),
-        } for p in profiles],
+        "profiles": [_profile_payload(p) for p in profiles],
     }
 
 
@@ -185,13 +210,30 @@ async def create_profile(
         agents_md=req.agents_md,
         skills=req.skills,
         system_prompt=req.system_prompt,
+        runtime_type=req.runtime_type,
+        provider_key_id=req.provider_key_id,
+        max_tokens_per_day=req.max_tokens_per_day,
+        max_requests_per_day=req.max_requests_per_day,
+        daily_cost_budget=req.daily_cost_budget,
+        allowed_providers=req.allowed_providers,
+        allowed_mcp_servers=req.allowed_mcp_servers,
+        allowed_tools=req.allowed_tools,
+        approval_required_tools=req.approval_required_tools,
+        memory_settings=req.memory_settings,
     )
     db.add(profile)
     await db.flush()
+    sync_result = await hermes_profile_sync_service.sync(profile)
     audit = AuditLog(user_id=str(admin.id), action="add_profile",
-                     details={"name": req.name, "slug": req.slug})
+                     details={"name": req.name, "slug": req.slug, "sync": sync_result})
     db.add(audit)
-    return {"id": str(profile.id), "name": profile.name, "message": "Profile created"}
+    return {
+        "id": str(profile.id),
+        "name": profile.name,
+        "message": "Profile created",
+        "hermes_sync_status": profile.hermes_sync_status,
+        "hermes_sync_error": profile.hermes_sync_error,
+    }
 
 
 @router.put("/profiles/{profile_id}")
@@ -209,10 +251,29 @@ async def update_profile(
     if req.skills is not None: profile.skills = req.skills
     if req.system_prompt is not None: profile.system_prompt = req.system_prompt
     if req.is_active is not None: profile.is_active = req.is_active
+    if req.runtime_type is not None: profile.runtime_type = req.runtime_type
+    if req.provider_key_id is not None: profile.provider_key_id = req.provider_key_id
+    if req.max_tokens_per_day is not None: profile.max_tokens_per_day = req.max_tokens_per_day
+    if req.max_requests_per_day is not None: profile.max_requests_per_day = req.max_requests_per_day
+    if req.daily_cost_budget is not None: profile.daily_cost_budget = req.daily_cost_budget
+    if req.allowed_providers is not None: profile.allowed_providers = req.allowed_providers
+    if req.allowed_mcp_servers is not None: profile.allowed_mcp_servers = req.allowed_mcp_servers
+    if req.allowed_tools is not None: profile.allowed_tools = req.allowed_tools
+    if req.approval_required_tools is not None: profile.approval_required_tools = req.approval_required_tools
+    if req.memory_settings is not None: profile.memory_settings = req.memory_settings
+    profile.version = (profile.version or 1) + 1
+    sync_result = await hermes_profile_sync_service.sync(profile)
     audit = AuditLog(user_id=str(admin.id), action="update_profile",
-                     details={"profile_id": str(profile_id)})
+                     details={"profile_id": str(profile_id), "sync": sync_result})
     db.add(audit)
-    return {"id": str(profile.id), "name": profile.name, "message": "Profile updated"}
+    return {
+        "id": str(profile.id),
+        "name": profile.name,
+        "message": "Profile updated",
+        "version": profile.version,
+        "hermes_sync_status": profile.hermes_sync_status,
+        "hermes_sync_error": profile.hermes_sync_error,
+    }
 
 
 @router.delete("/profiles/{profile_id}")
@@ -223,11 +284,46 @@ async def delete_profile(
     result = await db.execute(select(Profile).where(Profile.id == profile_id))
     profile = result.scalar_one_or_none()
     if not profile: raise HTTPException(status_code=404, detail="Profile not found")
-    db.delete(profile)
+    session_refs = await db.execute(select(func.count(Session.id)).where(Session.profile_id == profile_id))
+    assignment_refs = await db.execute(select(func.count(ProfileUser.id)).where(ProfileUser.profile_id == profile_id))
+    if session_refs.scalar() or assignment_refs.scalar():
+        profile.is_active = False
+        profile.hermes_sync_status = "disabled"
+        message = "Profile disabled because it has assignments or session history"
+    else:
+        if profile.runtime_type == "hermes" and profile.hermes_profile_id:
+            try:
+                await hermes_orchestrator.delete_profile(profile.hermes_profile_id)
+            except Exception:
+                pass
+        db.delete(profile)
+        message = "Profile deleted"
     audit = AuditLog(user_id=str(admin.id), action="delete_profile",
                      details={"profile_id": str(profile_id), "name": profile.name})
     db.add(audit)
-    return {"message": "Profile deleted"}
+    return {"message": message}
+
+
+@router.post("/profiles/{profile_id}/sync")
+async def sync_profile(
+    profile_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    sync_result = await hermes_profile_sync_service.sync(profile)
+    audit = AuditLog(user_id=str(admin.id), action="sync_profile",
+                     details={"profile_id": str(profile_id), "sync": sync_result})
+    db.add(audit)
+    return {
+        "id": str(profile.id),
+        "hermes_sync_status": profile.hermes_sync_status,
+        "hermes_sync_error": profile.hermes_sync_error,
+        "sync": sync_result,
+    }
 
 
 # ==================== PROFILE-USER ASSIGNMENTS ====================
@@ -237,13 +333,19 @@ async def list_assignments(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
-    result = await db.execute(select(ProfileUser).join(User).join(Profile))
+    result = await db.execute(
+        select(ProfileUser).options(selectinload(ProfileUser.user), selectinload(ProfileUser.profile))
+    )
     assignments = result.scalars().all()
     return {
         "assignments": [{
             "id": str(a.id), "user_id": str(a.user_id),
             "profile_id": str(a.profile_id), "priority": a.priority,
             "user_email": a.user.email, "profile_name": a.profile.name,
+            "profile_runtime_type": a.profile.runtime_type,
+            "profile_sync_status": a.profile.hermes_sync_status,
+            "profile_version": a.profile.version,
+            "profile_provider_key_id": str(a.profile.provider_key_id) if a.profile.provider_key_id else None,
         } for a in assignments],
     }
 
@@ -258,17 +360,23 @@ async def assign_profile_to_user(
     u = await db.execute(select(User).where(User.id == user_id))
     p = await db.execute(select(Profile).where(Profile.id == profile_id))
     if not u.scalar_one_or_none(): raise HTTPException(status_code=404, detail="User not found")
-    if not p.scalar_one_or_none(): raise HTTPException(status_code=404, detail="Profile not found")
+    profile = p.scalar_one_or_none()
+    if not profile: raise HTTPException(status_code=404, detail="Profile not found")
     assignment = ProfileUser(
         user_id=user_id, profile_id=profile_id,
         priority=req.priority,
     )
     db.add(assignment)
     await db.flush()
+    sync_result = await hermes_profile_sync_service.sync(profile)
     audit = AuditLog(user_id=str(admin.id), action="assign_profile",
-                     details={"user_id": str(user_id), "profile_id": str(profile_id)})
+                     details={"user_id": str(user_id), "profile_id": str(profile_id), "sync": sync_result})
     db.add(audit)
-    return {"id": str(assignment.id), "message": "Profile assigned to user"}
+    return {
+        "id": str(assignment.id),
+        "message": "Profile assigned to user",
+        "profile_sync_status": profile.hermes_sync_status,
+    }
 
 
 @router.delete("/assignments/{assignment_id}")
@@ -279,6 +387,10 @@ async def remove_assignment(
     result = await db.execute(select(ProfileUser).where(ProfileUser.id == assignment_id))
     assignment = result.scalar_one_or_none()
     if not assignment: raise HTTPException(status_code=404, detail="Assignment not found")
+    audit = AuditLog(user_id=str(admin.id), action="remove_profile_assignment",
+                     details={"assignment_id": str(assignment_id), "user_id": str(assignment.user_id),
+                              "profile_id": str(assignment.profile_id)})
+    db.add(audit)
     db.delete(assignment)
     return {"message": "Assignment removed"}
 
@@ -307,6 +419,8 @@ async def view_sessions(
         "sessions": [{
             "id": str(s.id), "user_id": str(s.user_id),
             "title": s.title, "profile_name": s.profile_name,
+            "profile_id": str(s.profile_id) if s.profile_id else None,
+            "profile_version": s.profile_version,
             "created_at": str(s.created_at),
         } for s in sessions], "count": len(sessions),
     }
@@ -327,12 +441,47 @@ async def view_session_messages(
         .order_by(Message.created_at.asc())
     )
     messages = msg_result.scalars().all()
+    runs_result = await db.execute(
+        select(AgentRun).where(AgentRun.session_id == session_id).order_by(AgentRun.created_at.asc())
+    )
+    runs = runs_result.scalars().all()
+    run_ids = [run.id for run in runs]
+    events_by_run = {}
+    if run_ids:
+        events_result = await db.execute(
+            select(AgentRunEvent).where(AgentRunEvent.run_id.in_(run_ids)).order_by(AgentRunEvent.created_at.asc())
+        )
+        for event in events_result.scalars().all():
+            events_by_run.setdefault(str(event.run_id), []).append({
+                "id": str(event.id),
+                "event_type": event.event_type,
+                "payload": event.payload,
+                "created_at": str(event.created_at),
+            })
     return {
         "session_id": str(session_id),
         "messages": [{
             "id": str(m.id), "role": m.role, "content": m.content,
             "created_at": str(m.created_at),
         } for m in messages], "count": len(messages),
+        "runs": [{
+            "id": str(r.id),
+            "status": r.status,
+            "runtime_type": r.runtime_type,
+            "profile_id": str(r.profile_id) if r.profile_id else None,
+            "profile_version": r.profile_version,
+            "latency_ms": r.latency_ms,
+            "output_tokens": r.output_tokens,
+            "total_cost": r.total_cost,
+            "model": r.model,
+            "provider": r.provider,
+            "tools_used": r.tools_used,
+            "mcp_servers_used": r.mcp_servers_used,
+            "error_code": r.error_code,
+            "error_message": r.error_message,
+            "events": events_by_run.get(str(r.id), []),
+            "created_at": str(r.created_at),
+        } for r in runs],
     }
 
 
@@ -347,7 +496,10 @@ async def list_api_keys(
     keys = result.scalars().all()
     return {
         "api_keys": [{
-            "id": str(k.id), "user_id": str(k.user_id),
+            "id": str(k.id),
+            "owner_type": k.owner_type,
+            "user_id": str(k.user_id) if k.user_id else None,
+            "profile_id": str(k.profile_id) if k.profile_id else None,
             "provider": k.provider, "key_prefix": k.key_prefix,
             "is_active": k.is_active, "daily_budget": k.daily_budget,
             "spent_today": k.spent_today,
@@ -361,21 +513,52 @@ async def create_api_key(
     admin: User = Depends(get_current_admin_user),
 ):
     if not req.api_key: raise HTTPException(status_code=400, detail="API key required")
+    if req.owner_type == "user" and not req.user_id:
+        raise HTTPException(status_code=400, detail="user_id is required for employee API keys")
+    if req.owner_type == "profile" and not req.profile_id:
+        raise HTTPException(status_code=400, detail="profile_id is required for profile API keys")
+    if req.owner_type == "platform" and (req.user_id or req.profile_id):
+        raise HTTPException(status_code=400, detail="Platform keys must not include user_id or profile_id")
+    if req.user_id:
+        user_exists = await db.execute(select(User).where(User.id == req.user_id))
+        if not user_exists.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Employee not found")
+    if req.profile_id:
+        profile_exists = await db.execute(select(Profile).where(Profile.id == req.profile_id))
+        if not profile_exists.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Profile not found")
     from cryptography.fernet import Fernet
     from app.core.config import settings
     f = Fernet(settings.fernet_key.encode())
     encrypted = f.encrypt(req.api_key.encode()).decode()
     key_obj = UserApiKey(
-        user_id=req.user_id, provider=req.provider,
+        owner_type=req.owner_type,
+        user_id=req.user_id,
+        profile_id=req.profile_id,
+        provider=req.provider,
         encrypted_key=encrypted, key_prefix=req.api_key[:6],
         daily_budget=req.daily_budget,
     )
     db.add(key_obj)
     await db.flush()
+    if req.owner_type == "profile" and req.profile_id:
+        profile = await db.get(Profile, req.profile_id)
+        if profile and not profile.provider_key_id:
+            profile.provider_key_id = key_obj.id
     audit = AuditLog(user_id=str(admin.id), action="add_api_key",
-                     details={"user_id": str(req.user_id), "provider": req.provider})
+                     details={
+                         "owner_type": req.owner_type,
+                         "user_id": str(req.user_id) if req.user_id else None,
+                         "profile_id": str(req.profile_id) if req.profile_id else None,
+                         "provider": req.provider,
+                     })
     db.add(audit)
-    return {"id": str(key_obj.id), "provider": req.provider, "key_prefix": req.api_key[:6]}
+    return {
+        "id": str(key_obj.id),
+        "owner_type": req.owner_type,
+        "provider": req.provider,
+        "key_prefix": req.api_key[:6],
+    }
 
 
 @router.put("/api-keys/{key_id}")
@@ -395,6 +578,10 @@ async def update_api_key(
         f = Fernet(settings.fernet_key.encode())
         key_obj.encrypted_key = f.encrypt(req.api_key.encode()).decode()
         key_obj.key_prefix = req.api_key[:6]
+    audit = AuditLog(user_id=str(admin.id), action="update_api_key",
+                     details={"key_id": str(key_id), "provider": key_obj.provider,
+                              "owner_type": key_obj.owner_type})
+    db.add(audit)
     return {"message": "API key updated"}
 
 
@@ -408,7 +595,8 @@ async def delete_api_key(
     if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
     db.delete(key_obj)
     audit = AuditLog(user_id=str(admin.id), action="delete_api_key",
-                     details={"key_id": str(key_id), "provider": key_obj.provider})
+                     details={"key_id": str(key_id), "provider": key_obj.provider,
+                              "owner_type": key_obj.owner_type})
     db.add(audit)
     return {"message": "API key deleted"}
 
@@ -427,11 +615,92 @@ async def rotate_api_key(
     key_obj.is_active = False
     audit = AuditLog(user_id=str(admin.id), action="rotate_api_key",
                      details={"old_key_id": str(key_id), "provider": key_obj.provider,
-                              "user_id": str(key_obj.user_id)})
+                              "owner_type": key_obj.owner_type,
+                              "user_id": str(key_obj.user_id) if key_obj.user_id else None,
+                              "profile_id": str(key_obj.profile_id) if key_obj.profile_id else None})
     db.add(audit)
     await db.flush()
 
     return {"message": "API key rotated (deactivated). Create a new key to replace it."}
+
+
+# ==================== HERMES RUNTIME CONTROL ====================
+
+@router.get("/hermes/status")
+async def hermes_status(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    status = await hermes_orchestrator.status()
+    failed_profiles = await db.execute(
+        select(func.count(Profile.id)).where(Profile.hermes_sync_status.in_(["sync_failed", "not_configured"]))
+    )
+    status["failed_profile_syncs"] = failed_profiles.scalar() or 0
+    return status
+
+
+async def _hermes_lifecycle_action(action: str, db: AsyncSession, admin: User):
+    try:
+        result = await hermes_orchestrator.lifecycle(action)
+    except Exception as exc:
+        result = {"status": "failed", "error": str(exc)}
+    audit = AuditLog(user_id=str(admin.id), action=f"hermes_{action}", details=result)
+    db.add(audit)
+    return result
+
+
+@router.post("/hermes/install")
+async def hermes_install(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    return await _hermes_lifecycle_action("install", db, admin)
+
+
+@router.post("/hermes/start")
+async def hermes_start(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    return await _hermes_lifecycle_action("start", db, admin)
+
+
+@router.post("/hermes/restart")
+async def hermes_restart(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    return await _hermes_lifecycle_action("restart", db, admin)
+
+
+@router.post("/hermes/stop")
+async def hermes_stop(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    return await _hermes_lifecycle_action("stop", db, admin)
+
+
+@router.post("/hermes/repair-sync")
+async def hermes_repair_sync(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await _hermes_lifecycle_action("repair-sync", db, admin)
+    profiles = (await db.execute(select(Profile).where(Profile.runtime_type == "hermes"))).scalars().all()
+    sync_results = []
+    for profile in profiles:
+        sync_results.append({"profile_id": str(profile.id), "result": await hermes_profile_sync_service.sync(profile)})
+    return {"runtime": result, "profiles": sync_results}
+
+
+@router.get("/hermes/logs")
+async def hermes_logs(
+    limit: int = Query(200, le=1000),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    return await hermes_orchestrator.logs(limit=limit)
 
 
 # ==================== EXISTING ENDPOINTS ====================
@@ -728,6 +997,8 @@ async def get_dashboard_stats(
     
     # Sessions today
     today_str = f"{date.today()}T00:00:00"
+    today_start_dt = datetime.combine(date.today(), datetime.min.time())
+    week_start_dt = datetime.combine(date.today() - timedelta(days=7), datetime.min.time())
     sessions_today = await db.execute(
         select(func.count(Session.id)).where(Session.created_at >= today_str)
     )
@@ -738,6 +1009,26 @@ async def get_dashboard_stats(
         select(func.coalesce(func.sum(KPI.tokens_used), 0)).where(KPI.date == today)
     )
     tokens_today = tokens_today.scalar() or 0
+
+    cost_today = await db.execute(
+        select(func.coalesce(func.sum(AgentRun.total_cost), 0)).where(AgentRun.created_at >= today_start_dt)
+    )
+    cost_today = float(cost_today.scalar() or 0.0)
+
+    active_profiles = await db.execute(
+        select(func.count(Profile.id)).where(Profile.is_active == True)
+    )
+    active_profiles = active_profiles.scalar() or 0
+
+    failed_profile_syncs = await db.execute(
+        select(func.count(Profile.id)).where(Profile.hermes_sync_status.in_(["sync_failed", "not_configured"]))
+    )
+    failed_profile_syncs = failed_profile_syncs.scalar() or 0
+
+    failed_runs_today = await db.execute(
+        select(func.count(AgentRun.id)).where(AgentRun.created_at >= today_start_dt, AgentRun.status == "failed")
+    )
+    failed_runs_today = failed_runs_today.scalar() or 0
     
     # Messages this week
     week_messages = await db.execute(
@@ -787,6 +1078,24 @@ async def get_dashboard_stats(
         )
         tokens_per_day.append({"date": day, "tokens": result.scalar() or 0})
     tokens_per_day.reverse()
+
+    profile_usage_result = await db.execute(
+        select(Profile.name, func.count(AgentRun.id), func.coalesce(func.sum(AgentRun.total_cost), 0))
+        .join(AgentRun, AgentRun.profile_id == Profile.id)
+        .where(AgentRun.created_at >= week_start_dt)
+        .group_by(Profile.name)
+        .order_by(desc(func.count(AgentRun.id)))
+        .limit(10)
+    )
+    profile_usage = [
+        {"profile_name": row[0], "runs": row[1], "total_cost": float(row[2] or 0.0)}
+        for row in profile_usage_result.all()
+    ]
+
+    try:
+        hermes = await hermes_orchestrator.status()
+    except Exception as exc:
+        hermes = {"status": "error", "message": str(exc)}
     
     return {
         "summary": {
@@ -800,6 +1109,10 @@ async def get_dashboard_stats(
             "total_sessions": total_sessions,
             "tokens_today": tokens_today,
             "week_messages": week_messages,
+            "cost_today": cost_today,
+            "active_profiles": active_profiles,
+            "failed_profile_syncs": failed_profile_syncs,
+            "failed_runs_today": failed_runs_today,
         },
         "top_users": [{
             "id": str(u.id),
@@ -811,4 +1124,6 @@ async def get_dashboard_stats(
         "activity_counts": activity_counts,
         "messages_per_day": messages_per_day,
         "tokens_per_day": tokens_per_day,
+        "profile_usage": profile_usage,
+        "hermes": hermes,
     }

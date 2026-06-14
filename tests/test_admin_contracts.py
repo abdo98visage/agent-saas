@@ -27,3 +27,29 @@ def test_list_profiles_returns_full_editable_fields():
     source = inspect.getsource(admin_api.list_profiles)
     assert '"agents_md": p.agents_md' in source
     assert '"system_prompt": p.system_prompt' in source
+
+
+def test_profile_page_exposes_hermes_limits_and_tools():
+    with open("frontend/src/app/profiles/page.tsx", encoding="utf-8") as file:
+        content = file.read()
+
+    for token in [
+        "max_tokens_per_day",
+        "max_requests_per_day",
+        "daily_cost_budget",
+        "allowed_providers",
+        "allowed_mcp_servers",
+        "allowed_tools",
+        "approval_required_tools",
+    ]:
+        assert token in content
+
+
+def test_api_keys_page_uses_owner_dropdowns():
+    with open("frontend/src/app/api-keys/page.tsx", encoding="utf-8") as file:
+        content = file.read()
+
+    assert 'apiClient.get("/admin/employees")' in content
+    assert 'apiClient.get("/admin/profiles")' in content
+    assert "Select employee" in content
+    assert "Select profile" in content

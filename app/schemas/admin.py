@@ -43,6 +43,16 @@ class ProfileCreate(BaseModel):
     soul_md: str = Field("", max_length=50000)
     skills: list[str] = Field(default_factory=list)
     system_prompt: str = Field("", max_length=20000)
+    runtime_type: str = Field("hermes", pattern="^(hermes|direct_llm)$")
+    provider_key_id: Optional[UUID] = None
+    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=10000000)
+    max_requests_per_day: Optional[int] = Field(None, ge=10, le=100000)
+    daily_cost_budget: Optional[int] = Field(None, ge=0, le=10000000)
+    allowed_providers: list[str] = Field(default_factory=list)
+    allowed_mcp_servers: list[str] = Field(default_factory=list)
+    allowed_tools: list[str] = Field(default_factory=list)
+    approval_required_tools: list[str] = Field(default_factory=list)
+    memory_settings: dict = Field(default_factory=dict)
 
 
 class ProfileUpdate(BaseModel):
@@ -52,6 +62,16 @@ class ProfileUpdate(BaseModel):
     skills: Optional[list[str]] = None
     system_prompt: Optional[str] = Field(None, max_length=20000)
     is_active: Optional[bool] = None
+    runtime_type: Optional[str] = Field(None, pattern="^(hermes|direct_llm)$")
+    provider_key_id: Optional[UUID] = None
+    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=10000000)
+    max_requests_per_day: Optional[int] = Field(None, ge=10, le=100000)
+    daily_cost_budget: Optional[int] = Field(None, ge=0, le=10000000)
+    allowed_providers: Optional[list[str]] = None
+    allowed_mcp_servers: Optional[list[str]] = None
+    allowed_tools: Optional[list[str]] = None
+    approval_required_tools: Optional[list[str]] = None
+    memory_settings: Optional[dict] = None
 
 
 # --- Assignments ---
@@ -86,7 +106,9 @@ class AgentTemplateUpdate(_BaseSchema):
 # --- API Keys ---
 
 class ApiKeyCreate(BaseModel):
-    user_id: UUID
+    owner_type: str = Field("user", pattern="^(user|profile|platform)$")
+    user_id: Optional[UUID] = None
+    profile_id: Optional[UUID] = None
     provider: str = Field(..., pattern="^(minimax|openai|ollama)$")
     api_key: str = Field(..., min_length=10, max_length=500)
     daily_budget: int = Field(50000, ge=1000, le=10000000)

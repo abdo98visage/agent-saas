@@ -15,7 +15,9 @@ import { getErrorMessage } from "@/lib/api/errors";
 
 interface ApiKey {
   id: string;
-  user_id: string;
+  owner_type: "user" | "profile" | "platform";
+  user_id: string | null;
+  profile_id: string | null;
   provider: string;
   key_prefix: string;
   is_active: boolean;
@@ -23,14 +25,31 @@ interface ApiKey {
   spent_today: number;
 }
 
+interface EmployeeOption {
+  id: string;
+  email: string;
+  full_name: string | null;
+}
+
+interface ProfileOption {
+  id: string;
+  name: string;
+  slug: string;
+  hermes_sync_status?: string;
+}
+
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [profiles, setProfiles] = useState<ProfileOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editKey, setEditKey] = useState<ApiKey | null>(null);
   const [formData, setFormData] = useState({
+    owner_type: "profile" as "user" | "profile" | "platform",
     user_id: "",
+    profile_id: "",
     provider: "minimax",
     api_key: "",
     daily_budget: 50000,
@@ -41,8 +60,14 @@ export default function ApiKeysPage() {
   });
 
   const load = async () => {
-    const response = await apiClient.get("/admin/api-keys");
-    setKeys(response.data.api_keys || []);
+    const [keysResponse, employeesResponse, profilesResponse] = await Promise.all([
+      apiClient.get("/admin/api-keys"),
+      apiClient.get("/admin/employees"),
+      apiClient.get("/admin/profiles"),
+    ]);
+    setKeys(keysResponse.data.api_keys || []);
+    setEmployees(employeesResponse.data.employees || []);
+    setProfiles(profilesResponse.data.profiles || []);
     setLoading(false);
   };
 
@@ -50,9 +75,15 @@ export default function ApiKeysPage() {
     let cancelled = false;
 
     const run = async () => {
-      const response = await apiClient.get("/admin/api-keys");
+      const [keysResponse, employeesResponse, profilesResponse] = await Promise.all([
+        apiClient.get("/admin/api-keys"),
+        apiClient.get("/admin/employees"),
+        apiClient.get("/admin/profiles"),
+      ]);
       if (!cancelled) {
-        setKeys(response.data.api_keys || []);
+        setKeys(keysResponse.data.api_keys || []);
+        setEmployees(employeesResponse.data.employees || []);
+        setProfiles(profilesResponse.data.profiles || []);
         setLoading(false);
       }
     };
@@ -66,10 +97,17 @@ export default function ApiKeysPage() {
 
   const handleCreate = async () => {
     try {
-      await apiClient.post("/admin/api-keys", formData);
+      await apiClient.post("/admin/api-keys", {
+        owner_type: formData.owner_type,
+        user_id: formData.owner_type === "user" ? formData.user_id : null,
+        profile_id: formData.owner_type === "profile" ? formData.profile_id : null,
+        provider: formData.provider,
+        api_key: formData.api_key,
+        daily_budget: formData.daily_budget,
+      });
       toast.success("API key created");
       setShowDialog(false);
-      setFormData({ user_id: "", provider: "minimax", api_key: "", daily_budget: 50000 });
+      setFormData({ owner_type: "profile", user_id: "", profile_id: "", provider: "minimax", api_key: "", daily_budget: 50000 });
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Failed to create API key"));
@@ -119,7 +157,7 @@ export default function ApiKeysPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">API Keys</h1>
-          <p className="text-muted-foreground mt-1">Manage employee provider credentials and budgets.</p>
+          <p className="text-muted-foreground mt-1">Manage profile, employee override, and platform provider credentials.</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
@@ -134,14 +172,51 @@ export default function ApiKeysPage() {
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>User ID</Label>
-                <Input
+                <Label>Owner Type</Label>
+                <select
+                  className="w-full p-2 border rounded-xl text-sm kos-input"
+                  value={formData.owner_type}
+                  onChange={(event) => setFormData({ ...formData, owner_type: event.target.value as "user" | "profile" | "platform" })}
+                >
+                  <option value="profile">Profile key</option>
+                  <option value="user">Employee override key</option>
+                  <option value="platform">Platform fallback key</option>
+                </select>
+              </div>
+              {formData.owner_type === "user" && (
+              <div className="space-y-2">
+                <Label>Employee</Label>
+                <select
+                  className="w-full p-2 border rounded-xl text-sm kos-input"
                   value={formData.user_id}
                   onChange={(event) => setFormData({ ...formData, user_id: event.target.value })}
-                  placeholder="Employee UUID"
-                  className="kos-input"
-                />
+                >
+                  <option value="">Select employee</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.full_name || employee.email} ({employee.email})
+                    </option>
+                  ))}
+                </select>
               </div>
+              )}
+              {formData.owner_type === "profile" && (
+              <div className="space-y-2">
+                <Label>Profile</Label>
+                <select
+                  className="w-full p-2 border rounded-xl text-sm kos-input"
+                  value={formData.profile_id}
+                  onChange={(event) => setFormData({ ...formData, profile_id: event.target.value })}
+                >
+                  <option value="">Select profile</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} ({profile.slug}) - {profile.hermes_sync_status || "pending"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              )}
               <div className="space-y-2">
                 <Label>Provider</Label>
                 <select
@@ -238,6 +313,7 @@ export default function ApiKeysPage() {
                       <div>
                         <CardTitle className="text-lg capitalize">{key.provider}</CardTitle>
                         <p className="text-xs text-muted-foreground font-mono mt-1">{key.key_prefix}...</p>
+                        <Badge variant="outline" className="mt-2 capitalize">{key.owner_type}</Badge>
                       </div>
                       <Badge variant={key.is_active ? "default" : "secondary"} className={key.is_active ? "kos-badge-green" : "kos-badge-gray"}>
                         {key.is_active ? "Active" : "Inactive"}
@@ -245,8 +321,10 @@ export default function ApiKeysPage() {
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">User:</span>
-                        <span className="font-mono text-xs truncate max-w-[150px]">{key.user_id}</span>
+                        <span className="text-muted-foreground">Owner:</span>
+                        <span className="font-mono text-xs truncate max-w-[180px]">
+                          {key.owner_type === "profile" ? key.profile_id : key.owner_type === "user" ? key.user_id : "platform"}
+                        </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Daily budget:</span>

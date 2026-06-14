@@ -6,12 +6,17 @@ __pycache__/
 .Python
 
 # Virtual environments
+.venv/
+.venv*/
 venv/
 env/
 ENV/
 
 # Environment variables
 .env
+.env.*
+!.env.example
+!.env.production.example
 
 # IDE
 .vscode/
@@ -31,9 +36,19 @@ docker-compose.override.yml
 htmlcov/
 .pytest_cache/
 
+# Node / frontend / desktop build output
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+desktop/node_modules/
+desktop/dist/
+desktop/src/renderer/dist/
+
 # Database
 *.db
 *.sqlite
+backups/
 
 # OS X
 .DS_Store

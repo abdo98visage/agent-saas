@@ -18,6 +18,12 @@
   "build": {
     "appId": "com.fqsaas.desktop",
     "productName": "FQ-SaaS Workspace",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "${env.UPDATE_FEED_URL}"
+      }
+    ],
     "win": {
       "target": "nsis"
     }

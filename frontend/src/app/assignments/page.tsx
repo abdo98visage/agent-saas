@@ -232,6 +232,22 @@ export default function AssignmentsPage() {
                         <Badge variant="secondary" className="text-xs kos-badge-purple">
                           Priority: {assignment.priority}
                         </Badge>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          <Badge variant="outline" className="text-[10px]">
+                            {assignment.profile_runtime_type || "hermes"}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={assignment.profile_sync_status === "synced" ? "text-[10px] text-emerald-700" : "text-[10px] text-amber-700"}
+                          >
+                            {assignment.profile_sync_status || "pending"}
+                          </Badge>
+                          {assignment.profile_provider_key_id ? (
+                            <Badge variant="outline" className="text-[10px] text-emerald-700">key ready</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-amber-700">no profile key</Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

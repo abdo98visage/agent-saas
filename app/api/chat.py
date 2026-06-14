@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.api.auth import get_current_user
 from app.models.user import User
@@ -110,8 +111,13 @@ async def send_message(
     # Track token usage
     if result.get("tokens_used"):
         await record_token_usage(
-            db, str(user.id), result.get("model", ""),
-            result["tokens_used"], 0.0
+            db,
+            str(user.id),
+            result.get("model", ""),
+            result["tokens_used"],
+            float(result.get("total_cost", 0.0) or 0.0),
+            provider=settings.llm_provider,
+            profile_id=result.get("profile_id"),
         )
 
     return {
@@ -201,6 +207,16 @@ async def send_message_stream(
                 project_context=project_context,
                 profile_name=profile_name,
             ):
+                if chunk.get("type") == "done" and chunk.get("tokens_used"):
+                    await record_token_usage(
+                        db,
+                        str(user.id),
+                        chunk.get("model", ""),
+                        chunk["tokens_used"],
+                        float(chunk.get("total_cost", 0.0) or 0.0),
+                        provider=settings.llm_provider,
+                        profile_id=chunk.get("profile_id"),
+                    )
                 event_type = chunk.get("type", "message")
                 data = {k: v for k, v in chunk.items() if k != "type"}
                 yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

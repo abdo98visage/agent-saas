@@ -4,12 +4,13 @@ per-user API keys, streaming support, and token tracking.
 """
 import json
 import time
+from datetime import datetime, timezone, date, time as dt_time
 from uuid import uuid4, UUID
 from typing import Optional, Dict, Any, AsyncGenerator
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.models.agent_template import AgentTemplate
@@ -19,6 +20,9 @@ from app.models.user import User
 from app.models.profile import Profile
 from app.models.profile_user import ProfileUser
 from app.models.user_api_key import UserApiKey
+from app.models.agent_run import AgentRun, AgentRunEvent
+from app.services.api_key_resolver import api_key_resolver
+from app.services.agent_runtime import AgentRuntimeRouter
 
 
 class AgentService:
@@ -28,12 +32,18 @@ class AgentService:
         self, db: AsyncSession, user_id: UUID, profile_name: Optional[str] = None
     ) -> Optional[Profile]:
         """Resolve the active profile for a user by name or highest priority."""
-        query = select(ProfileUser, Profile).join(Profile).where(ProfileUser.user_id == user_id)
+        query = (
+            select(ProfileUser, Profile)
+            .join(Profile)
+            .where(ProfileUser.user_id == user_id, Profile.is_active == True)
+        )
         if profile_name:
             query = query.where(Profile.name == profile_name)
         result = await db.execute(query)
         rows = result.all()
         if not rows:
+            if profile_name:
+                raise ValueError("Profile is not assigned to this employee or is inactive")
             return None
         if profile_name:
             return rows[0][1]
@@ -42,23 +52,38 @@ class AgentService:
         return rows[0][1]
 
     async def resolve_user_api_key(
-        self, db: AsyncSession, user_id: UUID
+        self, db: AsyncSession, user_id: UUID, profile_id: Optional[UUID] = None
     ) -> Optional[str]:
-        """Resolve the active API key for a user. Decrypt with Fernet."""
-        result = await db.execute(
-            select(UserApiKey).where(
-                UserApiKey.user_id == user_id,
-                UserApiKey.is_active == True,
-            ).limit(1)
+        """Resolve active provider key by employee override, profile key, then platform fallback."""
+        return await api_key_resolver.resolve(
+            db,
+            user_id=user_id,
+            provider=settings.llm_provider,
+            profile_id=profile_id,
         )
-        key_obj = result.scalar_one_or_none()
+
+    @staticmethod
+    def _provider_requires_key() -> bool:
+        return settings.llm_provider in {"minimax", "openai"}
+
+    async def _resolve_runtime_api_key(
+        self, db: AsyncSession, user_id: UUID, profile: Optional[Profile]
+    ) -> Optional[str]:
+        key_obj = await api_key_resolver.resolve_key(
+            db,
+            user_id=user_id,
+            provider=settings.llm_provider,
+            profile_id=profile.id if profile else None,
+        )
         if not key_obj:
+            if self._provider_requires_key():
+                raise RuntimeError(
+                    "No active provider API key is configured for this employee/profile/platform."
+                )
             return None
-        # SECURITY: Cache Fernet instance to avoid recreating on every request
-        if not hasattr(self, '_fernet'):
-            from cryptography.fernet import Fernet
-            self._fernet = Fernet(settings.fernet_key.encode())
-        return self._fernet.decrypt(key_obj.encrypted_key.encode()).decode()
+        if key_obj.spent_today >= key_obj.daily_budget:
+            raise RuntimeError("Provider API key daily budget exceeded")
+        return api_key_resolver.decrypt(key_obj)
 
     async def get_system_prompt(
         self,
@@ -135,6 +160,110 @@ class AgentService:
         await db.flush()
         return session_obj
 
+    async def _get_user(self, db: AsyncSession, user_id: UUID) -> User:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise ValueError("Employee not found")
+        return user
+
+    async def _enforce_profile_ready(self, profile: Optional[Profile]) -> None:
+        if not profile:
+            return
+        if not profile.is_active:
+            raise ValueError("Profile is inactive")
+        if profile.runtime_type == "hermes" and profile.hermes_sync_status != "synced":
+            raise RuntimeError(
+                f"Hermes profile is not ready: {profile.hermes_sync_status or 'pending'}"
+            )
+
+    async def _enforce_profile_request_limit(self, db: AsyncSession, profile: Optional[Profile]) -> None:
+        if not profile or not profile.max_requests_per_day:
+            return
+        today_start = datetime.combine(date.today(), dt_time.min)
+        result = await db.execute(
+            select(AgentRun).where(
+                AgentRun.profile_id == profile.id,
+                AgentRun.created_at >= today_start,
+            )
+        )
+        if len(result.scalars().all()) >= profile.max_requests_per_day:
+            raise RuntimeError("Profile daily request quota exceeded")
+
+    async def _enforce_profile_usage_limits(self, db: AsyncSession, profile: Optional[Profile]) -> None:
+        if not profile:
+            return
+        today_start = datetime.combine(date.today(), dt_time.min)
+        if profile.max_tokens_per_day:
+            tokens_today = await db.execute(
+                select(func.coalesce(func.sum(AgentRun.output_tokens), 0)).where(
+                    AgentRun.profile_id == profile.id,
+                    AgentRun.created_at >= today_start,
+                )
+            )
+            if int(tokens_today.scalar() or 0) >= profile.max_tokens_per_day:
+                raise RuntimeError("Profile daily token quota exceeded")
+        if profile.daily_cost_budget:
+            cost_today = await db.execute(
+                select(func.coalesce(func.sum(AgentRun.total_cost), 0)).where(
+                    AgentRun.profile_id == profile.id,
+                    AgentRun.created_at >= today_start,
+                )
+            )
+            if float(cost_today.scalar() or 0.0) >= float(profile.daily_cost_budget):
+                raise RuntimeError("Profile daily cost budget exceeded")
+
+    def _runtime_router(self) -> AgentRuntimeRouter:
+        return AgentRuntimeRouter(self)
+
+    async def _create_run(
+        self,
+        db: AsyncSession,
+        session_obj: Session,
+        user_id: UUID,
+        profile: Optional[Profile],
+        runtime_type: str,
+        model_name: str,
+    ) -> AgentRun:
+        run = AgentRun(
+            id=uuid4(),
+            session_id=session_obj.id,
+            user_id=user_id,
+            profile_id=profile.id if profile else None,
+            profile_version=profile.version if profile else None,
+            runtime_type=runtime_type,
+            status="running",
+            started_at=datetime.now(timezone.utc),
+            model=model_name,
+            provider=settings.llm_provider,
+        )
+        db.add(run)
+        await db.flush()
+        return run
+
+    async def _finish_run(
+        self,
+        db: AsyncSession,
+        run: AgentRun,
+        status: str,
+        latency_ms: int,
+        output_tokens: int = 0,
+        total_cost: float = 0.0,
+        tools_used: Optional[list] = None,
+        mcp_servers_used: Optional[list] = None,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        run.status = status
+        run.ended_at = datetime.now(timezone.utc)
+        run.latency_ms = latency_ms
+        run.output_tokens = output_tokens
+        run.total_cost = total_cost
+        run.tools_used = tools_used or []
+        run.mcp_servers_used = mcp_servers_used or []
+        run.error_code = error_code
+        run.error_message = error_message
+
     async def run_agent(
         self,
         db: AsyncSession,
@@ -148,6 +277,7 @@ class AgentService:
         """Run the agent for a user message (non-streaming)."""
         start_time = time.time()
         user_uuid = UUID(user_id)
+        user = await self._get_user(db, user_uuid)
 
         # 1. Resolve system prompt, model, profile
         full_prompt, model_name, resolved_profile, temperature, max_tokens = (
@@ -158,12 +288,19 @@ class AgentService:
                 profile_name=profile_name,
             )
         )
+        profile = await self.resolve_user_profile(db, user_uuid, profile_name=profile_name)
+        await self._enforce_profile_ready(profile)
+        await self._enforce_profile_request_limit(db, profile)
+        await self._enforce_profile_usage_limits(db, profile)
         session_obj = await self._ensure_session(db, user_uuid, conversation_id, agent_template_name)
         if resolved_profile:
             session_obj.profile_name = resolved_profile
+        if profile:
+            session_obj.profile_id = profile.id
+            session_obj.profile_version = profile.version
 
-        # 2. Resolve user's API key (fallback to shared key)
-        user_api_key = await self.resolve_user_api_key(db, user_uuid)
+        # 2. Resolve provider key by employee override, profile key, then platform fallback.
+        user_api_key = await self._resolve_runtime_api_key(db, user_uuid, profile)
 
         # 3. Load conversation history (last 20 messages)
         history_messages = []
@@ -193,14 +330,49 @@ class AgentService:
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_message})
 
-        # 5. Call LLM
-        response_text = await self._call_llm(
-            messages=messages,
-            model=model_name,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=user_api_key,
-        )
+        # 5. Call selected runtime
+        runtime = self._runtime_router().for_profile(profile)
+        run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name)
+        try:
+            if runtime.runtime_type == "hermes":
+                runtime_result = await runtime.complete(
+                    user=user,
+                    profile=profile,
+                    session_id=str(session_obj.id),
+                    user_message=user_message,
+                    project_context=project_context,
+                    api_key=user_api_key,
+                    model=model_name,
+                    provider=settings.llm_provider,
+                )
+                response_text = runtime_result.get("content", "")
+                tools_used = runtime_result.get("tools_used", [])
+                mcp_servers_used = runtime_result.get("mcp_servers_used", [])
+                total_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
+            else:
+                response_text = await runtime.complete(
+                    messages=messages,
+                    model=model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=user_api_key,
+                )
+                tools_used = []
+                mcp_servers_used = []
+                total_cost = 0.0
+        except Exception as exc:
+            latency = int((time.time() - start_time) * 1000)
+            await self._finish_run(
+                db,
+                run,
+                "failed",
+                latency,
+                error_code=exc.__class__.__name__,
+                error_message=str(exc),
+            )
+            await db.flush()
+            await db.commit()
+            raise
 
         # 6. Save messages to DB
         user_msg = Message(
@@ -223,7 +395,17 @@ class AgentService:
         db.add(assistant_msg)
         await db.flush()
 
-        latency = (time.time() - start_time) * 1000
+        latency = int((time.time() - start_time) * 1000)
+        await self._finish_run(
+            db,
+            run,
+            "completed",
+            latency,
+            output_tokens=assistant_msg.tokens_used,
+            total_cost=total_cost,
+            tools_used=tools_used,
+            mcp_servers_used=mcp_servers_used,
+        )
 
         return {
             "content": response_text,
@@ -232,6 +414,8 @@ class AgentService:
             "latency_ms": latency,
             "model": model_name,
             "profile_name": resolved_profile,
+            "profile_id": str(profile.id) if profile else None,
+            "total_cost": total_cost,
         }
 
     async def run_agent_stream(
@@ -246,6 +430,7 @@ class AgentService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the agent for a user message with SSE streaming."""
         user_uuid = UUID(user_id)
+        user = await self._get_user(db, user_uuid)
 
         # 1. Resolve system prompt, model, profile
         full_prompt, model_name, resolved_profile, temperature, max_tokens = (
@@ -256,12 +441,19 @@ class AgentService:
                 profile_name=profile_name,
             )
         )
+        profile = await self.resolve_user_profile(db, user_uuid, profile_name=profile_name)
+        await self._enforce_profile_ready(profile)
+        await self._enforce_profile_request_limit(db, profile)
+        await self._enforce_profile_usage_limits(db, profile)
         session_obj = await self._ensure_session(db, user_uuid, conversation_id, agent_template_name)
         if resolved_profile:
             session_obj.profile_name = resolved_profile
+        if profile:
+            session_obj.profile_id = profile.id
+            session_obj.profile_version = profile.version
 
-        # 2. Resolve user's API key
-        user_api_key = await self.resolve_user_api_key(db, user_uuid)
+        # 2. Resolve provider key by employee override, profile key, then platform fallback.
+        user_api_key = await self._resolve_runtime_api_key(db, user_uuid, profile)
 
         # 3. Load conversation history
         history_messages = []
@@ -300,23 +492,68 @@ class AgentService:
         db.add(user_msg)
         await db.flush()
 
-        # 6. Stream LLM response
+        # 6. Stream selected runtime response
         full_response = ""
         assistant_msg_id = str(uuid4())
+        runtime = self._runtime_router().for_profile(profile)
+        run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name)
+        start_time = time.time()
+        tools_used: list = []
+        mcp_servers_used: list = []
+        total_cost = 0.0
 
-        async for chunk in self._call_llm_stream(
-            messages=messages,
-            model=model_name,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=user_api_key,
-        ):
-            full_response += chunk
-            yield {
-                "type": "chunk",
-                "content": chunk,
-                "message_id": assistant_msg_id,
-            }
+        try:
+            if runtime.runtime_type == "hermes":
+                async for event in runtime.stream(
+                    user=user,
+                    profile=profile,
+                    session_id=str(session_obj.id),
+                    user_message=user_message,
+                    project_context=project_context,
+                    api_key=user_api_key,
+                    model=model_name,
+                    provider=settings.llm_provider,
+                ):
+                    db.add(AgentRunEvent(run_id=run.id, event_type=event.get("type", "event"), payload=event))
+                    chunk = event.get("content", "")
+                    if event.get("type") == "done":
+                        tools_used = event.get("tools_used", [])
+                        mcp_servers_used = event.get("mcp_servers_used", [])
+                        total_cost = float(event.get("total_cost", 0.0) or 0.0)
+                    if chunk:
+                        full_response += chunk
+                        yield {
+                            "type": "chunk",
+                            "content": chunk,
+                            "message_id": assistant_msg_id,
+                        }
+            else:
+                async for chunk in runtime.stream(
+                    messages=messages,
+                    model=model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=user_api_key,
+                ):
+                    full_response += chunk
+                    yield {
+                        "type": "chunk",
+                        "content": chunk,
+                        "message_id": assistant_msg_id,
+                    }
+        except Exception as exc:
+            latency = int((time.time() - start_time) * 1000)
+            await self._finish_run(
+                db,
+                run,
+                "failed",
+                latency,
+                error_code=exc.__class__.__name__,
+                error_message=str(exc),
+            )
+            await db.flush()
+            await db.commit()
+            raise
 
         # 7. Save assistant message after streaming completes
         assistant_msg = Message(
@@ -328,6 +565,17 @@ class AgentService:
         )
         db.add(assistant_msg)
         await db.flush()
+        latency = int((time.time() - start_time) * 1000)
+        await self._finish_run(
+            db,
+            run,
+            "completed",
+            latency,
+            output_tokens=assistant_msg.tokens_used,
+            total_cost=total_cost,
+            tools_used=tools_used,
+            mcp_servers_used=mcp_servers_used,
+        )
 
         # Final event
         yield {
@@ -336,6 +584,8 @@ class AgentService:
             "tokens_used": assistant_msg.tokens_used,
             "model": model_name,
             "profile_name": resolved_profile,
+            "profile_id": str(profile.id) if profile else None,
+            "total_cost": total_cost,
             "conversation_id": str(user_msg.session_id),
         }
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session: electronSession, autoUpdater } = require("electron");
 const Store = require("electron-store");
 const fs = require("fs");
 const path = require("path");
@@ -10,13 +10,62 @@ let mainWindow;
 
 const API_URL = process.env.API_URL || "http://localhost:8000/api";
 const EXCLUDED_DIRS = [".git", "node_modules", ".venv", "__pycache__", "venv", "build", "dist", ".next", ".cache"];
-const EXCLUDED_FILES = [".env", ".gitignore", "package-lock.json", "yarn.lock"];
+const EXCLUDED_FILES = [".gitignore", "package-lock.json", "yarn.lock"];
+const EXCLUDED_FILE_PREFIXES = [".env"];
+const EXCLUDED_FILE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx", ".crt"]);
+const SECRET_FILE_PATTERNS = [/secret/i, /credential/i, /private[-_]?key/i];
 const TEXT_EXTENSIONS = new Set([".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".xml", ".sql", ".sh", ".bat", ".cfg", ".ini", ".conf"]);
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_SNIPPET_LENGTH = 600;
 const MAX_CONTEXT_FILE_CHARS = 1500;
 const MAX_CONTEXT_TOTAL_CHARS = 9000;
 const MAX_CONTEXT_FILES = 6;
+const UPDATE_FEED_URL = process.env.UPDATE_FEED_URL || "";
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src http: https: ws: wss:",
+  "font-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+function setupSecurity() {
+  electronSession.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+
+  electronSession.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [CSP],
+        "X-Content-Type-Options": ["nosniff"],
+        "Referrer-Policy": ["no-referrer"],
+      },
+    });
+  });
+}
+
+function configureAutoUpdates() {
+  if (!UPDATE_FEED_URL || !app.isPackaged) {
+    return;
+  }
+
+  autoUpdater.setFeedURL({ url: UPDATE_FEED_URL });
+  autoUpdater.on("error", (error) => {
+    console.error("Auto-update error:", error.message);
+  });
+  autoUpdater.on("update-downloaded", () => {
+    autoUpdater.quitAndInstall();
+  });
+  setTimeout(() => {
+    autoUpdater.checkForUpdates();
+  }, 30000);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -72,8 +121,17 @@ function isIncludedFile(entryName, fullPath) {
   if (EXCLUDED_FILES.includes(entryName)) {
     return false;
   }
+  if (EXCLUDED_FILE_PREFIXES.some((prefix) => entryName.startsWith(prefix))) {
+    return false;
+  }
+  if (SECRET_FILE_PATTERNS.some((pattern) => pattern.test(entryName))) {
+    return false;
+  }
 
   const ext = path.extname(entryName).toLowerCase();
+  if (EXCLUDED_FILE_EXTENSIONS.has(ext)) {
+    return false;
+  }
   if (!TEXT_EXTENSIONS.has(ext)) {
     return false;
   }
@@ -195,7 +253,11 @@ function buildDiffSummary(previousContent, nextContent) {
   };
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  setupSecurity();
+  configureAutoUpdates();
+  createWindow();
+});
 app.on("window-all-closed", () => app.quit());
 
 ipcMain.handle("get-settings", () => ({

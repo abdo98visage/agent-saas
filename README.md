@@ -4,6 +4,9 @@ Multi-user AI agent platform with complete data isolation, admin control, and qu
 
 ## Architecture
 
+For the Hermes runtime integration roadmap and implementation phases, see
+[`docs/EXECUTION PLAN/EXECUTION PLAN.md`](docs/EXECUTION%20PLAN/EXECUTION%20PLAN.md).
+
 ```
 ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
 │  Desktop     │────▶│  FastAPI    │────▶│  PostgreSQL  │
@@ -54,6 +57,25 @@ python seed_templates.py
 
 # 5. Run the server
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Production Stack
+
+`docker-compose.production.yml` runs the admin frontend, FastAPI API, PostgreSQL, Redis, Celery worker/beat, Hermes orchestrator, and nginx HTTPS/WSS reverse proxy.
+
+Before starting production, copy `.env.production.example` to `.env.production`, set strong `SECRET_KEY`, `FERNET_KEY`, `POSTGRES_PASSWORD`, and `HERMES_ORCHESTRATOR_SECRET`, then place TLS files at:
+
+- `deploy/certs/fullchain.pem`
+- `deploy/certs/privkey.pem`
+
+The Hermes runtime container is managed by the orchestrator on the private Docker network and is not published publicly by default.
+
+Operational scripts:
+
+```powershell
+.\deploy\backup.ps1
+.\deploy\restore.ps1 -DatabaseBackup .\backups\agentsaas-db-YYYYMMDD-HHMMSS.sql -HermesProfilesBackup .\backups\agentsaas-hermes-profiles-YYYYMMDD-HHMMSS.tar
+.\deploy\smoke_test.ps1 -BaseUrl https://your-domain.example -AdminEmail admin@fqsaas.com -AdminPassword your-password
 ```
 
 ### Configure
