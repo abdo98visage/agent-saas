@@ -13,10 +13,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:e2e-postgres-password@db:5432/fqsaas_e2e
       REDIS_URL: redis://redis:6379/0
       LLM_PROVIDER: minimax
+      MINIMAX_API_KEY: e2e-minimax-placeholder-not-used-with-mock-hermes
       MINIMAX_BASE_URL: https://api.minimax.chat/v1/chat/completions
       FERNET_KEY: 2Uj8y8t2eL4LTb_EYxZ2Pgoj2AbG0AgtEAGlVKYcJL8=
       HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
-      HERMES_ORCHESTRATOR_SECRET: e2e-hermes-secret
+      HERMES_ORCHESTRATOR_SECRET: e2e-hermes-orchestrator-secret-32chars-minimum
       ALLOWED_ORIGINS: '["http://localhost:3002","http://127.0.0.1:3002"]'
     depends_on:
       db:
@@ -55,7 +56,7 @@ services:
       HERMES_CONTAINER: mock-hermes-runtime
       HERMES_IMAGE: local/mock-hermes-runtime:e2e
       HERMES_INTERNAL_URL: http://mock-hermes:8787
-      HERMES_ORCHESTRATOR_SECRET: e2e-hermes-secret
+      HERMES_ORCHESTRATOR_SECRET: e2e-hermes-orchestrator-secret-32chars-minimum
       HERMES_ORCHESTRATOR_REQUIRE_SECRET: "true"
       HERMES_MANAGED_EXTERNALLY: "true"
       HERMES_RUN_PATH: /runs

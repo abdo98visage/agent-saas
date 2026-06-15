@@ -29,6 +29,11 @@ The platform should run on a VPS with:
 - Local backend tests pass.
 - Frontend lint/build pass.
 - Docker E2E journey passes with mock Hermes runtime.
+- Docker VPS-like stack was run locally on 2026-06-15:
+  - API: `http://localhost:8002` returned healthy.
+  - Admin: `http://localhost:3002/login` returned HTTP 200.
+  - PostgreSQL, Redis, API, Admin, Hermes Orchestrator, and mock Hermes were healthy.
+  - Smoke journey passed end-to-end: admin login, Hermes status, profile creation, profile API key, employee creation, assignment, activation, chat through Hermes, session/run inspection, KPIs, and dashboard observability.
 - Production deployment still needs real VPS validation.
 - Real Hermes runtime still needs compatibility validation.
 - Real MiniMax and Telegram flows still need live validation.
