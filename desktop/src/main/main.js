@@ -21,6 +21,13 @@ const MAX_CONTEXT_FILE_CHARS = 1500;
 const MAX_CONTEXT_TOTAL_CHARS = 9000;
 const MAX_CONTEXT_FILES = 6;
 const UPDATE_FEED_URL = process.env.UPDATE_FEED_URL || "";
+const updateStatus = {
+  configured: Boolean(UPDATE_FEED_URL),
+  packaged: app.isPackaged,
+  state: "idle",
+  message: UPDATE_FEED_URL ? "Update feed configured" : "UPDATE_FEED_URL is not configured",
+  lastCheckedAt: null,
+};
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -56,10 +63,27 @@ function configureAutoUpdates() {
   }
 
   autoUpdater.setFeedURL({ url: UPDATE_FEED_URL });
+  autoUpdater.on("checking-for-update", () => {
+    updateStatus.state = "checking";
+    updateStatus.message = "Checking for updates";
+    updateStatus.lastCheckedAt = new Date().toISOString();
+  });
+  autoUpdater.on("update-available", () => {
+    updateStatus.state = "available";
+    updateStatus.message = "Update available";
+  });
+  autoUpdater.on("update-not-available", () => {
+    updateStatus.state = "current";
+    updateStatus.message = "App is up to date";
+  });
   autoUpdater.on("error", (error) => {
+    updateStatus.state = "error";
+    updateStatus.message = error.message;
     console.error("Auto-update error:", error.message);
   });
   autoUpdater.on("update-downloaded", () => {
+    updateStatus.state = "downloaded";
+    updateStatus.message = "Update downloaded; installing";
     autoUpdater.quitAndInstall();
   });
   setTimeout(() => {
@@ -275,6 +299,27 @@ ipcMain.handle("set-settings", (_, settings) => {
     selectedProjectFiles: [],
     ...store.store,
   };
+});
+
+ipcMain.handle("get-update-status", () => ({ ...updateStatus }));
+
+ipcMain.handle("check-for-updates", async () => {
+  updateStatus.lastCheckedAt = new Date().toISOString();
+  if (!UPDATE_FEED_URL) {
+    updateStatus.state = "not_configured";
+    updateStatus.message = "UPDATE_FEED_URL is not configured";
+    return { ...updateStatus };
+  }
+  if (!app.isPackaged) {
+    updateStatus.state = "not_packaged";
+    updateStatus.message = "Update checks require a packaged release build";
+    return { ...updateStatus };
+  }
+
+  updateStatus.state = "checking";
+  updateStatus.message = "Checking for updates";
+  autoUpdater.checkForUpdates();
+  return { ...updateStatus };
 });
 
 ipcMain.handle("open-folder", async () => {

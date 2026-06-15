@@ -28,6 +28,7 @@ HERMES_HEALTH_PATH = os.getenv("HERMES_HEALTH_PATH", "/health")
 HERMES_DOCKER_NETWORK = os.getenv("HERMES_DOCKER_NETWORK", "")
 HERMES_PUBLISH_PORT = os.getenv("HERMES_PUBLISH_PORT", "false").lower() == "true"
 HERMES_REQUEST_TIMEOUT_SECONDS = float(os.getenv("HERMES_REQUEST_TIMEOUT_SECONDS", "300"))
+HERMES_MANAGED_EXTERNALLY = os.getenv("HERMES_MANAGED_EXTERNALLY", "false").lower() == "true"
 
 app = FastAPI(title="AgentSaaS Hermes Orchestrator", version="0.1.0")
 
@@ -126,6 +127,20 @@ async def healthz():
 @app.get("/status")
 async def status(x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    if HERMES_MANAGED_EXTERNALLY:
+        health = await _hermes_health()
+        return {
+            "installed": health.get("ok", False),
+            "running": health.get("ok", False),
+            "status": "running" if health.get("ok") else "unhealthy",
+            "docker_image": HERMES_IMAGE,
+            "version": None,
+            "last_sync_status": "available" if health.get("ok") else None,
+            "queue_health": "unknown",
+            "run_health": "healthy" if health.get("ok") else "unhealthy",
+            "health": health,
+            "managed_externally": True,
+        }
     runtime = _runtime_status()
     if runtime["running"]:
         health = await _hermes_health()
@@ -149,6 +164,8 @@ async def logs(
 @app.post("/install")
 async def install(x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    if HERMES_MANAGED_EXTERNALLY:
+        return {"status": "managed_externally", **(await status(x_hermes_orchestrator_secret))}
     pull = _docker(["pull", HERMES_IMAGE], timeout=600)
     if pull.returncode != 0:
         return {"status": "failed", "step": "pull", "error": pull.stderr}
@@ -176,6 +193,8 @@ async def install(x_hermes_orchestrator_secret: str | None = Header(default=None
 @app.post("/start")
 async def start(x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    if HERMES_MANAGED_EXTERNALLY:
+        return {"status": "managed_externally", **(await status(x_hermes_orchestrator_secret))}
     result = _docker(["start", HERMES_CONTAINER], timeout=60)
     return {"status": "started" if result.returncode == 0 else "failed", "error": result.stderr or None, **_runtime_status()}
 
@@ -183,6 +202,8 @@ async def start(x_hermes_orchestrator_secret: str | None = Header(default=None))
 @app.post("/restart")
 async def restart(x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    if HERMES_MANAGED_EXTERNALLY:
+        return {"status": "managed_externally", **(await status(x_hermes_orchestrator_secret))}
     result = _docker(["restart", HERMES_CONTAINER], timeout=120)
     return {"status": "restarted" if result.returncode == 0 else "failed", "error": result.stderr or None, **_runtime_status()}
 
@@ -190,6 +211,8 @@ async def restart(x_hermes_orchestrator_secret: str | None = Header(default=None
 @app.post("/stop")
 async def stop(x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    if HERMES_MANAGED_EXTERNALLY:
+        return {"status": "managed_externally", **(await status(x_hermes_orchestrator_secret))}
     result = _docker(["stop", HERMES_CONTAINER], timeout=60)
     return {"status": "stopped" if result.returncode == 0 else "failed", "error": result.stderr or None, **_runtime_status()}
 

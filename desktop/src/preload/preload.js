@@ -9,5 +9,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   buildProjectContext: (rootPath, query, selectedPaths) => ipcRenderer.invoke("build-project-context", rootPath, query, selectedPaths),
   prepareFileWrite: (rootPath, filePath, nextContent) => ipcRenderer.invoke("prepare-file-write", rootPath, filePath, nextContent),
   applyFileWrite: (previewToken) => ipcRenderer.invoke("apply-file-write", previewToken),
+  getUpdateStatus: () => ipcRenderer.invoke("get-update-status"),
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });

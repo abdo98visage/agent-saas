@@ -87,6 +87,20 @@ async def test_orchestrator_has_healthz_for_container_healthcheck():
     assert result["status"] == "healthy"
 
 
+async def test_orchestrator_supports_externally_managed_runtime(monkeypatch):
+    monkeypatch.setattr(hermes_orchestrator_app, "ORCHESTRATOR_REQUIRE_SECRET", False)
+    monkeypatch.setattr(hermes_orchestrator_app, "HERMES_MANAGED_EXTERNALLY", True)
+
+    async def fake_health():
+        return {"ok": True, "status_code": 200}
+
+    monkeypatch.setattr(hermes_orchestrator_app, "_hermes_health", fake_health)
+    result = await hermes_orchestrator_app.status()
+    assert result["managed_externally"] is True
+    assert result["running"] is True
+    assert result["run_health"] == "healthy"
+
+
 async def test_orchestrator_run_proxy_normalizes_hermes_response(monkeypatch):
     monkeypatch.setattr(hermes_orchestrator_app, "ORCHESTRATOR_REQUIRE_SECRET", False)
 

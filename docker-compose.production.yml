@@ -24,12 +24,15 @@ services:
       HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
       HERMES_ORCHESTRATOR_SECRET: ${HERMES_ORCHESTRATOR_SECRET}
     depends_on:
-      - db
-      - redis
-      - hermes-orchestrator
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hermes-orchestrator:
+        condition: service_healthy
     networks:
       - app_net
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=5)\""]
       interval: 30s
@@ -41,10 +44,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     env_file:
       - .env.production
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       - app_net
     healthcheck:
@@ -62,8 +68,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - app_net
     command: celery -A app.celery_app worker --loglevel=info --pool=solo
@@ -77,7 +85,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - app_net
     command: celery -A app.celery_app beat --loglevel=info

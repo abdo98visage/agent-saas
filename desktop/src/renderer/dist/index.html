@@ -360,6 +360,11 @@
         <button class="btn btn-sm btn-outline-warning w-100 mb-2" id="btn-clear-queue">مسح الرسائل المعلقة</button>
 
         <hr class="border-secondary">
+        <h6><i class="bi bi-arrow-repeat"></i> App Updates</h6>
+        <div id="update-status" class="small text-muted mb-2">Update status has not been checked.</div>
+        <button class="btn btn-sm btn-outline-light w-100 mb-2" id="btn-check-updates">Check for updates</button>
+
+        <hr class="border-secondary">
         <h6><i class="bi bi-pencil-square"></i> معاينة تعديل الملف</h6>
         <div id="current-file-path" class="small text-muted mb-2">لم يتم اختيار ملف</div>
         <textarea id="file-editor" class="form-control editor-box mb-2" placeholder="اختر ملفاً من القائمة لعرضه أو تعديله"></textarea>
@@ -440,6 +445,8 @@
             selectedFilesStatus: document.getElementById("selected-files-status"),
             queueStatus: document.getElementById("queue-status"),
             btnClearQueue: document.getElementById("btn-clear-queue"),
+            updateStatus: document.getElementById("update-status"),
+            btnCheckUpdates: document.getElementById("btn-check-updates"),
             currentFilePath: document.getElementById("current-file-path"),
             fileEditor: document.getElementById("file-editor"),
             btnPrepareWrite: document.getElementById("btn-prepare-write"),
@@ -584,6 +591,31 @@
             await setOfflineQueue(remaining);
         }
 
+        function renderUpdateStatus(status) {
+            if (!status) {
+                els.updateStatus.textContent = "Update status unavailable.";
+                return;
+            }
+            const checked = status.lastCheckedAt ? ` - last checked: ${new Date(status.lastCheckedAt).toLocaleString()}` : "";
+            els.updateStatus.textContent = `${status.message || status.state || "unknown"}${checked}`;
+        }
+
+        async function refreshUpdateStatus() {
+            if (!window.electronAPI.getUpdateStatus) {
+                renderUpdateStatus(null);
+                return;
+            }
+            renderUpdateStatus(await window.electronAPI.getUpdateStatus());
+        }
+
+        async function checkForUpdates() {
+            if (!window.electronAPI.checkForUpdates) {
+                renderUpdateStatus(null);
+                return;
+            }
+            renderUpdateStatus(await window.electronAPI.checkForUpdates());
+        }
+
         async function loadSettings() {
             state.settings = await window.electronAPI.getSettings();
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8000/api";
@@ -593,6 +625,7 @@
             state.selectedProjectFiles = new Set(state.settings.selectedProjectFiles || []);
             els.profileBadge.textContent = state.settings.template || "default";
             renderQueueStatus();
+            await refreshUpdateStatus();
 
             if (state.projectPath) {
                 els.projectPath.textContent = state.projectPath;
@@ -963,6 +996,9 @@
         });
         els.btnApplyWrite.addEventListener("click", () => {
             void applyPreparedWrite();
+        });
+        els.btnCheckUpdates.addEventListener("click", () => {
+            void checkForUpdates();
         });
 
         document.addEventListener("keydown", (event) => {

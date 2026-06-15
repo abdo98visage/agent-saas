@@ -4,7 +4,7 @@ per-user API keys, streaming support, and token tracking.
 """
 import json
 import time
-from datetime import datetime, timezone, date, time as dt_time
+from datetime import datetime, date, time as dt_time
 from uuid import uuid4, UUID
 from typing import Optional, Dict, Any, AsyncGenerator
 
@@ -233,7 +233,7 @@ class AgentService:
             profile_version=profile.version if profile else None,
             runtime_type=runtime_type,
             status="running",
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.utcnow(),
             model=model_name,
             provider=settings.llm_provider,
         )
@@ -255,7 +255,7 @@ class AgentService:
         error_message: Optional[str] = None,
     ) -> None:
         run.status = status
-        run.ended_at = datetime.now(timezone.utc)
+        run.ended_at = datetime.utcnow()
         run.latency_ms = latency_ms
         run.output_tokens = output_tokens
         run.total_cost = total_cost

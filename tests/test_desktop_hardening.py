@@ -61,7 +61,19 @@ def test_desktop_has_update_feed_hook():
         main_content = file.read()
     with open("desktop/package.json") as file:
         package_content = file.read()
+    with open("desktop/src/preload/preload.js") as file:
+        preload_content = file.read()
+    with open("desktop/src/renderer/index.html", encoding="utf-8") as file:
+        renderer_content = file.read()
 
     assert "UPDATE_FEED_URL" in main_content
     assert "autoUpdater" in main_content
-    assert '"provider": "generic"' in package_content
+    assert "check-for-updates" in main_content
+    assert "get-update-status" in main_content
+    assert "checkForUpdates" in preload_content
+    assert "getUpdateStatus" in preload_content
+    assert "btn-check-updates" in renderer_content
+    assert "update-status" in renderer_content
+    assert '"electron": "^42.4.0"' in package_content
+    assert '"electron-builder": "^26.15.3"' in package_content
+    assert '"publish"' not in package_content

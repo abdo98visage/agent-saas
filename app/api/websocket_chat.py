@@ -6,7 +6,7 @@ Includes heartbeat for online status tracking and activity logging.
 import json
 from uuid import UUID, uuid4
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
 from sqlalchemy import select, update, func
@@ -78,7 +78,7 @@ async def update_last_seen(user_id: UUID):
         await db.execute(
             update(User)
             .where(User.id == user_id)
-            .values(last_seen_at=datetime.now(timezone.utc))
+            .values(last_seen_at=datetime.utcnow())
         )
         await db.commit()
 
@@ -167,6 +167,9 @@ async def websocket_chat(
         while True:
             # Receive message from client
             data = await websocket.receive_text()
+            if len(data.encode("utf-8")) > settings.websocket_max_message_bytes:
+                await websocket.send_json({"type": "error", "detail": "Message too large"})
+                continue
             try:
                 msg = json.loads(data)
             except json.JSONDecodeError:

@@ -2,28 +2,23 @@
   "name": "fq-saas-desktop",
   "version": "1.0.0",
   "description": "FQ-SaaS Desktop Client",
+  "author": "FQ-SaaS",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder"
   },
   "dependencies": {
-    "electron-store": "^8.1.0",
-    "axios": "^1.7.0"
+    "axios": "^1.7.0",
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.fqsaas.desktop",
     "productName": "FQ-SaaS Workspace",
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "${env.UPDATE_FEED_URL}"
-      }
-    ],
     "win": {
       "target": "nsis"
     }

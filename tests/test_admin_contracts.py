@@ -53,3 +53,18 @@ def test_api_keys_page_uses_owner_dropdowns():
     assert 'apiClient.get("/admin/profiles")' in content
     assert "Select employee" in content
     assert "Select profile" in content
+
+
+def test_dashboard_stats_exposes_operational_observability():
+    source = inspect.getsource(admin_api.get_dashboard_stats)
+
+    for token in [
+        "total_runs_today",
+        "run_failure_rate_today",
+        "avg_latency_ms_today",
+        "api_keys_over_70pct_budget",
+        "key_budget_pressure",
+        "employee_cost",
+        "profile_usage",
+    ]:
+        assert token in source

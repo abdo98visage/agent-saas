@@ -1,185 +1,26 @@
-import hmac
 import secrets
-from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from uuid import UUID
+from typing import Any
 
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.auth import get_current_user
+from app.core.config import settings
 from app.core.db import get_db
 from app.models.telegram_binding import TelegramBinding
 from app.models.user import User
 from app.services.agent_service import AgentService
-from app.api.auth import get_current_user
-from app.core.config import settings
 
 router = APIRouter()
 agent_service = AgentService()
 
 
-@router.post("/webhook")
-async def telegram_webhook(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Receive Telegram webhook updates."""
-    # Verify webhook secret token
-    if settings.telegram_webhook_secret:
-        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if secret != settings.telegram_webhook_secret:
-            raise HTTPException(status_code=403, detail="Invalid webhook secret")
-
-    data = await request.json()
-
-    # Only handle messages
-    if "message" not in data:
-        return {"status": "ok"}
-
-    message = data["message"]
-    text = message.get("text", "")
-    chat_id = message.get("chat", {}).get("id")
-
-    if not chat_id or not text:
-        return {"status": "ok"}
-
-    # Handle /bind <code> command — allows any user to attempt binding
-    if text.startswith("/bind "):
-        bind_code = text[6:].strip()
-        result = await db.execute(
-            select(TelegramBinding).where(TelegramBinding.binding_token == bind_code)
-        )
-        temp_binding = result.scalar_one_or_none()
-        if temp_binding:
-            temp_binding.telegram_chat_id = chat_id
-            await db.flush()
-
-            # Check user status
-            user_result = await db.execute(select(User).where(User.id == temp_binding.user_id))
-            bound_user = user_result.scalar_one_or_none()
-
-            if not bound_user:
-                return {
-                    "status": "ok",
-                    "chat_id": chat_id,
-                    "response": "❌ المستخدم غير موجود في المنصة.",
-                    "bound": False,
-                }
-            if not bound_user.is_activated:
-                return {
-                    "status": "ok",
-                    "chat_id": chat_id,
-                    "response": "⚠️ حسابك غير مفعل بعد. افتح تطبيق FQ-SaaS على جهازك وقم بتفعيل الحساب بكود الدعوة.",
-                    "bound": True,
-                }
-            if not bound_user.is_active:
-                return {
-                    "status": "ok",
-                    "chat_id": chat_id,
-                    "response": "🔒 حسابك معطل. تواصل مع الإدارة لإعادة التفعيل.",
-                    "bound": True,
-                }
-
-            return {
-                "status": "ok",
-                "chat_id": chat_id,
-                "response": "✅ تم ربط حسابك بنجاح! يمكنك الآن استخدام التلجرام.",
-                "user_id": str(temp_binding.user_id),
-                "bound": True,
-            }
-        else:
-            return {
-                "status": "ok",
-                "chat_id": chat_id,
-                "response": "❌ كود الربط غير صحيح. تأكد من الكود وحاول مرة أخرى.",
-                "bound": False,
-            }
-
-    # Handle /start command
-    if text == "/start":
-        # Check if this chat is already bound
-        existing_bind = await db.execute(
-            select(TelegramBinding).where(TelegramBinding.telegram_chat_id == chat_id)
-        )
-        if existing_bind.scalar_one_or_none():
-            return {
-                "status": "ok",
-                "chat_id": chat_id,
-                "response": "مرحباً! حسابك مرتبط بالفعل. اكتب رسالتك وسأرد عليك.",
-            }
-        return {
-            "status": "ok",
-            "chat_id": chat_id,
-            "response": "👋 مرحباً! هذا البوت مخصص لموظفي منصة FQ-SaaS فقط.\n\nلربط حسابك:\n1. افتح تطبيق FQ-SaaS على جهازك\n2. اذهب للإعدادات (Ctrl+,)\n3. اضغط 'توليد كود' في قسم التلجرام\n4. أرسل الكود هنا بصيغة: /bind <الكود>\n\nإذا لم يكن لديك حساب، تواصل مع الإدارة.",
-        }
-
-    # For all other messages — user MUST be bound AND active
-    result = await db.execute(
-        select(TelegramBinding).where(TelegramBinding.telegram_chat_id == chat_id)
-    )
-    binding = result.scalar_one_or_none()
-    if not binding:
-        return {
-            "status": "ok",
-            "chat_id": chat_id,
-            "response": "🚫 هذا البوت مخصص لموظفي منصة FQ-SaaS فقط. تواصل مع الإدارة للتسجيل.",
-        }
-
-    user_id = binding.user_id
-
-    # Check user status
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    bound_user = user_result.scalar_one_or_none()
-
-    if not bound_user:
-        return {
-            "status": "ok",
-            "chat_id": chat_id,
-            "response": "❌ المستخدم غير موجود في المنصة. تواصل مع الإدارة.",
-        }
-    if not bound_user.is_activated:
-        return {
-            "status": "ok",
-            "chat_id": chat_id,
-            "response": "⚠️ حسابك غير مفعل. افتح تطبيق FQ-SaaS وقم بتفعيل الحساب بكود الدعوة.",
-        }
-    if not bound_user.is_active:
-        return {
-            "status": "ok",
-            "chat_id": chat_id,
-            "response": "🔒 حسابك معطل. تواصل مع الإدارة لإعادة التفعيل.",
-        }
-
-    # Process message through agent
-    try:
-        result = await agent_service.run_agent(
-            db=db,
-            user_id=str(user_id),
-            conversation_id=None,
-            user_message=text,
-            agent_template_name="default",
-        )
-        response_text = result.get("content", "No response")
-    except Exception as e:
-        response_text = f"Error: {str(e)}"
-
-    return {
-        "status": "ok",
-        "chat_id": chat_id,
-        "response": response_text,
-        "user_id": str(user_id),
-    }
-
-
-@router.get("/send/{chat_id}")
-async def send_telegram_message(
-    chat_id: int,
-    text: str = "",
-):
-    """Send a message to a Telegram chat via Bot API.
-    This is called internally after processing a webhook response."""
+async def _send_telegram_message(chat_id: int, text: str) -> dict[str, Any]:
     if not settings.telegram_bot_token:
-        return {"error": "Telegram bot token not configured"}
+        return {"sent": False, "error": "Telegram bot token is not configured"}
 
-    import httpx
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
@@ -187,9 +28,156 @@ async def send_telegram_message(
             json={
                 "chat_id": chat_id,
                 "text": text,
+                "disable_web_page_preview": True,
             },
         )
-        return response.json()
+        payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+        if not response.is_success:
+            return {"sent": False, "status_code": response.status_code, "telegram_response": payload}
+        return {"sent": True, "status_code": response.status_code, "telegram_response": payload}
+
+
+async def _reply(chat_id: int, text: str, **extra: Any) -> dict[str, Any]:
+    delivery = await _send_telegram_message(chat_id, text)
+    return {
+        "status": "ok",
+        "chat_id": chat_id,
+        "response": text,
+        "delivery": delivery,
+        **extra,
+    }
+
+
+async def _get_bound_user(db: AsyncSession, chat_id: int) -> tuple[TelegramBinding | None, User | None]:
+    result = await db.execute(
+        select(TelegramBinding).where(TelegramBinding.telegram_chat_id == chat_id)
+    )
+    binding = result.scalar_one_or_none()
+    if not binding:
+        return None, None
+
+    user_result = await db.execute(select(User).where(User.id == binding.user_id))
+    return binding, user_result.scalar_one_or_none()
+
+
+def _inactive_user_message(user: User | None) -> str | None:
+    if not user:
+        return "The linked platform user no longer exists. Contact the administrator."
+    if not user.is_activated:
+        return "Your platform account is not activated yet. Open the desktop app and activate it with your invite code."
+    if not user.is_active:
+        return "Your platform account is disabled. Contact the administrator to reactivate it."
+    return None
+
+
+@router.post("/webhook")
+async def telegram_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Receive Telegram webhook updates and send the bot reply through Telegram."""
+    if settings.telegram_webhook_secret:
+        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if secret != settings.telegram_webhook_secret:
+            raise HTTPException(status_code=403, detail="Invalid webhook secret")
+
+    data = await request.json()
+    message = data.get("message")
+    if not message:
+        return {"status": "ok", "ignored": True}
+
+    text = (message.get("text") or "").strip()
+    chat_id = message.get("chat", {}).get("id")
+    if not chat_id or not text:
+        return {"status": "ok", "ignored": True}
+
+    if text.startswith("/bind "):
+        bind_code = text[6:].strip()
+        result = await db.execute(
+            select(TelegramBinding).where(TelegramBinding.binding_token == bind_code)
+        )
+        binding = result.scalar_one_or_none()
+        if not binding:
+            return await _reply(
+                chat_id,
+                "Invalid bind code. Generate a new code from the desktop app and try again.",
+                bound=False,
+            )
+
+        binding.telegram_chat_id = chat_id
+        await db.flush()
+
+        user_result = await db.execute(select(User).where(User.id == binding.user_id))
+        bound_user = user_result.scalar_one_or_none()
+        inactive_message = _inactive_user_message(bound_user)
+        if inactive_message:
+            return await _reply(chat_id, inactive_message, bound=bool(bound_user))
+
+        return await _reply(
+            chat_id,
+            "Telegram has been linked successfully. You can now send platform messages here.",
+            user_id=str(binding.user_id),
+            bound=True,
+        )
+
+    if text == "/start":
+        binding, user = await _get_bound_user(db, chat_id)
+        if binding:
+            inactive_message = _inactive_user_message(user)
+            if inactive_message:
+                return await _reply(chat_id, inactive_message, bound=True)
+            return await _reply(
+                chat_id,
+                "Your Telegram account is already linked. Send a message and the platform agent will answer.",
+                bound=True,
+            )
+        return await _reply(
+            chat_id,
+            "Welcome. This bot is for platform employees only. Generate a Telegram bind code from the desktop app, then send /bind <code> here.",
+            bound=False,
+        )
+
+    binding, bound_user = await _get_bound_user(db, chat_id)
+    if not binding:
+        return await _reply(
+            chat_id,
+            "This bot is for platform employees only. Contact the administrator to get access.",
+            bound=False,
+        )
+
+    inactive_message = _inactive_user_message(bound_user)
+    if inactive_message:
+        return await _reply(chat_id, inactive_message, user_id=str(binding.user_id), bound=True)
+
+    try:
+        result = await agent_service.run_agent(
+            db=db,
+            user_id=str(binding.user_id),
+            conversation_id=None,
+            user_message=text,
+            agent_template_name="default",
+        )
+        response_text = result.get("content") or "No response was generated."
+    except Exception:
+        response_text = "The agent could not process this message. Try again later."
+
+    return await _reply(
+        chat_id,
+        response_text,
+        user_id=str(binding.user_id),
+        bound=True,
+    )
+
+
+@router.get("/send/{chat_id}")
+async def send_telegram_message(
+    chat_id: int,
+    text: str = "",
+):
+    """Send a message to a Telegram chat via Bot API."""
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    return await _send_telegram_message(chat_id, text)
 
 
 @router.post("/bind")
@@ -198,12 +186,11 @@ async def bind_telegram(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Bind current user to their Telegram chat_id. Creates or updates binding."""
+    """Bind current user to their Telegram chat_id."""
     telegram_chat_id = req.get("telegram_chat_id")
     if not telegram_chat_id:
         raise HTTPException(status_code=400, detail="telegram_chat_id is required")
 
-    # Check if this chat_id is already bound to another user
     existing_by_chat = await db.execute(
         select(TelegramBinding).where(TelegramBinding.telegram_chat_id == telegram_chat_id)
     )
@@ -215,16 +202,15 @@ async def bind_telegram(
                 "binding_token": existing.binding_token,
                 "telegram_chat_id": telegram_chat_id,
             }
-        # Bound to different user — remove old binding
-        db.delete(existing)
+        await db.delete(existing)
 
-    # Check if user already has a binding
     existing_user_binding = await db.execute(
         select(TelegramBinding).where(TelegramBinding.user_id == user.id)
     )
     user_binding = existing_user_binding.scalar_one_or_none()
     if user_binding:
         user_binding.telegram_chat_id = telegram_chat_id
+        binding = user_binding
     else:
         binding = TelegramBinding(
             user_id=user.id,
@@ -237,7 +223,7 @@ async def bind_telegram(
     return {
         "message": "Telegram chat bound successfully",
         "telegram_chat_id": telegram_chat_id,
-        "binding_token": binding.binding_token if not user_binding else user_binding.binding_token,
+        "binding_token": binding.binding_token,
     }
 
 
@@ -247,22 +233,28 @@ async def generate_telegram_bind_code(
     user: User = Depends(get_current_user),
 ):
     """Generate a one-time bind code for Telegram binding from Desktop."""
-    code = secrets.token_hex(6)  # 12-char code
-
-    # Store as a temporary binding record (telegram_chat_id=0 means not yet bound)
     existing = await db.execute(
         select(TelegramBinding).where(TelegramBinding.user_id == user.id)
     )
     existing_binding = existing.scalar_one_or_none()
     if existing_binding:
-        return {"message": "Already bound", "telegram_chat_id": existing_binding.telegram_chat_id}
+        if existing_binding.telegram_chat_id != 0:
+            return {
+                "message": "Already bound",
+                "telegram_chat_id": existing_binding.telegram_chat_id,
+            }
+        return {
+            "bind_code": existing_binding.binding_token,
+            "message": "Send /bind <code> to the Telegram bot",
+        }
 
-    temp_binding = TelegramBinding(
+    code = secrets.token_hex(6)
+    binding = TelegramBinding(
         user_id=user.id,
-        telegram_chat_id=0,  # Placeholder — will be updated when bot receives /bind
+        telegram_chat_id=0,
         binding_token=code,
     )
-    db.add(temp_binding)
+    db.add(binding)
     await db.flush()
 
     return {
@@ -277,7 +269,7 @@ async def bind_with_code(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Called by Desktop after bot confirms binding."""
+    """Confirm that Telegram updated the temporary binding through /bind."""
     binding_code = req.get("binding_code", "")
     if not binding_code:
         raise HTTPException(status_code=400, detail="binding_code is required")
@@ -291,15 +283,10 @@ async def bind_with_code(
     binding = result.scalar_one_or_none()
     if not binding:
         raise HTTPException(status_code=404, detail="Invalid or expired bind code")
-    if binding.telegram_chat_id != 0:
-        return {"message": "Already bound", "telegram_chat_id": binding.telegram_chat_id}
-
-    # The bot should have updated telegram_chat_id via webhook
-    # If not yet updated, the user needs to send /bind to the bot first
     if binding.telegram_chat_id == 0:
         raise HTTPException(
             status_code=400,
-            detail="Not bound yet. Send /bind <code> to the Telegram bot first."
+            detail="Not bound yet. Send /bind <code> to the Telegram bot first.",
         )
 
     return {"message": "Telegram bound successfully", "telegram_chat_id": binding.telegram_chat_id}

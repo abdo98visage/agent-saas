@@ -410,8 +410,8 @@ async def view_sessions(
     query = select(Session).order_by(desc(Session.created_at))
     if user_id: query = query.where(Session.user_id == user_id)
     if profile_name: query = query.where(Session.profile_name == profile_name)
-    if date_from: query = query.where(Session.created_at >= date_from)
-    if date_to: query = query.where(Session.created_at <= date_to)
+    if date_from: query = query.where(Session.created_at >= datetime.fromisoformat(date_from))
+    if date_to: query = query.where(Session.created_at <= datetime.fromisoformat(date_to))
     query = query.limit(limit)
     result = await db.execute(query)
     sessions = result.scalars().all()
@@ -870,10 +870,10 @@ async def get_online_users(
     admin: User = Depends(get_current_admin_user),
 ):
     """Get users who are currently online (last_seen within 2 minutes)."""
-    from datetime import timedelta, timezone
+    from datetime import timedelta
     from sqlalchemy import and_
     
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+    cutoff = datetime.utcnow() - timedelta(minutes=2)
     
     result = await db.execute(
         select(User)
@@ -944,13 +944,13 @@ async def get_dashboard_stats(
     admin: User = Depends(get_current_admin_user),
 ):
     """Get comprehensive dashboard statistics for the admin panel."""
-    from datetime import timedelta, timezone, date
+    from datetime import timedelta, date
     from app.models.user_activity import UserActivity
     
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     week_ago = (date.today() - timedelta(days=7)).isoformat()
-    cutoff_online = datetime.now(timezone.utc) - timedelta(minutes=2)
+    cutoff_online = datetime.utcnow() - timedelta(minutes=2)
     
     # Total employees
     total_employees = await db.execute(
@@ -996,11 +996,10 @@ async def get_dashboard_stats(
     total_sessions = total_sessions.scalar() or 0
     
     # Sessions today
-    today_str = f"{date.today()}T00:00:00"
     today_start_dt = datetime.combine(date.today(), datetime.min.time())
     week_start_dt = datetime.combine(date.today() - timedelta(days=7), datetime.min.time())
     sessions_today = await db.execute(
-        select(func.count(Session.id)).where(Session.created_at >= today_str)
+        select(func.count(Session.id)).where(Session.created_at >= today_start_dt)
     )
     sessions_today = sessions_today.scalar() or 0
     
@@ -1029,6 +1028,44 @@ async def get_dashboard_stats(
         select(func.count(AgentRun.id)).where(AgentRun.created_at >= today_start_dt, AgentRun.status == "failed")
     )
     failed_runs_today = failed_runs_today.scalar() or 0
+
+    total_runs_today = await db.execute(
+        select(func.count(AgentRun.id)).where(AgentRun.created_at >= today_start_dt)
+    )
+    total_runs_today = total_runs_today.scalar() or 0
+
+    avg_latency_today = await db.execute(
+        select(func.coalesce(func.avg(AgentRun.latency_ms), 0)).where(
+            AgentRun.created_at >= today_start_dt,
+            AgentRun.latency_ms.is_not(None),
+        )
+    )
+    avg_latency_today = round(float(avg_latency_today.scalar() or 0.0), 1)
+
+    run_failure_rate_today = (
+        round((failed_runs_today / total_runs_today) * 100, 2)
+        if total_runs_today
+        else 0.0
+    )
+
+    key_pressure_result = await db.execute(
+        select(UserApiKey).where(UserApiKey.is_active == True)
+    )
+    key_budget_pressure = []
+    for key in key_pressure_result.scalars().all():
+        percent_used = round((key.spent_today / key.daily_budget) * 100, 2) if key.daily_budget else 0.0
+        if percent_used >= 70:
+            key_budget_pressure.append({
+                "id": str(key.id),
+                "owner_type": key.owner_type,
+                "user_id": str(key.user_id) if key.user_id else None,
+                "profile_id": str(key.profile_id) if key.profile_id else None,
+                "provider": key.provider,
+                "spent_today": key.spent_today,
+                "daily_budget": key.daily_budget,
+                "percent_used": percent_used,
+                "alert_level": "critical" if percent_used >= 90 else "warning",
+            })
     
     # Messages this week
     week_messages = await db.execute(
@@ -1054,7 +1091,7 @@ async def get_dashboard_stats(
     # Activity counts by type today
     activity_counts = await db.execute(
         select(UserActivity.action, func.count(UserActivity.id))
-        .where(UserActivity.created_at >= today_str)
+        .where(UserActivity.created_at >= today_start_dt)
         .group_by(UserActivity.action)
     )
     activity_counts = {row[0]: row[1] for row in activity_counts.all()}
@@ -1092,6 +1129,31 @@ async def get_dashboard_stats(
         for row in profile_usage_result.all()
     ]
 
+    employee_cost_result = await db.execute(
+        select(
+            User.email,
+            User.full_name,
+            func.count(AgentRun.id),
+            func.coalesce(func.sum(AgentRun.total_cost), 0),
+            func.coalesce(func.sum(AgentRun.output_tokens), 0),
+        )
+        .join(AgentRun, AgentRun.user_id == User.id)
+        .where(AgentRun.created_at >= week_start_dt)
+        .group_by(User.email, User.full_name)
+        .order_by(desc(func.coalesce(func.sum(AgentRun.total_cost), 0)))
+        .limit(10)
+    )
+    employee_cost = [
+        {
+            "email": row[0],
+            "full_name": row[1],
+            "runs": row[2],
+            "total_cost": float(row[3] or 0.0),
+            "output_tokens": int(row[4] or 0),
+        }
+        for row in employee_cost_result.all()
+    ]
+
     try:
         hermes = await hermes_orchestrator.status()
     except Exception as exc:
@@ -1113,6 +1175,10 @@ async def get_dashboard_stats(
             "active_profiles": active_profiles,
             "failed_profile_syncs": failed_profile_syncs,
             "failed_runs_today": failed_runs_today,
+            "total_runs_today": total_runs_today,
+            "run_failure_rate_today": run_failure_rate_today,
+            "avg_latency_ms_today": avg_latency_today,
+            "api_keys_over_70pct_budget": len(key_budget_pressure),
         },
         "top_users": [{
             "id": str(u.id),
@@ -1125,5 +1191,7 @@ async def get_dashboard_stats(
         "messages_per_day": messages_per_day,
         "tokens_per_day": tokens_per_day,
         "profile_usage": profile_usage,
+        "employee_cost": employee_cost,
+        "key_budget_pressure": key_budget_pressure,
         "hermes": hermes,
     }

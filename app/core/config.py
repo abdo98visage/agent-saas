@@ -1,3 +1,4 @@
+from cryptography.fernet import Fernet
 from pydantic_settings import BaseSettings
 
 
@@ -5,20 +6,42 @@ class Settings(BaseSettings):
     # Application
     app_name: str = "FQ-SaaS"
     debug: bool = False
+    environment: str = "development"
     version: str = "0.1.0"
-    allowed_origins: list = ["http://localhost:3000", "http://localhost:8000"]
+    allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
     # Auth / JWT
     secret_key: str = "change-me-in-production"
     fernet_key: str = "change-me-in-production-generate-with-fernet"
 
     def model_post_init(self, __context) -> None:
-        if not self.debug and self.secret_key == "change-me-in-production":
+        is_production = self.environment.lower() == "production" or not self.debug
+        if not is_production:
+            return
+        if self.secret_key == "change-me-in-production" or len(self.secret_key) < 32:
             raise RuntimeError("SECURITY ERROR: SECRET_KEY is still the default value. Set a strong secret key in .env (at least 32 characters).")
-        if not self.debug and self.fernet_key == "change-me-in-production-generate-with-fernet":
+        if self.fernet_key in {
+            "change-me-in-production",
+            "change-me-in-production-generate-with-fernet",
+            "replace-with-a-fernet-key",
+        }:
             raise RuntimeError("SECURITY ERROR: FERNET_KEY is still the default value. Generate one: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
-        if not self.debug and self.postgres_password == "postgres":
+        try:
+            Fernet(self.fernet_key.encode())
+        except Exception as exc:
+            raise RuntimeError("SECURITY ERROR: FERNET_KEY must be a valid Fernet key.") from exc
+        if self.postgres_password in {"postgres", "password", "change-me", "replace-with-strong-postgres-password"}:
             raise RuntimeError("SECURITY ERROR: POSTGRES_PASSWORD is still the default value. Set a strong password in .env.")
+        if self.hermes_orchestrator_url and len(self.hermes_orchestrator_secret) < 32:
+            raise RuntimeError("SECURITY ERROR: HERMES_ORCHESTRATOR_SECRET must be at least 32 characters in production.")
+        if self.llm_provider not in {"minimax", "openai", "ollama"}:
+            raise RuntimeError("SECURITY ERROR: LLM_PROVIDER must be minimax, openai, or ollama in production.")
+        if self.is_minimax and not self.minimax_api_key:
+            raise RuntimeError("SECURITY ERROR: MINIMAX_API_KEY is required when LLM_PROVIDER=minimax.")
+        if self.is_openai and not self.openai_api_key:
+            raise RuntimeError("SECURITY ERROR: OPENAI_API_KEY is required when LLM_PROVIDER=openai.")
+        if "*" in self.allowed_origins:
+            raise RuntimeError("SECURITY ERROR: ALLOWED_ORIGINS cannot contain '*' in production.")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
 
@@ -32,6 +55,10 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    rate_limit_backend: str = "redis"
+    rate_limit_per_minute: int = 100
+    auth_rate_limit_per_minute: int = 10
+    websocket_max_message_bytes: int = 32768
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"

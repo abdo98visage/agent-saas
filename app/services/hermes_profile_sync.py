@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.models.profile import Profile
@@ -61,7 +61,7 @@ class HermesProfileSyncService:
         profile.hermes_workspace_path = result.get("workspace_path") or profile.hermes_workspace_path
         profile.hermes_sync_status = result.get("status", "synced")
         profile.hermes_sync_error = None
-        profile.last_synced_at = datetime.now(timezone.utc)
+        profile.last_synced_at = datetime.utcnow()
         return result
 
 
