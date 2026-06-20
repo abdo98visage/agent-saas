@@ -32,6 +32,11 @@ class AgentService:
         self, db: AsyncSession, user_id: UUID, profile_name: Optional[str] = None
     ) -> Optional[Profile]:
         """Resolve the active profile for a user by name or highest priority."""
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise ValueError("Employee not found")
+
         query = (
             select(ProfileUser, Profile)
             .join(Profile)
@@ -42,6 +47,13 @@ class AgentService:
         result = await db.execute(query)
         rows = result.all()
         if not rows:
+            if profile_name and user.role == "admin":
+                admin_profile_result = await db.execute(
+                    select(Profile).where(Profile.name == profile_name, Profile.is_active == True)
+                )
+                admin_profile = admin_profile_result.scalar_one_or_none()
+                if admin_profile:
+                    return admin_profile
             if profile_name:
                 raise ValueError("Profile is not assigned to this employee or is inactive")
             return None

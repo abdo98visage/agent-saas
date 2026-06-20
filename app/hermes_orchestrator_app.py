@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+import shutil
 from typing import Any
 
 import httpx
@@ -120,6 +121,16 @@ def _normalize_run_result(result: dict[str, Any]) -> dict[str, Any]:
         "mcp_servers_used": result.get("mcp_servers_used") or result.get("mcp_servers") or [],
         "total_cost": result.get("total_cost") or result.get("cost") or 0.0,
     }
+
+
+def _resolve_profile_path(base: Path, relative_path: str) -> Path:
+    normalized = Path(relative_path)
+    if normalized.is_absolute():
+        raise HTTPException(status_code=400, detail=f"Invalid absolute path: {relative_path}")
+    target = (base / normalized).resolve()
+    if base.resolve() not in target.parents and target != base.resolve():
+        raise HTTPException(status_code=400, detail=f"Invalid path escape: {relative_path}")
+    return target
 
 
 @app.get("/healthz")
@@ -246,9 +257,9 @@ async def sync_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: st
     workspace = HERMES_WORKSPACE_ROOT / slug
     workspace.mkdir(parents=True, exist_ok=True)
     for filename, content in (payload.get("files") or {}).items():
-        if "/" in filename or "\\" in filename:
-            raise HTTPException(status_code=400, detail=f"Invalid filename: {filename}")
-        (workspace / filename).write_text(content or "", encoding="utf-8")
+        target = _resolve_profile_path(workspace, filename)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content or "", encoding="utf-8")
     (workspace / "profile.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
         "status": "synced",
@@ -265,10 +276,7 @@ async def delete_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: 
         raise HTTPException(status_code=400, detail="hermes_profile_id is required")
     workspace = HERMES_WORKSPACE_ROOT / hermes_profile_id
     if workspace.exists():
-        for file in workspace.iterdir():
-            if file.is_file():
-                file.unlink()
-        workspace.rmdir()
+        shutil.rmtree(workspace)
     return {"status": "deleted", "hermes_profile_id": hermes_profile_id}
 
 

@@ -1,12 +1,46 @@
 from datetime import datetime
 from typing import Any
+import re
 
 from app.models.profile import Profile
 from app.services.hermes_orchestrator import HermesOrchestratorClient, HermesOrchestratorUnavailable, hermes_orchestrator
 
 
+def _slugify_skill_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    return slug or "skill"
+
+
 def build_profile_sync_payload(profile: Profile) -> dict[str, Any]:
-    skills_md = "\n".join(f"- {skill}" for skill in (profile.skills or []))
+    declared_skills = [skill.strip() for skill in (profile.skills or []) if skill and skill.strip()]
+    files: dict[str, str] = {
+        "SOUL.md": profile.soul_md or "",
+        "workspace/AGENTS.md": profile.agents_md or "",
+        "system_prompt.md": profile.system_prompt or "",
+        "skills/platform-profile/SKILL.md": (
+            "---\n"
+            "name: platform-profile\n"
+            f"description: Role-specific operating guide for the {profile.name} profile.\n"
+            "---\n\n"
+            f"# {profile.name} profile context\n\n"
+            "Use this skill as the role-specific operating guide for this Hermes profile.\n\n"
+            "## System instructions\n\n"
+            f"{profile.system_prompt or 'No additional system instructions were configured.'}\n\n"
+            "## Declared skill tags\n\n"
+            + ("\n".join(f"- {skill}" for skill in declared_skills) if declared_skills else "- none")
+        ),
+    }
+    for skill in declared_skills:
+        skill_slug = _slugify_skill_name(skill)
+        files[f"skills/{skill_slug}/SKILL.md"] = (
+            "---\n"
+            f"name: {skill_slug}\n"
+            f"description: Profile-local skill for {skill}.\n"
+            "---\n\n"
+            f"# {skill}\n\n"
+            f"This profile declares the `{skill}` capability.\n"
+            "Prioritize this domain when the user's request matches it.\n"
+        )
     return {
         "profile": {
             "id": str(profile.id),
@@ -26,12 +60,7 @@ def build_profile_sync_payload(profile: Profile) -> dict[str, Any]:
             "approval_required_tools": profile.approval_required_tools or [],
             "memory_settings": profile.memory_settings or {},
         },
-        "files": {
-            "AGENTS.md": profile.agents_md or "",
-            "soul.md": profile.soul_md or "",
-            "skills.md": skills_md,
-            "system_prompt.md": profile.system_prompt or "",
-        },
+        "files": files,
     }
 
 

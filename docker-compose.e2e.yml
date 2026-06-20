@@ -81,6 +81,8 @@ services:
   hermes-runtime:
     build: .
     command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
+    volumes:
+      - e2e_hermes_profiles:/data/hermes/profiles
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\""]
       interval: 10s
