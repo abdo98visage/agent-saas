@@ -3,10 +3,12 @@ WebSocket endpoint for real-time chat streaming.
 Replaces SSE with bidirectional WebSocket connection.
 Includes heartbeat for online status tracking and activity logging.
 """
+import asyncio
 import json
 from uuid import UUID, uuid4
 from typing import Optional
 from datetime import datetime
+from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
 from sqlalchemy import select, update, func
@@ -27,7 +29,20 @@ router = APIRouter()
 agent_service = AgentService()
 
 
-async def get_websocket_user(token: str) -> Optional[User]:
+@dataclass(frozen=True)
+class WebSocketUser:
+    id: UUID
+    email: str
+    full_name: str | None
+    department: str | None
+    role: str
+    is_active: bool
+    is_activated: bool
+    max_requests_per_day: int
+    max_tokens_per_day: int
+
+
+async def get_websocket_user(token: str) -> Optional[WebSocketUser]:
     """Extract user from WebSocket query token."""
     payload = decode_access_token(token)
     if not payload:
@@ -40,13 +55,23 @@ async def get_websocket_user(token: str) -> Optional[User]:
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             return None
-        return user
+        return WebSocketUser(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            department=user.department,
+            role=user.role,
+            is_active=user.is_active,
+            is_activated=user.is_activated,
+            max_requests_per_day=user.max_requests_per_day,
+            max_tokens_per_day=user.max_tokens_per_day,
+        )
 
 
 async def track_kpi(user_id: str):
     """Track KPI: increment daily messages."""
     today = date.today().isoformat()
-    async with async_session() as db:
+    async with async_session.begin() as db:
         result = await db.execute(
             select(KPI).where(KPI.user_id == user_id, KPI.date == today)
         )
@@ -56,12 +81,11 @@ async def track_kpi(user_id: str):
         else:
             kpi = KPI(user_id=user_id, date=today, messages_sent=1)
             db.add(kpi)
-        await db.commit()
 
 
 async def log_user_activity(user_id: UUID, action: str, details: dict = None, session_id: UUID = None):
     """Log user activity for real-time monitoring."""
-    async with async_session() as db:
+    async with async_session.begin() as db:
         activity = UserActivity(
             user_id=user_id,
             action=action,
@@ -69,18 +93,16 @@ async def log_user_activity(user_id: UUID, action: str, details: dict = None, se
             session_id=session_id,
         )
         db.add(activity)
-        await db.commit()
 
 
 async def update_last_seen(user_id: UUID):
     """Update user's last_seen_at timestamp for online status."""
-    async with async_session() as db:
+    async with async_session.begin() as db:
         await db.execute(
             update(User)
             .where(User.id == user_id)
             .values(last_seen_at=datetime.utcnow())
         )
-        await db.commit()
 
 
 @router.websocket("/ws/chat")
@@ -128,7 +150,7 @@ async def websocket_chat(
     # 2. Resolve or create conversation
     active_conversation_id = conversation_id
 
-    async with async_session() as db:
+    async with async_session.begin() as db:
         # Quota check
         quota_ok = await check_request_quota(db, str(user.id), user.max_requests_per_day)
         if not quota_ok:
@@ -159,8 +181,6 @@ async def websocket_chat(
             db.add(new_session)
             await db.flush()
             active_conversation_id = str(new_session.id)
-
-        await db.commit()
 
     # 3. Main message loop
     try:
@@ -199,7 +219,7 @@ async def websocket_chat(
                 await websocket.send_json({"type": "error", "detail": "Empty message"})
                 continue
 
-            async with async_session() as db:
+            async with async_session.begin() as db:
                 if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
                     await websocket.send_json({"type": "error", "detail": "Daily request quota exceeded"})
                     continue
@@ -221,10 +241,11 @@ async def websocket_chat(
             resolved_profile_id = None
             tokens_used = 0
             total_cost = 0.0
+            done_payload = None
 
             try:
-                async with async_session() as db:
-                    async for chunk in agent_service.run_agent_stream(
+                async with async_session.begin() as db:
+                    stream = agent_service.run_agent_stream(
                         db=db,
                         user_id=str(user.id),
                         conversation_id=active_conversation_id,
@@ -232,32 +253,59 @@ async def websocket_chat(
                         agent_template_name=agent_template_name,
                         project_context=project_context,
                         profile_name=profile_name,
-                    ):
-                        event_type = chunk.get("type", "chunk")
+                    )
+                    try:
+                        async for chunk in stream:
+                            event_type = chunk.get("type", "chunk")
 
-                        if event_type == "chunk":
-                            content = chunk.get("content", "")
-                            full_response += content
-                            await websocket.send_json({
-                                "type": "chunk",
-                                "content": content,
-                                "message_id": assistant_msg_id,
-                            })
-                        elif event_type == "done":
-                            model_name = chunk.get("model", "")
-                            resolved_profile = chunk.get("profile_name", "")
-                            resolved_profile_id = chunk.get("profile_id")
-                            tokens_used = chunk.get("tokens_used", 0)
-                            total_cost = float(chunk.get("total_cost", 0.0) or 0.0)
-                            await db.commit()
+                            if event_type == "chunk":
+                                content = chunk.get("content", "")
+                                full_response += content
+                                await websocket.send_json({
+                                    "type": "chunk",
+                                    "content": content,
+                                    "message_id": assistant_msg_id,
+                                })
+                            elif event_type == "done":
+                                model_name = chunk.get("model", "")
+                                resolved_profile = chunk.get("profile_name", "")
+                                resolved_profile_id = chunk.get("profile_id")
+                                tokens_used = chunk.get("tokens_used", 0)
+                                total_cost = float(chunk.get("total_cost", 0.0) or 0.0)
+                                done_payload = {
+                                    "type": "done",
+                                    "message_id": assistant_msg_id,
+                                    "tokens_used": tokens_used,
+                                    "model": model_name,
+                                    "profile_name": resolved_profile,
+                                    "conversation_id": active_conversation_id,
+                                }
+                    finally:
+                        await stream.aclose()
 
+                    if done_payload is None:
+                        raise RuntimeError("Agent stream completed without a done event")
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 await websocket.send_json({"type": "error", "detail": f"Streaming error: {str(e)}"})
                 continue
 
+            if done_payload is None:
+                done_payload = {
+                    "type": "done",
+                    "message_id": assistant_msg_id,
+                    "tokens_used": tokens_used,
+                    "model": model_name,
+                    "profile_name": resolved_profile,
+                    "conversation_id": active_conversation_id,
+                }
+
+            await websocket.send_json(done_payload)
+
             # Track token usage & KPI (outside the streaming session)
             if tokens_used and model_name:
-                async with async_session() as db:
+                async with async_session.begin() as db:
                     await record_token_usage(
                         db,
                         str(user.id),
@@ -267,7 +315,6 @@ async def websocket_chat(
                         provider=settings.llm_provider,
                         profile_id=resolved_profile_id,
                     )
-                    await db.commit()
 
             await track_kpi(str(user.id))
 
@@ -278,25 +325,12 @@ async def websocket_chat(
                 session_id=UUID(active_conversation_id) if active_conversation_id else None,
             )
 
-            # Send done event
-            await websocket.send_json({
-                "type": "done",
-                "message_id": assistant_msg_id,
-                "tokens_used": tokens_used,
-                "model": model_name,
-                "profile_name": resolved_profile,
-                "conversation_id": active_conversation_id,
-            })
-
     except WebSocketDisconnect:
         pass
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         try:
             await websocket.send_json({"type": "error", "detail": str(e)})
-        except Exception:
-            pass
-    finally:
-        try:
-            await log_user_activity(user.id, "ws_disconnected", details={})
         except Exception:
             pass

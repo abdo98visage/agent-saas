@@ -6,7 +6,7 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder --config electron-builder.yml"
   },
   "dependencies": {
     "axios": "^1.7.0",
@@ -15,12 +15,5 @@
   "devDependencies": {
     "electron": "^42.4.0",
     "electron-builder": "^26.15.3"
-  },
-  "build": {
-    "appId": "com.fqsaas.desktop",
-    "productName": "FQ-SaaS Workspace",
-    "win": {
-      "target": "nsis"
-    }
   }
 }

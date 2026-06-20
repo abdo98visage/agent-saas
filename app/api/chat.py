@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from app.core.config import settings
-from app.core.db import get_db
+from app.core.db import async_session, get_db
 from app.api.auth import get_current_user
 from app.models.user import User
 from app.models.session import Session
@@ -191,6 +191,8 @@ async def send_message_stream(
         await db.flush()
 
     conversation_id = str(session_obj.id)
+    user_id = user.id
+    await db.commit()
 
     async def event_generator():
         try:
@@ -198,31 +200,36 @@ async def send_message_stream(
             import json
             yield f"event: start\ndata: {json.dumps({'conversation_id': conversation_id}, ensure_ascii=False)}\n\n"
 
-            async for chunk in agent_service.run_agent_stream(
-                db=db,
-                user_id=str(user.id),
-                conversation_id=conversation_id,
-                user_message=message,
-                agent_template_name=agent_template_name,
-                project_context=project_context,
-                profile_name=profile_name,
-            ):
-                if chunk.get("type") == "done" and chunk.get("tokens_used"):
-                    await record_token_usage(
-                        db,
-                        str(user.id),
-                        chunk.get("model", ""),
-                        chunk["tokens_used"],
-                        float(chunk.get("total_cost", 0.0) or 0.0),
-                        provider=settings.llm_provider,
-                        profile_id=chunk.get("profile_id"),
-                    )
-                event_type = chunk.get("type", "message")
-                data = {k: v for k, v in chunk.items() if k != "type"}
-                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+            async with async_session.begin() as stream_db:
+                stream = agent_service.run_agent_stream(
+                    db=stream_db,
+                    user_id=str(user_id),
+                    conversation_id=conversation_id,
+                    user_message=message,
+                    agent_template_name=agent_template_name,
+                    project_context=project_context,
+                    profile_name=profile_name,
+                )
+                try:
+                    async for chunk in stream:
+                        if chunk.get("type") == "done" and chunk.get("tokens_used"):
+                            await record_token_usage(
+                                stream_db,
+                                str(user_id),
+                                chunk.get("model", ""),
+                                chunk["tokens_used"],
+                                float(chunk.get("total_cost", 0.0) or 0.0),
+                                provider=settings.llm_provider,
+                                profile_id=chunk.get("profile_id"),
+                            )
+                        event_type = chunk.get("type", "message")
+                        data = {k: v for k, v in chunk.items() if k != "type"}
+                        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                finally:
+                    await stream.aclose()
 
-            # Track KPI
-            await _track_kpi(db, user.id)
+                # Track KPI
+                await _track_kpi(stream_db, user_id)
 
         except Exception as e:
             import json

@@ -13,7 +13,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:e2e-postgres-password@db:5432/fqsaas_e2e
       REDIS_URL: redis://redis:6379/0
       LLM_PROVIDER: minimax
-      MINIMAX_API_KEY: e2e-minimax-placeholder-not-used-with-mock-hermes
+      MINIMAX_API_KEY: e2e-minimax-placeholder-not-used-with-local-hermes
       MINIMAX_BASE_URL: https://api.minimax.chat/v1/chat/completions
       FERNET_KEY: 2Uj8y8t2eL4LTb_EYxZ2Pgoj2AbG0AgtEAGlVKYcJL8=
       HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
@@ -39,6 +39,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8002/api
     ports:
       - "3002:3000"
     environment:
@@ -53,9 +55,9 @@ services:
     build: .
     environment:
       HERMES_WORKSPACE_ROOT: /data/hermes/profiles
-      HERMES_CONTAINER: mock-hermes-runtime
-      HERMES_IMAGE: local/mock-hermes-runtime:e2e
-      HERMES_INTERNAL_URL: http://mock-hermes:8787
+      HERMES_CONTAINER: agentsaas-local-hermes-runtime
+      HERMES_IMAGE: local/agentsaas-hermes-runtime:e2e
+      HERMES_INTERNAL_URL: http://hermes-runtime:8787
       HERMES_ORCHESTRATOR_SECRET: e2e-hermes-orchestrator-secret-32chars-minimum
       HERMES_ORCHESTRATOR_REQUIRE_SECRET: "true"
       HERMES_MANAGED_EXTERNALLY: "true"
@@ -65,7 +67,7 @@ services:
     volumes:
       - e2e_hermes_profiles:/data/hermes/profiles
     depends_on:
-      mock-hermes:
+      hermes-runtime:
         condition: service_healthy
     command: uvicorn app.hermes_orchestrator_app:app --host 0.0.0.0 --port 8788
     healthcheck:
@@ -76,9 +78,9 @@ services:
     networks:
       - e2e_net
 
-  mock-hermes:
+  hermes-runtime:
     build: .
-    command: uvicorn app.mock_hermes_runtime_app:app --host 0.0.0.0 --port 8787
+    command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\""]
       interval: 10s
@@ -87,7 +89,7 @@ services:
     networks:
       e2e_net:
         aliases:
-          - mock-hermes-runtime
+          - agentsaas-local-hermes-runtime
 
   db:
     image: postgres:15-alpine

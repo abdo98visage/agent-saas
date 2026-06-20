@@ -309,7 +309,7 @@
         <hr class="border-secondary">
         <div class="mb-3">
             <label class="form-label">API URL</label>
-            <input type="text" class="form-control form-control-sm" id="setting-api-url" value="http://localhost:8000/api">
+            <input type="text" class="form-control form-control-sm" id="setting-api-url" value="http://localhost:8002/api">
         </div>
         <div class="mb-3">
             <label class="form-label">Token (JWT)</label>
@@ -397,7 +397,7 @@
                 </div>
                 <div class="text-start mb-3">
                     <label class="form-label small">API URL</label>
-                    <input type="text" class="form-control form-control-sm" id="act-api-url" value="http://localhost:8000/api">
+                    <input type="text" class="form-control form-control-sm" id="act-api-url" value="http://localhost:8002/api">
                 </div>
                 <button class="btn btn-primary-custom w-100" id="btn-activate">تفعيل الحساب</button>
                 <div id="act-status" class="mt-2 small"></div>
@@ -618,7 +618,7 @@
 
         async function loadSettings() {
             state.settings = await window.electronAPI.getSettings();
-            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8000/api";
+            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
             els.settingToken.value = state.settings.token || "";
             els.settingTemplate.value = state.settings.template || "default";
             state.projectPath = state.settings.projectPath || null;
@@ -706,16 +706,28 @@
             renderConversations();
         }
 
-        function connectWebSocket() {
+        async function getWebSocketToken() {
+            try {
+                const data = await apiRequest("/auth/ws-token", { method: "POST" });
+                return data.access_token || state.settings.token;
+            } catch (error) {
+                console.warn("Falling back to current token for WebSocket:", error.message);
+                return state.settings.token;
+            }
+        }
+
+        async function connectWebSocket() {
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                 return;
             }
 
-            const baseUrl = (state.settings.apiUrl || "").replace(/\/$/, "");
-            const wsProtocol = baseUrl.startsWith("https") ? "wss" : "ws";
-            const host = baseUrl.replace(/https?:\/\//, "");
+            const apiUrl = new URL(state.settings.apiUrl || "http://localhost:8002/api");
+            const wsProtocol = apiUrl.protocol === "https:" ? "wss" : "ws";
+            const apiPath = apiUrl.pathname.replace(/\/$/, "");
+            const pathPrefix = apiPath.endsWith("/api") ? apiPath.slice(0, -4) : apiPath;
             const template = state.settings.template || "default";
-            const wsUrl = `${wsProtocol}://${host}/api/chat/ws/chat?token=${state.settings.token}&agent_template_name=${template}`;
+            const wsToken = await getWebSocketToken();
+            const wsUrl = `${wsProtocol}://${apiUrl.host}${pathPrefix}/api/chat/ws/chat?token=${encodeURIComponent(wsToken)}&agent_template_name=${encodeURIComponent(template)}`;
 
             state.ws = new WebSocket(wsUrl);
 
@@ -746,7 +758,9 @@
                     clearInterval(state.heartbeatInterval);
                     state.heartbeatInterval = null;
                 }
-                setTimeout(connectWebSocket, 3000);
+                setTimeout(() => {
+                    void connectWebSocket();
+                }, 3000);
             };
 
             state.ws.onerror = (error) => {

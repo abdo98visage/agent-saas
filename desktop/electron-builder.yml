@@ -5,13 +5,13 @@ directories:
   buildResources: build
 files:
   - src/**/*
+  - desktop-config.json
   - package.json
 win:
   target:
     - target: nsis
       arch:
         - x64
-  sign: false
 nsis:
   oneClick: false
   perMachine: true

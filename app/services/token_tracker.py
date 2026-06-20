@@ -30,14 +30,16 @@ async def _resolve_active_key(
 
     for owner_filter, id_filter in candidates:
         result = await db.execute(
-            select(UserApiKey).where(
+            select(UserApiKey)
+            .where(
                 owner_filter,
                 id_filter,
                 UserApiKey.provider == provider,
                 UserApiKey.is_active == True,
             )
+            .limit(1)
         )
-        key_obj = result.scalar_one_or_none()
+        key_obj = result.scalars().first()
         if key_obj:
             return key_obj
     return None

@@ -21,7 +21,7 @@ Completed:
 - Frontend Docker build accepts `NEXT_PUBLIC_API_URL`, defaulting to `/api`.
 - Production compose now runs `alembic upgrade head` before starting the API.
 - Production compose now waits for healthy DB/Redis/orchestrator services where supported.
-- Backend Docker image now includes Docker CLI for Hermes orchestrator lifecycle operations.
+- The default Docker stack now runs a platform-owned Hermes-compatible runtime service without mounting the host Docker socket.
 - Nginx now includes HSTS, CSP, frame, content-type, referrer, and permissions hardening headers.
 - Production settings now reject weak/default secrets, invalid Fernet keys, wildcard CORS, mock LLM provider, and missing provider keys in production.
 - Telegram webhook now sends replies via Telegram Bot API instead of only returning JSON to Telegram.
@@ -51,13 +51,13 @@ Blocked local validation:
 - Backend test suite: `101 passed`.
 - Frontend lint: passed.
 - Frontend production build: passed.
-- Docker E2E journey with mock Hermes runtime: passed.
+- Docker E2E journey with local Hermes-compatible runtime: passed.
 - Frontend dependency audit: failed with moderate vulnerabilities through `next` / `postcss`.
 - Desktop dependency audit: failed with high vulnerabilities through Electron and Electron Builder dependency chain.
 
 Important limitation:
 
-The Docker E2E journey proves the platform contract and main user journey, but it uses a mock Hermes runtime. It does not prove that the real runtime container, real LLM provider, real Telegram bot, or real production VPS network path are fully working.
+The Docker E2E journey proves the platform contract and main user journey with the local Hermes-compatible runtime. It does not prove a third-party Hermes image, real LLM provider, real Telegram bot, or real production VPS network path are fully working.
 
 ## Readiness matrix
 
@@ -65,7 +65,7 @@ The Docker E2E journey proves the platform contract and main user journey, but i
 | --- | ---: | --- | --- |
 | Backend API core | 75% | Needs hardening | Tests pass, but production migration, real provider, quotas, and security gates still need work. |
 | Admin frontend | 85% | Needs VPS verification | Build/lint/audit pass and API URL fallback is fixed; verify public-domain browser requests on VPS. |
-| Hermes orchestration | 70% | Needs real runtime verification | Docker CLI is included and mock E2E contract exists; real Hermes container lifecycle must pass on VPS. |
+| Hermes orchestration | 75% | Needs VPS verification | The local Docker runtime contract passes without Docker socket exposure; the VPS network path must still pass. |
 | Telegram integration | 75% | Needs live bot verification | Webhook now sends replies through Telegram Bot API; must verify with real bot token/webhook. |
 | Desktop app | 75% | Needs signing/update validation | Audit/build pass; code signing and real update feed remain release-environment tasks. |
 | Deployment/VPS | 70% | Needs staging execution | Compose now has migrations, health waits, headers, and preflight; backups and real VPS checks remain. |
@@ -88,7 +88,7 @@ Files:
 
 Problem:
 
-The frontend client falls back to `http://localhost:8000/api`. In a production browser, `localhost` means the user's machine, not the VPS. The production compose file does not clearly inject `NEXT_PUBLIC_API_URL` at build time.
+Previously, the frontend client fell back to `http://localhost:8000/api`. In a production browser, `localhost` means the user's machine, not the VPS.
 
 Risk:
 
@@ -117,7 +117,7 @@ Files:
 
 Problem:
 
-The production orchestrator mounts `/var/run/docker.sock`, but the Python image does not clearly install the Docker CLI. The E2E test uses `HERMES_MANAGED_EXTERNALLY=true`, which bypasses real Docker lifecycle control.
+The old production design mounted `/var/run/docker.sock` and relied on Docker lifecycle control from inside the orchestrator.
 
 Risk:
 
@@ -125,8 +125,9 @@ The production orchestrator may report failures when trying to start/stop/restar
 
 Implemented fix:
 
-- Backend image installs Docker CLI.
-- Orchestrator lifecycle paths remain available.
+- The default production compose now runs `hermes-runtime` as a private Compose service.
+- The orchestrator talks to it over the internal Docker network with `HERMES_MANAGED_EXTERNALLY=true`.
+- The default compose no longer mounts `/var/run/docker.sock`.
 
 Remaining requirement:
 
@@ -148,7 +149,7 @@ Files:
 
 Problem:
 
-The current E2E journey validates the platform using a mock Hermes runtime, not the real runtime.
+The current E2E journey validates the platform using the local Hermes-compatible runtime, not an external third-party Hermes image.
 
 Risk:
 
@@ -313,7 +314,7 @@ Acceptance test:
 - Expired/reused tokens fail.
 - Logs do not expose bearer tokens.
 
-### 9. Frontend stores access token in localStorage
+### 9. Frontend session storage
 
 Files:
 
@@ -321,23 +322,23 @@ Files:
 
 Problem:
 
-JWT access tokens are stored in `localStorage`.
+Previously, JWT access tokens were stored in `localStorage`.
 
 Risk:
 
 Any XSS vulnerability can steal long-lived admin tokens.
 
-Required fix:
+Implemented fix:
 
-- Prefer secure, HttpOnly, SameSite cookies for admin sessions.
-- If bearer tokens remain, shorten token lifetime and add refresh/rotation strategy.
-- Add strict CSP headers.
+- Admin web login now receives an HttpOnly, SameSite cookie.
+- The frontend validates sessions through `/api/auth/me` instead of reading `localStorage`.
+- Bearer token responses remain for desktop compatibility.
 
 Acceptance test:
 
 - Login works without exposing access token to JavaScript, or token exposure is explicitly accepted with compensating controls.
 
-### 10. Docker socket exposure is high privilege
+### 10. Docker socket exposure was removed from the default stack
 
 Files:
 
@@ -345,16 +346,16 @@ Files:
 
 Problem:
 
-The orchestrator mounts `/var/run/docker.sock`.
+The old orchestrator design mounted `/var/run/docker.sock`.
 
 Risk:
 
 Compromise of the orchestrator can become host-level compromise.
 
-Required fix:
+Implemented fix:
 
-- Prefer a constrained external runtime manager.
-- If Docker socket remains, isolate it on a dedicated VPS, run least-privilege networking, and restrict reachable services.
+- The default production compose runs a private `hermes-runtime` service.
+- The orchestrator no longer needs host Docker socket access for the default Docker path.
 
 Acceptance test:
 

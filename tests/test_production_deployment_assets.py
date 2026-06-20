@@ -10,9 +10,9 @@ def test_production_compose_has_private_hermes_and_nginx():
     assert "nginx:" in content
     assert "443:443" in content
     assert "HERMES_ORCHESTRATOR_SECRET" in content
-    assert "HERMES_PUBLISH_PORT: \"false\"" in content
-    assert "AGENTSAAS_DOCKER_NETWORK" in content
-    assert "/var/run/docker.sock:/var/run/docker.sock" in content
+    assert "hermes-runtime:" in content
+    assert "HERMES_MANAGED_EXTERNALLY: \"true\"" in content
+    assert "/var/run/docker.sock:/var/run/docker.sock" not in content
     assert "healthcheck:" in content
     assert "/healthz" in content
     assert "alembic upgrade head" in content
@@ -98,13 +98,13 @@ def test_smoke_script_exercises_full_platform_journey():
         assert token in content
 
 
-def test_docker_e2e_compose_uses_mock_hermes_runtime():
+def test_docker_e2e_compose_uses_local_hermes_runtime():
     compose = (ROOT / "docker-compose.e2e.yml").read_text(encoding="utf-8")
     docker_script = (ROOT / "deploy" / "docker_e2e.ps1").read_text(encoding="utf-8")
 
-    assert "mock-hermes:" in compose
-    assert "app.mock_hermes_runtime_app:app" in compose
-    assert "HERMES_INTERNAL_URL: http://mock-hermes:8787" in compose
+    assert "hermes-runtime:" in compose
+    assert "app.local_hermes_runtime_app:app" in compose
+    assert "HERMES_INTERNAL_URL: http://hermes-runtime:8787" in compose
     assert "alembic upgrade head" in compose
     assert "python seed_templates.py" in compose
     assert "smoke_test.ps1" in docker_script

@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ConfigDict, EmailStr
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -34,6 +35,6 @@ class UserResponse(BaseModel):
     is_active: bool
     max_tokens_per_day: int
     max_requests_per_day: int
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

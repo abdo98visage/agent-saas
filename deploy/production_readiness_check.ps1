@@ -64,8 +64,18 @@ if ($composeContent -notmatch "NEXT_PUBLIC_API_URL") {
   Fail "Production compose must pass NEXT_PUBLIC_API_URL to the frontend build."
 }
 
-if ($composeContent -notmatch "/var/run/docker.sock:/var/run/docker.sock") {
-  Fail "Production compose must make the Hermes Docker socket exposure explicit."
+if ($composeContent -match "/var/run/docker.sock:/var/run/docker.sock") {
+  Fail "Production compose must not mount the Docker socket for the default platform-owned Hermes runtime."
+}
+
+if ($composeContent -notmatch "hermes-runtime:") {
+  Fail "Production compose must include a platform-owned hermes-runtime service for Docker validation."
+}
+
+try {
+  docker compose --env-file $EnvFile -f $ComposeFile config | Out-Null
+} catch {
+  Fail "Docker Compose config validation failed with ${EnvFile}: $($_.Exception.Message)"
 }
 
 Write-Host "Production readiness config check passed."

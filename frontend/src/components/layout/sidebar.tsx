@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import apiClient from "@/lib/api/client";
 import {
   LayoutDashboard,
   Users,
@@ -36,9 +37,12 @@ const navItems = [
 function SidebarContent() {
   const pathname = usePathname();
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    window.location.href = "/login";
+  const handleLogout = async () => {
+    try {
+      await apiClient.post("/auth/logout");
+    } finally {
+      window.location.href = "/login";
+    }
   };
 
   return (

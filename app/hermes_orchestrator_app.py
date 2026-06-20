@@ -1,8 +1,8 @@
 """
 Internal Hermes Orchestrator service.
 
-This service is intended to run on the private Docker network with Docker socket access.
-FastAPI calls this service through fixed endpoints instead of executing Docker commands itself.
+This service runs on the private Docker network. In production-like Docker stacks Hermes can be
+managed by Compose/Kubernetes, so lifecycle endpoints must not require Docker CLI/socket access.
 """
 import json
 import os
@@ -41,13 +41,16 @@ def _authorize(secret: str | None) -> None:
 
 
 def _docker(args: list[str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", *args],
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            ["docker", *args],
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(["docker", *args], 127, "", "docker CLI is not available")
 
 
 def _container_inspect() -> dict[str, Any] | None:
@@ -155,6 +158,15 @@ async def logs(
     x_hermes_orchestrator_secret: str | None = Header(default=None),
 ):
     _authorize(x_hermes_orchestrator_secret)
+    if HERMES_MANAGED_EXTERNALLY:
+        health = await _hermes_health()
+        return {
+            "status": "managed_externally",
+            "logs": [],
+            "message": "Hermes runtime is managed by the container platform; use platform logs for runtime output.",
+            "health": health,
+            "limit": limit,
+        }
     result = _docker(["logs", "--tail", str(limit), HERMES_CONTAINER], timeout=20)
     if result.returncode != 0:
         return {"status": "not_available", "logs": [result.stderr.strip()] if result.stderr else []}

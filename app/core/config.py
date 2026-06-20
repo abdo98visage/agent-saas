@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     fernet_key: str = "change-me-in-production-generate-with-fernet"
 
     def model_post_init(self, __context) -> None:
-        is_production = self.environment.lower() == "production" or not self.debug
+        is_production = self.environment.lower() == "production"
         if not is_production:
             return
         if self.secret_key == "change-me-in-production" or len(self.secret_key) < 32:

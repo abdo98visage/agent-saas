@@ -22,8 +22,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await authApi.login(email, password);
-      localStorage.setItem("token", response.data.access_token);
+      await authApi.login(email, password);
       toast.success("Signed in");
       router.push("/");
     } catch (error: unknown) {

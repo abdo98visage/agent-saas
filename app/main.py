@@ -40,6 +40,8 @@ async def lifespan(app: FastAPI):
             await app.state.redis.ping()
         except Exception as exc:
             app.state.redis = None
+            if settings.environment.lower() == "production":
+                raise RuntimeError("Redis rate limiter is required in production") from exc
             print(f"Redis rate limiter unavailable, falling back to in-memory limits: {exc}")
     yield
     if app.state.redis:

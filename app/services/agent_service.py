@@ -172,6 +172,8 @@ class AgentService:
             return
         if not profile.is_active:
             raise ValueError("Profile is inactive")
+        if profile.allowed_providers and settings.llm_provider not in profile.allowed_providers:
+            raise RuntimeError(f"Provider {settings.llm_provider} is not allowed for this profile")
         if profile.runtime_type == "hermes" and profile.hermes_sync_status != "synced":
             raise RuntimeError(
                 f"Hermes profile is not ready: {profile.hermes_sync_status or 'pending'}"
@@ -248,6 +250,7 @@ class AgentService:
         status: str,
         latency_ms: int,
         output_tokens: int = 0,
+        input_tokens: int = 0,
         total_cost: float = 0.0,
         tools_used: Optional[list] = None,
         mcp_servers_used: Optional[list] = None,
@@ -257,6 +260,7 @@ class AgentService:
         run.status = status
         run.ended_at = datetime.utcnow()
         run.latency_ms = latency_ms
+        run.input_tokens = input_tokens
         run.output_tokens = output_tokens
         run.total_cost = total_cost
         run.tools_used = tools_used or []
@@ -349,6 +353,7 @@ class AgentService:
                 tools_used = runtime_result.get("tools_used", [])
                 mcp_servers_used = runtime_result.get("mcp_servers_used", [])
                 total_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
+                usage = runtime_result.get("usage") or {}
             else:
                 response_text = await runtime.complete(
                     messages=messages,
@@ -360,6 +365,7 @@ class AgentService:
                 tools_used = []
                 mcp_servers_used = []
                 total_cost = 0.0
+                usage = {}
         except Exception as exc:
             latency = int((time.time() - start_time) * 1000)
             await self._finish_run(
@@ -390,7 +396,7 @@ class AgentService:
             session_id=user_msg.session_id,
             role="assistant",
             content=response_text,
-            tokens_used=self._estimate_tokens(response_text),
+            tokens_used=int(usage.get("output_tokens") or usage.get("completion_tokens") or self._estimate_tokens(response_text)),
         )
         db.add(assistant_msg)
         await db.flush()
@@ -402,6 +408,7 @@ class AgentService:
             "completed",
             latency,
             output_tokens=assistant_msg.tokens_used,
+            input_tokens=int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
             total_cost=total_cost,
             tools_used=tools_used,
             mcp_servers_used=mcp_servers_used,
@@ -501,6 +508,7 @@ class AgentService:
         tools_used: list = []
         mcp_servers_used: list = []
         total_cost = 0.0
+        usage: dict[str, Any] = {}
 
         try:
             if runtime.runtime_type == "hermes":
@@ -520,6 +528,7 @@ class AgentService:
                         tools_used = event.get("tools_used", [])
                         mcp_servers_used = event.get("mcp_servers_used", [])
                         total_cost = float(event.get("total_cost", 0.0) or 0.0)
+                        usage = event.get("usage") or {}
                     if chunk:
                         full_response += chunk
                         yield {
@@ -561,7 +570,7 @@ class AgentService:
             session_id=user_msg.session_id,
             role="assistant",
             content=full_response,
-            tokens_used=self._estimate_tokens(full_response),
+            tokens_used=int(usage.get("output_tokens") or usage.get("completion_tokens") or self._estimate_tokens(full_response)),
         )
         db.add(assistant_msg)
         await db.flush()
@@ -572,6 +581,7 @@ class AgentService:
             "completed",
             latency,
             output_tokens=assistant_msg.tokens_used,
+            input_tokens=int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
             total_cost=total_cost,
             tools_used=tools_used,
             mcp_servers_used=mcp_servers_used,
@@ -720,7 +730,7 @@ class AgentService:
         auth_key = api_key or settings.openai_api_key
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
+                settings.openai_base_url,
                 headers={"Authorization": f"Bearer {auth_key}"},
                 json={
                     "model": model,
@@ -745,7 +755,7 @@ class AgentService:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
                 "POST",
-                "https://api.openai.com/v1/chat/completions",
+                settings.openai_base_url,
                 headers={"Authorization": f"Bearer {auth_key}"},
                 json={
                     "model": model,

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import apiClient from "@/lib/api/client";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -11,10 +12,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Skip auth check on login page
     if (pathname === "/login") return;
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-    }
+    let cancelled = false;
+
+    apiClient.get("/auth/me").catch(() => {
+      if (!cancelled) {
+        router.push("/login");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [pathname, router]);
 
   return <>{children}</>;

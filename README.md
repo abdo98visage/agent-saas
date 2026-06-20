@@ -63,19 +63,45 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 `docker-compose.production.yml` runs the admin frontend, FastAPI API, PostgreSQL, Redis, Celery worker/beat, Hermes orchestrator, and nginx HTTPS/WSS reverse proxy.
 
+### Local Docker Validation
+
+Run the full platform locally before moving to a VPS:
+
+```powershell
+.\deploy\docker_e2e.ps1 -Rebuild
+```
+
+This starts PostgreSQL, Redis, API, admin frontend, Hermes orchestrator, and a local Hermes-compatible runtime inside Docker, then runs the smoke journey end to end.
+
 Before starting production, copy `.env.production.example` to `.env.production`, set strong `SECRET_KEY`, `FERNET_KEY`, `POSTGRES_PASSWORD`, and `HERMES_ORCHESTRATOR_SECRET`, then place TLS files at:
 
 - `deploy/certs/fullchain.pem`
 - `deploy/certs/privkey.pem`
 
-The Hermes runtime container is managed by the orchestrator on the private Docker network and is not published publicly by default.
+The default Docker stack runs the Hermes-compatible runtime as an internal service on the private Docker network and does not mount the host Docker socket.
+
+Start production with the env file explicitly:
+
+```powershell
+.\deploy\production_readiness_check.ps1
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+```
 
 Operational scripts:
 
 ```powershell
 .\deploy\backup.ps1
 .\deploy\restore.ps1 -DatabaseBackup .\backups\agentsaas-db-YYYYMMDD-HHMMSS.sql -HermesProfilesBackup .\backups\agentsaas-hermes-profiles-YYYYMMDD-HHMMSS.tar
-.\deploy\smoke_test.ps1 -BaseUrl https://your-domain.example -AdminEmail admin@fqsaas.com -AdminPassword your-password
+.\deploy\smoke_test.ps1 -BaseUrl https://your-domain.example -AdminEmail admin@company.com -AdminPassword your-password
+```
+
+### Desktop Build
+
+The desktop app reads its default API URL from `desktop/desktop-config.json`. For local Docker testing it defaults to `http://localhost:8002/api`. Before building a VPS release, set that file to your public API URL, for example `https://your-domain.example/api`, then run:
+
+```powershell
+cd desktop
+npm run build
 ```
 
 ### Configure
@@ -204,5 +230,5 @@ uvicorn app.main:app --reload
 
 Running `seed_templates.py` creates:
 
-- **Admin user**: `admin@fqsaas.com` / `admin123`
+- **Admin user**: `admin@company.com` / `admin123`
 - **4 Agent Templates**: default, it, marketing, hr

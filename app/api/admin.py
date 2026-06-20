@@ -296,7 +296,7 @@ async def delete_profile(
                 await hermes_orchestrator.delete_profile(profile.hermes_profile_id)
             except Exception:
                 pass
-        db.delete(profile)
+        await db.delete(profile)
         message = "Profile deleted"
     audit = AuditLog(user_id=str(admin.id), action="delete_profile",
                      details={"profile_id": str(profile_id), "name": profile.name})
@@ -391,7 +391,7 @@ async def remove_assignment(
                      details={"assignment_id": str(assignment_id), "user_id": str(assignment.user_id),
                               "profile_id": str(assignment.profile_id)})
     db.add(audit)
-    db.delete(assignment)
+    await db.delete(assignment)
     return {"message": "Assignment removed"}
 
 
@@ -593,7 +593,7 @@ async def delete_api_key(
     result = await db.execute(select(UserApiKey).where(UserApiKey.id == key_id))
     key_obj = result.scalar_one_or_none()
     if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
-    db.delete(key_obj)
+    await db.delete(key_obj)
     audit = AuditLog(user_id=str(admin.id), action="delete_api_key",
                      details={"key_id": str(key_id), "provider": key_obj.provider,
                               "owner_type": key_obj.owner_type})
@@ -831,7 +831,7 @@ async def delete_agent_template(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Agent template not found")
-    db.delete(template)
+    await db.delete(template)
     audit = AuditLog(user_id=str(admin.id), action="delete_agent_template",
                      details={"name": name})
     db.add(audit)
@@ -855,7 +855,7 @@ async def delete_session(
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    db.delete(session)
+    await db.delete(session)
     audit = AuditLog(user_id=str(admin.id), action="delete_session",
                      details={"session_id": str(session_id), "user_id": str(session.user_id)})
     db.add(audit)
@@ -912,7 +912,12 @@ async def get_activity_feed(
     """Get real-time activity feed for monitoring."""
     from app.models.user_activity import UserActivity
     
-    query = select(UserActivity).join(User).order_by(desc(UserActivity.created_at))
+    query = (
+        select(UserActivity)
+        .join(User)
+        .options(selectinload(UserActivity.user))
+        .order_by(desc(UserActivity.created_at))
+    )
     
     if user_id:
         query = query.where(UserActivity.user_id == user_id)

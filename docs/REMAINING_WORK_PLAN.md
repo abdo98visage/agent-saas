@@ -6,7 +6,7 @@ Last updated: 2026-06-15
 
 - Local backend tests pass.
 - Frontend lint and production build pass.
-- Docker E2E journey passes with the mock Hermes runtime:
+- Docker E2E journey passes with the local Hermes-compatible runtime:
   - API health
   - admin login
   - Hermes status
@@ -79,7 +79,7 @@ Run against VPS:
 
 ## Recommended Execution Order
 
-1. VPS dry run with mock Hermes using the Docker E2E path.
+1. VPS dry run with the local Hermes-compatible runtime using the Docker E2E path.
 2. VPS run with real Hermes image.
 3. Real MiniMax key and cost controls.
 4. Desktop installer and update feed.

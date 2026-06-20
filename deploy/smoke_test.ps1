@@ -71,8 +71,8 @@ $profile = Invoke-Json -Method POST -Uri "$BaseUrl/api/admin/profiles" -Headers 
   max_requests_per_day = 1000
   daily_cost_budget = 100000
   allowed_providers = @($Provider)
-  allowed_tools = @("mock_tool")
-  allowed_mcp_servers = @("mock_mcp")
+  allowed_tools = @("local_runtime")
+  allowed_mcp_servers = @()
 }
 Assert-Truthy $profile.id "Profile creation did not return id"
 if ($profile.hermes_sync_status -ne "synced") {

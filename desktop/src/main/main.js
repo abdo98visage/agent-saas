@@ -8,7 +8,27 @@ const pendingWrites = new Map();
 
 let mainWindow;
 
-const API_URL = process.env.API_URL || "http://localhost:8000/api";
+function readDesktopConfig() {
+  const candidates = [
+    path.join(app.getAppPath(), "desktop-config.json"),
+    path.join(__dirname, "..", "..", "desktop-config.json"),
+  ];
+
+  for (const configPath of candidates) {
+    try {
+      if (fs.existsSync(configPath)) {
+        return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      }
+    } catch (error) {
+      console.warn("Failed to read desktop config:", error.message);
+    }
+  }
+
+  return {};
+}
+
+const desktopConfig = readDesktopConfig();
+const API_URL = process.env.API_URL || desktopConfig.apiUrl || "http://localhost:8002/api";
 const EXCLUDED_DIRS = [".git", "node_modules", ".venv", "__pycache__", "venv", "build", "dist", ".next", ".cache"];
 const EXCLUDED_FILES = [".gitignore", "package-lock.json", "yarn.lock"];
 const EXCLUDED_FILE_PREFIXES = [".env"];
