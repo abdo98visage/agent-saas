@@ -6,7 +6,9 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --config electron-builder.yml"
+    "build": "electron-builder --config electron-builder.js",
+    "build:release": "electron-builder --config electron-builder.js --publish never",
+    "release:check": "node ./scripts/release-check.js"
   },
   "dependencies": {
     "axios": "^1.7.0",

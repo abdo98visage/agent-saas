@@ -12,12 +12,14 @@ services:
       POSTGRES_PASSWORD: e2e-postgres-password
       DATABASE_URL: postgresql+asyncpg://postgres:e2e-postgres-password@db:5432/fqsaas_e2e
       REDIS_URL: redis://redis:6379/0
-      LLM_PROVIDER: minimax
-      MINIMAX_API_KEY: e2e-minimax-placeholder-not-used-with-local-hermes
-      MINIMAX_BASE_URL: https://api.minimax.chat/v1/chat/completions
+      LLM_PROVIDER: openai
+      DEFAULT_MODEL: Qwen3.6-27B-IQ4_XS.gguf
+      OPENAI_API_KEY: e2e-openai-compatible-placeholder
+      OPENAI_BASE_URL: http://host.docker.internal:54175/v1/chat/completions
       FERNET_KEY: 2Uj8y8t2eL4LTb_EYxZ2Pgoj2AbG0AgtEAGlVKYcJL8=
       HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
       HERMES_ORCHESTRATOR_SECRET: e2e-hermes-orchestrator-secret-32chars-minimum
+      HERMES_REQUEST_TIMEOUT_SECONDS: "120"
       ALLOWED_ORIGINS: '["http://localhost:3002","http://127.0.0.1:3002"]'
     depends_on:
       db:
@@ -81,6 +83,9 @@ services:
   hermes-runtime:
     build: .
     command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
+    environment:
+      DEFAULT_MODEL: Qwen3.6-27B-IQ4_XS.gguf
+      OPENAI_BASE_URL: http://host.docker.internal:54175/v1/chat/completions
     volumes:
       - e2e_hermes_profiles:/data/hermes/profiles
     healthcheck:

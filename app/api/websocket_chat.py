@@ -22,11 +22,16 @@ from app.models.session import Session
 from app.models.message import Message
 from app.models.kpi import KPI
 from app.models.user_activity import UserActivity
+from app.models.agent_run import AgentRun, AgentRunEvent
 from app.services.agent_service import AgentService
+from app.services.hermes_orchestrator import hermes_orchestrator
 from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
 
 router = APIRouter()
 agent_service = AgentService()
+READ_ONLY_COWORK_TOOLS = {"list_files", "search_files", "read_file", "read_multiple_files"}
+ALL_COWORK_TOOLS = READ_ONLY_COWORK_TOOLS | {"propose_patch"}
+MAX_COWORK_STEPS = 8
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,274 @@ async def update_last_seen(user_id: UUID):
             .where(User.id == user_id)
             .values(last_seen_at=datetime.utcnow())
         )
+
+
+def _normalize_workspace_payload(msg: dict) -> dict:
+    workspace = msg.get("workspace") or {}
+    root_name = str(workspace.get("root_name") or "").strip()
+    selected_files = workspace.get("selected_files") or []
+    if not isinstance(selected_files, list):
+        selected_files = []
+    return {
+        "root_name": root_name[:200],
+        "selected_files": [str(item)[:500] for item in selected_files[:100] if item],
+    }
+
+
+def _has_workspace_context(workspace: dict) -> bool:
+    return bool(workspace.get("root_name") or workspace.get("selected_files"))
+
+
+async def _save_run_event(db, run_id: UUID, event_type: str, payload: dict):
+    db.add(AgentRunEvent(run_id=run_id, event_type=event_type, payload=payload))
+    await db.flush()
+
+
+async def _wait_for_client_event(websocket: WebSocket, user: WebSocketUser, allowed_types: set[str]) -> dict:
+    while True:
+        raw = await websocket.receive_text()
+        if len(raw.encode("utf-8")) > settings.websocket_max_message_bytes:
+            await websocket.send_json({"type": "error", "detail": "Message too large"})
+            continue
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.send_json({"type": "error", "detail": "Invalid JSON"})
+            continue
+
+        msg_type = msg.get("type", "message")
+        if msg_type == "ping":
+            await websocket.send_json({"type": "pong"})
+            await update_last_seen(user.id)
+            continue
+        if msg_type == "heartbeat":
+            await websocket.send_json({"type": "heartbeat_ack", "online": True})
+            await update_last_seen(user.id)
+            continue
+        if msg_type not in allowed_types:
+            await websocket.send_json({"type": "error", "detail": f"Unexpected message type while awaiting cowork result: {msg_type}"})
+            continue
+        return msg
+
+
+async def _run_cowork_loop(
+    websocket: WebSocket,
+    user: WebSocketUser,
+    active_conversation_id: str,
+    agent_template_name: str,
+    user_message: str,
+    project_context: Optional[str],
+    effective_profile_name: Optional[str],
+    workspace: dict,
+) -> dict:
+    async with async_session() as db:
+        user_obj = await agent_service._get_user(db, user.id)
+        _, model_name, resolved_profile, _temperature, _max_tokens = await agent_service.get_system_prompt(
+            db,
+            user.id,
+            agent_template_name,
+            profile_name=effective_profile_name,
+        )
+        profile = await agent_service.resolve_user_profile(db, user.id, profile_name=effective_profile_name)
+        await agent_service._enforce_profile_ready(profile)
+        await agent_service._enforce_profile_request_limit(db, profile)
+        await agent_service._enforce_profile_usage_limits(db, profile)
+        session_obj = await agent_service._ensure_session(db, user.id, active_conversation_id, agent_template_name)
+        if resolved_profile:
+            session_obj.profile_name = resolved_profile
+        if profile:
+            session_obj.profile_id = profile.id
+            session_obj.profile_version = profile.version
+        api_key = await agent_service._resolve_runtime_api_key(db, user.id, profile)
+
+        user_msg = Message(
+            id=uuid4(),
+            session_id=session_obj.id,
+            role="user",
+            content=user_message,
+            project_context=project_context,
+        )
+        db.add(user_msg)
+        await db.flush()
+
+        run = await agent_service._create_run(db, session_obj, user.id, profile, "hermes", model_name)
+        await _save_run_event(
+            db,
+            run.id,
+            "cowork_user_message",
+            {
+                "type": "cowork_user_message",
+                "content": user_message,
+                "workspace": workspace,
+                "profile_name": resolved_profile,
+            },
+        )
+        await db.commit()
+
+        transcript: list[dict] = []
+        final_content = ""
+        total_cost = 0.0
+        output_tokens = 0
+        input_tokens = 0
+
+        for _step in range(MAX_COWORK_STEPS):
+            payload = {
+                "employee": {
+                    "id": str(user_obj.id),
+                    "email": user_obj.email,
+                    "full_name": user_obj.full_name,
+                    "department": user_obj.department,
+                },
+                "profile": {
+                    "id": str(profile.id),
+                    "slug": profile.slug,
+                    "name": profile.name,
+                    "version": profile.version,
+                    "hermes_profile_id": profile.hermes_profile_id,
+                },
+                "session_id": str(session_obj.id),
+                "message": user_message,
+                "project_context": project_context,
+                "provider": settings.llm_provider,
+                "model": model_name,
+                "api_key": api_key,
+                "workspace": workspace,
+                "cowork": {
+                    "protocol": "cowork_v1",
+                    "allowed_tools": sorted(ALL_COWORK_TOOLS),
+                    "transcript": transcript,
+                },
+            }
+            result = await hermes_orchestrator.run_agent(payload)
+            event_type = result.get("type") or "assistant_final"
+            usage = result.get("usage") or {}
+            total_cost = max(total_cost, float(result.get("total_cost", 0.0) or 0.0))
+            output_tokens = max(output_tokens, int(usage.get("output_tokens") or usage.get("completion_tokens") or 0))
+            input_tokens = max(input_tokens, int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0))
+
+            async with async_session() as event_db:
+                await _save_run_event(event_db, run.id, event_type, result)
+                await event_db.commit()
+
+            if event_type == "tool_request":
+                request_id = result.get("request_id") or str(uuid4())
+                tool_name = result.get("tool") or ""
+                if tool_name not in READ_ONLY_COWORK_TOOLS:
+                    raise RuntimeError(f"Unsupported cowork tool requested by Hermes: {tool_name}")
+                tool_event = {
+                    "type": "tool_request",
+                    "request_id": request_id,
+                    "tool": tool_name,
+                    "args": result.get("args") or {},
+                }
+                await websocket.send_json(tool_event)
+                tool_result = await _wait_for_client_event(websocket, user, {"tool_result"})
+                if tool_result.get("request_id") != request_id:
+                    raise RuntimeError("Tool result request_id mismatch")
+                transcript.append(tool_event)
+                transcript.append({
+                    "type": "tool_result",
+                    "request_id": request_id,
+                    "tool": tool_name,
+                    "ok": bool(tool_result.get("ok")),
+                    "result": tool_result.get("result"),
+                    "error": tool_result.get("error"),
+                })
+                async with async_session() as event_db:
+                    await _save_run_event(event_db, run.id, "tool_result", transcript[-1])
+                    await event_db.commit()
+                continue
+
+            if event_type == "apply_request":
+                request_id = result.get("request_id") or str(uuid4())
+                approval_event = {
+                    "type": "approval_required",
+                    "request_id": request_id,
+                    "title": "Apply proposed workspace changes?",
+                    "summary": result.get("summary") or "Hermes proposed local workspace changes.",
+                }
+                await websocket.send_json(approval_event)
+                apply_event = {
+                    "type": "apply_request",
+                    "request_id": request_id,
+                    "mode": result.get("mode") or "workspace_changes",
+                    "summary": result.get("summary") or "Apply proposed workspace changes",
+                    "changes": result.get("changes") or [],
+                }
+                await websocket.send_json(apply_event)
+                apply_result = await _wait_for_client_event(websocket, user, {"apply_result"})
+                if apply_result.get("request_id") != request_id:
+                    raise RuntimeError("Apply result request_id mismatch")
+                transcript.append(apply_event)
+                transcript.append({
+                    "type": "apply_result",
+                    "request_id": request_id,
+                    "ok": bool(apply_result.get("ok")),
+                    "result": apply_result.get("result"),
+                    "error": apply_result.get("error"),
+                })
+                async with async_session() as event_db:
+                    await _save_run_event(event_db, run.id, "approval_required", approval_event)
+                    await _save_run_event(event_db, run.id, "apply_result", transcript[-1])
+                    await event_db.commit()
+                continue
+
+            final_content = (result.get("content") or "").strip()
+            if final_content:
+                await websocket.send_json({
+                    "type": "assistant_chunk",
+                    "content": final_content,
+                })
+            assistant_msg = Message(
+                id=uuid4(),
+                session_id=session_obj.id,
+                role="assistant",
+                content=final_content,
+                tokens_used=output_tokens or agent_service._estimate_tokens(final_content),
+            )
+            async with async_session() as final_db:
+                persisted_run = await final_db.get(AgentRun, run.id)
+                final_db.add(assistant_msg)
+                await final_db.flush()
+                await agent_service._finish_run(
+                    final_db,
+                    persisted_run,
+                    "completed",
+                    0,
+                    output_tokens=assistant_msg.tokens_used,
+                    input_tokens=input_tokens,
+                    total_cost=total_cost,
+                    tools_used=["hermes-agent", *sorted({item["tool"] for item in transcript if item.get("type") == "tool_request"})],
+                    mcp_servers_used=[],
+                )
+                await final_db.commit()
+            return {
+                "message_id": str(assistant_msg.id),
+                "tokens_used": assistant_msg.tokens_used,
+                "model": model_name,
+                "profile_name": resolved_profile,
+                "profile_id": str(profile.id) if profile else None,
+                "total_cost": total_cost,
+                "conversation_id": str(session_obj.id),
+            }
+
+        async with async_session() as failed_db:
+            persisted_run = await failed_db.get(AgentRun, run.id)
+            await agent_service._finish_run(
+                failed_db,
+                persisted_run,
+                "failed",
+                0,
+                output_tokens=output_tokens,
+                input_tokens=input_tokens,
+                total_cost=total_cost,
+                tools_used=["hermes-agent"],
+                mcp_servers_used=[],
+                error_code="CoworkStepLimit",
+                error_message="Cowork step limit exceeded before final assistant response",
+            )
+            await failed_db.commit()
+        raise RuntimeError("Cowork step limit exceeded before final assistant response")
 
 
 @router.websocket("/ws/chat")
@@ -208,12 +481,14 @@ async def websocket_chat(
                 await update_last_seen(user.id)
                 continue
 
-            if msg_type != "message":
+            if msg_type not in {"message", "user_message"}:
                 await websocket.send_json({"type": "error", "detail": f"Unknown message type: {msg_type}"})
                 continue
 
             user_message = msg.get("content", "").strip()
             project_context = msg.get("project_context")
+            effective_profile_name = msg.get("profile_name") or profile_name
+            workspace = _normalize_workspace_payload(msg)
 
             if not user_message:
                 await websocket.send_json({"type": "error", "detail": "Empty message"})
@@ -232,6 +507,65 @@ async def websocket_chat(
                 "type": "start",
                 "conversation_id": active_conversation_id,
             })
+            async with async_session.begin() as db:
+                resolved_profile_obj = await agent_service.resolve_user_profile(
+                    db,
+                    user.id,
+                    profile_name=effective_profile_name,
+                )
+
+            if (
+                resolved_profile_obj
+                and resolved_profile_obj.runtime_type == "hermes"
+                and _has_workspace_context(workspace)
+            ):
+                try:
+                    cowork_done_payload = await _run_cowork_loop(
+                        websocket=websocket,
+                        user=user,
+                        active_conversation_id=active_conversation_id,
+                        agent_template_name=agent_template_name,
+                        user_message=user_message,
+                        project_context=project_context,
+                        effective_profile_name=effective_profile_name,
+                        workspace=workspace,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    await websocket.send_json({"type": "error", "detail": f"Cowork error: {str(e)}"})
+                    continue
+
+                await websocket.send_json({
+                    "type": "done",
+                    **cowork_done_payload,
+                })
+
+                if cowork_done_payload.get("tokens_used") and cowork_done_payload.get("model"):
+                    async with async_session.begin() as db:
+                        profile_uuid = cowork_done_payload.get("profile_id")
+                        await record_token_usage(
+                            db,
+                            str(user.id),
+                            cowork_done_payload["model"],
+                            cowork_done_payload["tokens_used"],
+                            float(cowork_done_payload.get("total_cost", 0.0) or 0.0),
+                            provider=settings.llm_provider,
+                            profile_id=UUID(profile_uuid) if profile_uuid else None,
+                        )
+
+                await track_kpi(str(user.id))
+                await log_user_activity(
+                    user.id, "message_sent",
+                    details={
+                        "tokens_used": cowork_done_payload.get("tokens_used", 0),
+                        "model": cowork_done_payload.get("model", ""),
+                        "profile": cowork_done_payload.get("profile_name", ""),
+                        "mode": "cowork",
+                    },
+                    session_id=UUID(active_conversation_id) if active_conversation_id else None,
+                )
+                continue
 
             # Stream LLM response — run_agent_stream handles saving messages internally
             full_response = ""
@@ -252,7 +586,7 @@ async def websocket_chat(
                         user_message=user_message,
                         agent_template_name=agent_template_name,
                         project_context=project_context,
-                        profile_name=profile_name,
+                        profile_name=effective_profile_name,
                     )
                     try:
                         async for chunk in stream:

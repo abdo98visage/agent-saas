@@ -85,11 +85,32 @@ class TestWebSocketModule:
 
     def test_websocket_endpoint_handles_events(self):
         """Test WebSocket endpoint handles all event types."""
+        from app.api import websocket_chat
+        import inspect
+        source = inspect.getsource(websocket_chat)
+        for event_type in ["start", "chunk", "assistant_chunk", "tool_request", "approval_required", "apply_request", "done", "error", "ping", "pong", "tool_result", "apply_result", "user_message"]:
+            assert f'"{event_type}"' in source, f"Missing event type: {event_type}"
+
+    def test_websocket_endpoint_supports_profile_override(self):
+        """Test WebSocket endpoint accepts per-message profile override."""
         from app.api.websocket_chat import websocket_chat
         import inspect
         source = inspect.getsource(websocket_chat)
-        for event_type in ["start", "chunk", "done", "error", "ping", "pong"]:
-            assert f'"{event_type}"' in source, f"Missing event type: {event_type}"
+        assert 'msg.get("profile_name") or profile_name' in source
+        assert 'profile_name=effective_profile_name' in source
+
+
+class TestAuthProfileAssignment:
+    """Test assigned profile API contract."""
+
+    def test_assigned_profiles_endpoint_exists(self):
+        """Test auth router exposes assigned profile listing."""
+        from app.api.auth import get_assigned_profiles
+        import inspect
+        source = inspect.getsource(get_assigned_profiles)
+        assert "assigned-profiles" in source or "profiles" in source
+        assert "ProfileUser" in source
+        assert "runtime_type" in source
 
 
 class TestDesktopWebSocketClient:
@@ -111,6 +132,17 @@ class TestDesktopWebSocketClient:
         # Should not have SSE-specific code
         assert "EventSource" not in content
         assert "message/stream" not in content
+
+    def test_desktop_supports_assigned_profile_picker(self):
+        """Test Desktop app exposes assigned profile selection."""
+        with open("desktop/src/renderer/index.html") as f:
+            content = f.read()
+        assert "setting-profile" in content
+        assert "/auth/assigned-profiles" in content
+        assert "profile_name" in content
+        assert "tool_result" in content
+        assert "apply_result" in content
+        assert "user_message" in content
 
     def test_desktop_synced_with_dist(self):
         """Test that dist/ matches src/."""

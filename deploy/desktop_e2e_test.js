@@ -15,6 +15,7 @@ function parseArgs() {
     adminPassword: "admin123",
     employeePassword: "Employee123",
     provider: "minimax",
+    model: "Qwen3.6-27B-IQ4_XS.gguf",
     port: 9333,
   };
   for (let index = 2; index < process.argv.length; index += 1) {
@@ -26,6 +27,7 @@ function parseArgs() {
     else if (arg === "--admin-password") args.adminPassword = next, index += 1;
     else if (arg === "--employee-password") args.employeePassword = next, index += 1;
     else if (arg === "--provider") args.provider = next, index += 1;
+    else if (arg === "--model") args.model = next, index += 1;
     else if (arg === "--port") args.port = Number(next), index += 1;
   }
   return args;
@@ -162,6 +164,12 @@ async function createDesktopEmployee(args) {
     password: args.adminPassword,
   });
   const adminToken = adminLogin.access_token;
+  await apiRequest(args.apiUrl, "PUT", "/api/admin/agent-templates/default", {
+    model_name: args.model,
+    max_tokens_per_request: 256,
+    temperature: 0.1,
+    system_prompt: "Reply with a short direct final answer.",
+  }, adminToken);
   const profileName = `Desktop Hermes ${suffix}`;
   const profileSlug = `desktop-hermes-${suffix}`;
   const employeeEmail = `desktop-${suffix}@example.com`;
@@ -254,6 +262,26 @@ async function main() {
       "desktop renderer preload",
     );
 
+    await cdp.evaluate(`
+      (async () => {
+        const settings = await window.electronAPI.getSettings();
+        if (settings.token) {
+          state.settings = await window.electronAPI.setSettings({
+            ...settings,
+            token: "",
+            offlineQueue: [],
+            selectedProjectFiles: [],
+          });
+        }
+        document.getElementById("act-api-url").value = ${jsString(desktopApiUrl)};
+        document.getElementById("activation-panel").style.display = "flex";
+      })()
+    `);
+    await waitFor(
+      () => cdp.evaluate("getComputedStyle(document.getElementById('activation-panel')).display !== 'none'"),
+      10000,
+      "desktop activation panel",
+    );
     const activationVisible = await cdp.evaluate("getComputedStyle(document.getElementById('activation-panel')).display !== 'none'");
     assert(activationVisible, "Activation panel was not visible for fresh desktop profile");
 
@@ -278,22 +306,36 @@ async function main() {
     );
 
     await cdp.evaluate(`
-      (() => {
+      (async () => {
         document.getElementById("message-input").value = "Write one short packaged desktop E2E response.";
-        document.getElementById("btn-send").click();
+        await sendMessage();
       })()
     `);
+    await waitFor(
+      () => cdp.evaluate(`
+        (() => {
+          const last = state.currentMessages[state.currentMessages.length - 1];
+          return Boolean(last && last.role === "user" && last.content.includes("packaged desktop E2E response"));
+        })()
+      `),
+      10000,
+      "desktop user message dispatch",
+    );
     const assistantContent = await waitFor(
       () => cdp.evaluate(`
         (() => {
-          const last = [...document.querySelectorAll(".message.assistant")].at(-1);
-          return !state.isStreaming && last && last.textContent.includes("Local Hermes") ? last.textContent : "";
+          const last = state.currentMessages[state.currentMessages.length - 1];
+          if (!state.isStreaming && last && last.role === "assistant" && last.content.trim().length > 0) {
+            return last.content;
+          }
+          const rendered = [...document.querySelectorAll(".message.assistant")].at(-1);
+          return !state.isStreaming && rendered && rendered.textContent.trim().length > 0 ? rendered.textContent : "";
         })()
       `),
-      30000,
+      60000,
       "desktop WebSocket chat response",
     );
-    assert(assistantContent.includes("Local Hermes"), "Desktop chat did not render Hermes response");
+    assert(assistantContent.trim().length > 0, "Desktop chat did not render Hermes response");
 
     const projectResult = await cdp.evaluate(`
       (async () => {

@@ -10,6 +10,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,7 @@ HERMES_PROFILES_ROOT = Path(os.getenv("HERMES_PROFILES_ROOT", "/data/hermes/prof
 OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3-14b")
 
 app = FastAPI(title="AgentSaaS Hermes Runtime", version="0.2.0")
 
@@ -58,7 +60,7 @@ def _provider_name(provider: str) -> str:
 
 def _config_yaml(payload: dict[str, Any], profile_home: Path, workspace: Path) -> str:
     provider = payload.get("provider") or "custom"
-    model = payload.get("model") or "qwen3-14b"
+    model = payload.get("model") or DEFAULT_MODEL
     provider_name = _provider_name(provider)
     lines = [
         "model:",
@@ -118,8 +120,49 @@ def _build_prompt(payload: dict[str, Any]) -> str:
         parts.append(f"Department: {employee['department']}")
     if payload.get("project_context"):
         parts.append(f"Project context:\n{payload['project_context']}")
+    cowork = payload.get("cowork") or {}
+    workspace = payload.get("workspace") or {}
+    if cowork.get("protocol") == "cowork_v1":
+        parts.append(_cowork_protocol_block(workspace, cowork))
     parts.append(f"User request:\n{payload.get('message') or ''}")
     return "\n\n".join(parts)
+
+
+def _cowork_protocol_block(workspace: dict[str, Any], cowork: dict[str, Any]) -> str:
+    transcript = cowork.get("transcript") or []
+    transcript_lines = []
+    for item in transcript[-12:]:
+        item_type = item.get("type", "event")
+        if item_type == "tool_request":
+            transcript_lines.append(
+                f"- tool_request {item.get('tool')}: {json.dumps(item.get('args') or {}, ensure_ascii=False)}"
+            )
+        elif item_type in {"tool_result", "apply_result"}:
+            transcript_lines.append(
+                f"- {item_type} ok={item.get('ok')}: {json.dumps(item.get('result') or item.get('error') or {}, ensure_ascii=False)}"
+            )
+        else:
+            transcript_lines.append(f"- {item_type}: {json.dumps(item, ensure_ascii=False)}")
+
+    selected_files = workspace.get("selected_files") or []
+    root_name = workspace.get("root_name") or "workspace"
+    return "\n".join(
+        [
+            "Cowork protocol mode is enabled.",
+            "You must reply with exactly one JSON object and no markdown fences.",
+            'Allowed response types: {"type":"assistant_final","content":"..."}, {"type":"tool_request","tool":"list_files|search_files|read_file|read_multiple_files","args":{...}}, {"type":"apply_request","summary":"...","changes":[...]}',
+            "For apply_request, each change must use one of these shapes:",
+            '{"action":"update","path":"relative/path","content":"full new file content"}',
+            '{"action":"create","path":"relative/path","content":"full file content"}',
+            '{"action":"rename","path":"old/path","new_path":"new/path"}',
+            '{"action":"delete","path":"relative/path"}',
+            "Do not ask for arbitrary shell commands.",
+            f"Workspace root name: {root_name}",
+            f"Selected files: {json.dumps(selected_files, ensure_ascii=False)}",
+            "Prior cowork events:",
+            "\n".join(transcript_lines) if transcript_lines else "- none",
+        ]
+    )
 
 
 def _strip_ansi(text: str) -> str:
@@ -146,6 +189,53 @@ def _extract_response_text(stdout: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _extract_first_json_object(text: str) -> dict[str, Any] | None:
+    cleaned = text.strip()
+    fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", cleaned, flags=re.IGNORECASE)
+    candidates = fenced + [cleaned]
+    decoder = json.JSONDecoder()
+
+    for candidate in candidates:
+        candidate = candidate.strip()
+        for start in range(len(candidate)):
+            if candidate[start] != "{":
+                continue
+            try:
+                parsed, _end = decoder.raw_decode(candidate[start:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return None
+
+
+def _normalize_cowork_response(raw_text: str) -> dict[str, Any]:
+    parsed = _extract_first_json_object(raw_text)
+    if not parsed:
+        return {"type": "assistant_final", "content": raw_text.strip()}
+
+    event_type = parsed.get("type")
+    if event_type == "tool_request":
+        return {
+            "type": "tool_request",
+            "request_id": parsed.get("request_id") or str(uuid4()),
+            "tool": parsed.get("tool") or "",
+            "args": parsed.get("args") or {},
+        }
+    if event_type == "apply_request":
+        return {
+            "type": "apply_request",
+            "request_id": parsed.get("request_id") or str(uuid4()),
+            "mode": parsed.get("mode") or "workspace_changes",
+            "summary": parsed.get("summary") or "Apply requested workspace changes",
+            "changes": parsed.get("changes") or [],
+        }
+    content = parsed.get("content")
+    if isinstance(content, str) and content.strip():
+        return {"type": "assistant_final", "content": content.strip()}
+    return {"type": "assistant_final", "content": raw_text.strip()}
+
+
 def _run_hermes(payload: dict[str, Any]) -> str:
     profile_home, workspace = _profile_paths(payload)
     (profile_home / "config.yaml").write_text(_config_yaml(payload, profile_home, workspace), encoding="utf-8")
@@ -157,7 +247,7 @@ def _run_hermes(payload: dict[str, Any]) -> str:
         "--provider",
         _provider_name(payload.get("provider") or "custom"),
         "-m",
-        payload.get("model") or "qwen3-14b",
+        payload.get("model") or DEFAULT_MODEL,
         "--yolo",
     ]
     for skill_name in _profile_skill_names(profile_home):
@@ -180,6 +270,20 @@ def _run_hermes(payload: dict[str, Any]) -> str:
 @app.post("/runs")
 async def run_agent(payload: dict[str, Any]):
     content = _run_hermes(payload)
+    cowork = payload.get("cowork") or {}
+    if cowork.get("protocol") == "cowork_v1":
+        normalized = _normalize_cowork_response(content)
+        return {
+            **normalized,
+            "content": normalized.get("content", ""),
+            "tools_used": ["hermes-agent"],
+            "mcp_servers_used": [],
+            "total_cost": 0.0,
+            "usage": {
+                "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
+                "output_tokens": max(1, len(content) // 4),
+            },
+        }
     return {
         "content": content,
         "tools_used": ["hermes-agent"],
@@ -195,6 +299,33 @@ async def run_agent(payload: dict[str, Any]):
 @app.post("/runs/stream")
 async def run_agent_stream(payload: dict[str, Any]):
     content = _run_hermes(payload)
+    cowork = payload.get("cowork") or {}
+    if cowork.get("protocol") == "cowork_v1":
+        normalized = _normalize_cowork_response(content)
+        chunks = [normalized]
+        if normalized.get("type") == "assistant_final":
+            chunks = [
+                {"type": "assistant_chunk", "content": normalized.get("content", "")},
+                {
+                    "type": "done",
+                    "content": "",
+                    "tools_used": ["hermes-agent"],
+                    "mcp_servers_used": [],
+                    "total_cost": 0.0,
+                    "usage": {
+                        "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
+                        "output_tokens": max(1, len(content) // 4),
+                    },
+                },
+            ]
+        else:
+            chunks = [normalized]
+
+        async def cowork_events():
+            for event in chunks:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(cowork_events(), media_type="text/event-stream")
     midpoint = max(1, len(content) // 2)
     chunks = [
         {"type": "chunk", "content": content[:midpoint]},

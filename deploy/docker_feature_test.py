@@ -37,6 +37,7 @@ def assert_true(value: Any, message: str) -> None:
 class ApiClient:
     base_url: str
     token: str | None = None
+    timeout_seconds: float = 30.0
     jar: CookieJar = field(default_factory=CookieJar)
 
     def __post_init__(self) -> None:
@@ -64,7 +65,7 @@ class ApiClient:
         req = Request(url, data=data, headers=request_headers, method=method.upper())
         expected_codes = (expected,) if isinstance(expected, int) else expected
         try:
-            with self.opener.open(req, timeout=30) as response:
+            with self.opener.open(req, timeout=self.timeout_seconds) as response:
                 payload = response.read()
                 if response.status not in expected_codes:
                     raise TestFailure(f"{method} {path} returned {response.status}, expected {expected_codes}")
@@ -257,11 +258,13 @@ def main() -> int:
     parser.add_argument("--admin-password", default="admin123")
     parser.add_argument("--employee-password", default="Employee123")
     parser.add_argument("--provider", default="minimax")
+    parser.add_argument("--model", default="Qwen3.6-27B-IQ4_XS.gguf")
+    parser.add_argument("--request-timeout", type=float, default=120.0)
     args = parser.parse_args()
 
     suffix = base64.b32encode(os.urandom(5)).decode("ascii").lower().rstrip("=")
-    admin = ApiClient(args.api_url)
-    employee = ApiClient(args.api_url)
+    admin = ApiClient(args.api_url, timeout_seconds=args.request_timeout)
+    employee = ApiClient(args.api_url, timeout_seconds=args.request_timeout)
 
     state: dict[str, Any] = {
         "profile_name": f"QA Hermes {suffix}",
@@ -274,7 +277,7 @@ def main() -> int:
         wait_for_api(admin)
         api_status = admin.request("GET", "/api/status")
         assert_true(api_status.get("status") == "healthy", "API status is not healthy")
-        frontend = ApiClient(args.admin_url)
+        frontend = ApiClient(args.admin_url, timeout_seconds=args.request_timeout)
         html, headers = frontend.request("GET", "/", raw=True)
         assert_true(len(html) > 100, "Admin frontend returned an empty page")
         assert_true("text/html" in headers.get("Content-Type", ""), "Admin frontend did not return HTML")
@@ -323,7 +326,7 @@ def main() -> int:
                 "department": "qa",
                 "system_prompt": "Answer for Docker full feature validation.",
                 "tools": ["local_runtime"],
-                "model_name": "qwen3-14b",
+                "model_name": args.model,
                 "max_tokens_per_request": 2000,
                 "temperature": 0.2,
             },
@@ -336,6 +339,16 @@ def main() -> int:
         admin.request("DELETE", f"/api/admin/agent-templates/{template_name}")
         listed_after = admin.request("GET", "/api/admin/agent-templates")
         assert_true(not any(t["name"] == template_name for t in listed_after.get("templates", [])), "Template delete did not persist")
+        admin.request(
+            "PUT",
+            "/api/admin/agent-templates/default",
+            {
+                "model_name": args.model,
+                "max_tokens_per_request": 256,
+                "temperature": 0.1,
+                "system_prompt": "Reply with a short direct final answer.",
+            },
+        )
 
     def profile_key_employee_assignment_flow() -> None:
         profile = admin.request(

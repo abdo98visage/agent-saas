@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import UUIDPrimaryKeyMixin
 from app.core.db import Base
+from app.core.config import settings
 from uuid import UUID
 
 
@@ -23,5 +24,8 @@ class KPI(Base, UUIDPrimaryKeyMixin):
 
     @property
     def cost_alert(self) -> bool:
-        """Check if this KPI exceeds the cost alert threshold."""
-        return self.tokens_used > 40000  # Alert at 40k tokens/day
+        """Check if this KPI exceeds token or cost alert thresholds."""
+        return (
+            self.tokens_used > settings.kpi_token_alert_threshold
+            or self.total_cost > settings.kpi_cost_alert_threshold
+        )

@@ -14,6 +14,12 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+except ImportError:  # optional until runtime deps are refreshed
+    sentry_sdk = None
+    FastApiIntegration = None
 
 from app.core.config import settings
 from app.api import health, auth, chat, admin, telegram, websocket_chat
@@ -25,6 +31,15 @@ _handler = logging.StreamHandler()
 _handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_handler)
 logger.propagate = False
+
+if settings.sentry_dsn and sentry_sdk and FastApiIntegration:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment or settings.environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        enable_tracing=settings.sentry_traces_sample_rate > 0,
+        integrations=[FastApiIntegration()],
+    )
 
 
 @asynccontextmanager

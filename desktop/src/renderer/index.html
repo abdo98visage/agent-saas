@@ -324,6 +324,13 @@
                 <option value="hr">HR</option>
             </select>
         </div>
+        <div class="mb-3">
+            <label class="form-label">Hermes Profile</label>
+            <select class="form-select form-select-sm" id="setting-profile">
+                <option value="">Default assigned profile</option>
+            </select>
+            <div class="small text-muted mt-1" id="setting-profile-status">Assigned profiles will appear after login.</div>
+        </div>
 
         <hr class="border-secondary">
         <h6><i class="bi bi-telegram"></i> ربط التلجرام</h6>
@@ -411,6 +418,7 @@
             conversations: [],
             currentConversation: null,
             currentMessages: [],
+            assignedProfiles: [],
             projectPath: null,
             projectFiles: [],
             selectedProjectFiles: new Set(),
@@ -437,6 +445,8 @@
             settingApiUrl: document.getElementById("setting-api-url"),
             settingToken: document.getElementById("setting-token"),
             settingTemplate: document.getElementById("setting-template"),
+            settingProfile: document.getElementById("setting-profile"),
+            settingProfileStatus: document.getElementById("setting-profile-status"),
             btnOpenFolder: document.getElementById("btn-open-folder"),
             btnSaveSettings: document.getElementById("btn-save-settings"),
             projectPath: document.getElementById("project-path"),
@@ -456,6 +466,52 @@
 
         function getOfflineQueue() {
             return Array.isArray(state.settings.offlineQueue) ? state.settings.offlineQueue : [];
+        }
+
+        function renderAssignedProfiles() {
+            const selectedProfileName = state.settings.profileName || "";
+            els.settingProfile.innerHTML = [`<option value="">Default assigned profile</option>`]
+                .concat(state.assignedProfiles.map((profile) => `
+                    <option value="${escapeHtml(profile.name)}" ${selectedProfileName === profile.name ? "selected" : ""}>
+                        ${escapeHtml(profile.name)}
+                    </option>
+                `))
+                .join("");
+
+            if (!state.settings.token) {
+                els.settingProfileStatus.textContent = "Login or activate the app to load assigned profiles.";
+                return;
+            }
+            if (state.assignedProfiles.length === 0) {
+                els.settingProfileStatus.textContent = "No assigned profiles were returned by the platform.";
+                return;
+            }
+            els.settingProfileStatus.textContent = `${state.assignedProfiles.length} assigned profile(s) available.`;
+        }
+
+        async function loadAssignedProfiles() {
+            if (!state.settings.token) {
+                state.assignedProfiles = [];
+                renderAssignedProfiles();
+                return;
+            }
+
+            try {
+                const data = await apiRequest("/auth/assigned-profiles");
+                state.assignedProfiles = data.profiles || [];
+                if (
+                    state.assignedProfiles.length > 0
+                    && (!state.settings.profileName || !state.assignedProfiles.some((profile) => profile.name === state.settings.profileName))
+                ) {
+                    state.settings.profileName = state.assignedProfiles[0].name;
+                    await persistSettings();
+                }
+            } catch (error) {
+                state.assignedProfiles = [];
+                els.settingProfileStatus.textContent = `Failed to load assigned profiles: ${error.message}`;
+            }
+
+            renderAssignedProfiles();
         }
 
         async function persistSettings() {
@@ -563,11 +619,12 @@
             await persistSettings();
         }
 
-        async function enqueueMessage(content) {
+        async function enqueueMessage(content, profileName = "") {
             const queue = getOfflineQueue();
             queue.push({
                 id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 content,
+                profileName,
                 createdAt: new Date().toISOString(),
             });
             await setOfflineQueue(queue);
@@ -582,7 +639,7 @@
             const remaining = [];
             for (const item of queue) {
                 try {
-                    await sendWebSocketMessage(item.content);
+                    await sendWebSocketMessage(item.content, item.profileName || "");
                 } catch (error) {
                     remaining.push(item);
                     appendSystemMessage(`تعذر إرسال رسالة معلقة: ${error.message}`);
@@ -623,9 +680,10 @@
             els.settingTemplate.value = state.settings.template || "default";
             state.projectPath = state.settings.projectPath || null;
             state.selectedProjectFiles = new Set(state.settings.selectedProjectFiles || []);
-            els.profileBadge.textContent = state.settings.template || "default";
+            els.profileBadge.textContent = state.settings.profileName || state.settings.template || "default";
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadAssignedProfiles();
 
             if (state.projectPath) {
                 els.projectPath.textContent = state.projectPath;
@@ -639,10 +697,11 @@
                 apiUrl: els.settingApiUrl.value.trim(),
                 token: els.settingToken.value.trim(),
                 template: els.settingTemplate.value,
+                profileName: els.settingProfile.value.trim(),
                 projectPath: state.projectPath,
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
             });
-            els.profileBadge.textContent = state.settings.template || "default";
+            els.profileBadge.textContent = state.settings.profileName || state.settings.template || "default";
 
             if (state.ws) {
                 state.ws.close();
@@ -726,8 +785,16 @@
             const apiPath = apiUrl.pathname.replace(/\/$/, "");
             const pathPrefix = apiPath.endsWith("/api") ? apiPath.slice(0, -4) : apiPath;
             const template = state.settings.template || "default";
+            const profileName = state.settings.profileName || "";
             const wsToken = await getWebSocketToken();
-            const wsUrl = `${wsProtocol}://${apiUrl.host}${pathPrefix}/api/chat/ws/chat?token=${encodeURIComponent(wsToken)}&agent_template_name=${encodeURIComponent(template)}`;
+            const params = new URLSearchParams({
+                token: wsToken,
+                agent_template_name: template,
+            });
+            if (profileName) {
+                params.set("profile_name", profileName);
+            }
+            const wsUrl = `${wsProtocol}://${apiUrl.host}${pathPrefix}/api/chat/ws/chat?${params.toString()}`;
 
             state.ws = new WebSocket(wsUrl);
 
@@ -768,6 +835,139 @@
             };
         }
 
+        function buildWorkspaceDescriptor() {
+            return {
+                root_name: state.projectPath ? state.projectPath.split(/[\\/]/).pop() : "",
+                selected_files: Array.from(state.selectedProjectFiles),
+            };
+        }
+
+        async function sendToolResult(requestId, tool, ok, result, error = "") {
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+                throw new Error("WebSocket is not connected");
+            }
+            state.ws.send(JSON.stringify({
+                type: "tool_result",
+                request_id: requestId,
+                tool,
+                ok,
+                result: result || undefined,
+                error: error || undefined,
+            }));
+        }
+
+        async function sendApplyResult(requestId, ok, result, error = "") {
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+                throw new Error("WebSocket is not connected");
+            }
+            state.ws.send(JSON.stringify({
+                type: "apply_result",
+                request_id: requestId,
+                ok,
+                result: result || undefined,
+                error: error || undefined,
+            }));
+        }
+
+        async function executeToolRequest(data) {
+            if (!state.projectPath) {
+                await sendToolResult(data.request_id, data.tool, false, null, "No local workspace is selected in the desktop app.");
+                return;
+            }
+
+            try {
+                let result;
+                switch (data.tool) {
+                    case "list_files":
+                        result = await window.electronAPI.listFiles(state.projectPath, data.args || {});
+                        break;
+                    case "search_files":
+                        result = await window.electronAPI.searchFiles(
+                            state.projectPath,
+                            (data.args && data.args.query) || "",
+                            (data.args && data.args.limit) || 20,
+                        );
+                        break;
+                    case "read_file":
+                        result = await window.electronAPI.readFile(state.projectPath, data.args && data.args.path);
+                        break;
+                    case "read_multiple_files":
+                        result = await window.electronAPI.readMultipleFiles(
+                            state.projectPath,
+                            (data.args && data.args.paths) || [],
+                        );
+                        break;
+                    default:
+                        throw new Error(`Unsupported local tool: ${data.tool}`);
+                }
+
+                if (result && result.error) {
+                    await sendToolResult(data.request_id, data.tool, false, null, result.error);
+                    appendSystemMessage(`فشل تنفيذ ${data.tool}: ${result.error}`);
+                    return;
+                }
+
+                await sendToolResult(data.request_id, data.tool, true, result, "");
+            } catch (error) {
+                await sendToolResult(data.request_id, data.tool, false, null, error.message);
+                appendSystemMessage(`فشل تنفيذ ${data.tool}: ${error.message}`);
+            }
+        }
+
+        async function executeApplyRequest(data) {
+            if (!state.projectPath) {
+                await sendApplyResult(data.request_id, false, null, "No local workspace is selected in the desktop app.");
+                return;
+            }
+
+            try {
+                const preview = await window.electronAPI.prepareWorkspaceChanges(state.projectPath, data.changes || []);
+                if (preview.error) {
+                    await sendApplyResult(data.request_id, false, null, preview.error);
+                    appendSystemMessage(`تعذر تجهيز التعديلات: ${preview.error}`);
+                    return;
+                }
+
+                const summary = data.summary || "Hermes proposed workspace changes.";
+                const details = [
+                    summary,
+                    `Operations: ${preview.summary.totalOperations || 0}`,
+                    `Changed lines: ${preview.summary.changedLines || 0}`,
+                    `Changed files: ${(preview.summary.changedFiles || []).join(", ") || "-"}`,
+                    `Created files: ${(preview.summary.createdFiles || []).join(", ") || "-"}`,
+                    `Renamed files: ${(preview.summary.renamedFiles || []).map((item) => `${item.from} -> ${item.to}`).join(", ") || "-"}`,
+                    `Deleted files: ${(preview.summary.deletedFiles || []).join(", ") || "-"}`,
+                    "",
+                    "Approve these local changes?",
+                ].join("\n");
+
+                const approved = window.confirm(details);
+                if (!approved) {
+                    await sendApplyResult(data.request_id, false, { approved: false }, "User rejected the proposed workspace changes.");
+                    appendSystemMessage("تم رفض التعديلات المحلية المقترحة.");
+                    return;
+                }
+
+                const applied = await window.electronAPI.applyWorkspaceChanges(preview.previewToken);
+                if (applied.error) {
+                    await sendApplyResult(data.request_id, false, null, applied.error);
+                    appendSystemMessage(`فشل تطبيق التعديلات: ${applied.error}`);
+                    return;
+                }
+
+                await refreshProjectFiles();
+                await sendApplyResult(data.request_id, true, {
+                    approved: true,
+                    changed_files: applied.changedFiles || [],
+                    summary,
+                }, "");
+                appendSystemMessage("تم تطبيق التعديلات المحلية بعد الموافقة.");
+            } catch (error) {
+                await sendApplyResult(data.request_id, false, null, error.message);
+                appendSystemMessage(`فشل تطبيق التعديلات: ${error.message}`);
+            }
+        }
+
         function handleWsMessage(data) {
             switch (data.type) {
                 case "start":
@@ -777,7 +977,8 @@
                         void loadConversations();
                     }
                     break;
-                case "chunk": {
+                case "chunk":
+                case "assistant_chunk": {
                     startAssistantStream();
                     const lastMessage = state.currentMessages[state.currentMessages.length - 1];
                     lastMessage.content += data.content;
@@ -786,6 +987,16 @@
                     scrollBottom();
                     break;
                 }
+                case "tool_request":
+                    appendSystemMessage(`Hermes requested local tool: ${data.tool}`);
+                    void executeToolRequest(data);
+                    break;
+                case "approval_required":
+                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    break;
+                case "apply_request":
+                    void executeApplyRequest(data);
+                    break;
                 case "done":
                     resetStreamingState();
                     if (data.conversation_id) {
@@ -825,12 +1036,15 @@
             return result.context || "";
         }
 
-        async function sendWebSocketMessage(text) {
+        async function sendWebSocketMessage(text, profileNameOverride = "") {
             const projectContext = await buildProjectContextForMessage(text);
+            const selectedProfileName = profileNameOverride || state.settings.profileName || undefined;
             const payload = {
-                type: "message",
+                type: "user_message",
                 content: text,
                 project_context: projectContext || undefined,
+                profile_name: selectedProfileName,
+                workspace: buildWorkspaceDescriptor(),
             };
 
             state.ws.send(JSON.stringify(payload));
@@ -847,9 +1061,10 @@
             els.welcomeScreen.style.display = "none";
             appendMessage("user", text);
             state.currentMessages.push({ role: "user", content: text });
+            const profileName = state.settings.profileName || "";
 
             if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-                await enqueueMessage(text);
+                await enqueueMessage(text, profileName);
                 appendSystemMessage("تم حفظ الرسالة محلياً وسيتم إرسالها عند عودة الاتصال.");
                 connectWebSocket();
                 return;
@@ -859,10 +1074,10 @@
             state.isStreaming = true;
 
             try {
-                await sendWebSocketMessage(text);
+                await sendWebSocketMessage(text, profileName);
             } catch (error) {
                 resetStreamingState();
-                await enqueueMessage(text);
+                await enqueueMessage(text, profileName);
                 appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
             }
         }

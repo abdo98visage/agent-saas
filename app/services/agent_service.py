@@ -117,7 +117,7 @@ class AgentService:
             template = AgentTemplate(
                 name="default",
                 system_prompt="You are a helpful AI assistant. Be professional, clear, and concise.",
-                model_name="qwen3-14b",
+                model_name=settings.default_model,
                 temperature=0.7,
                 max_tokens_per_request=4000,
             )

@@ -2,6 +2,7 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional
 from uuid import UUID
+from app.core.config import settings
 
 
 # Disable Pydantic protected_namespaces warning for model_* fields
@@ -89,7 +90,7 @@ class AgentTemplateCreate(_BaseSchema):
     department: Optional[str] = Field(None, max_length=50)
     system_prompt: str = Field("", max_length=20000)
     tools: list[str] = Field(default_factory=list)
-    model_name: str = Field("qwen3-14b", max_length=100)
+    model_name: str = Field(settings.default_model, max_length=100)
     max_tokens_per_request: int = Field(4000, ge=100, le=32000)
     temperature: float = Field(0.7, ge=0.0, le=2.0)
 

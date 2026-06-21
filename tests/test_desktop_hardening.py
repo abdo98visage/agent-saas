@@ -44,6 +44,10 @@ def test_preload_exposes_reviewed_write_flow():
     assert "prepareFileWrite" in content
     assert "applyFileWrite" in content
     assert "buildProjectContext" in content
+    assert "prepareWorkspaceChanges" in content
+    assert "applyWorkspaceChanges" in content
+    assert "readMultipleFiles" in content
+    assert "searchFiles" in content
 
 
 def test_renderer_uses_local_assets_and_csp():
@@ -77,3 +81,14 @@ def test_desktop_has_update_feed_hook():
     assert '"electron": "^42.4.0"' in package_content
     assert '"electron-builder": "^26.15.3"' in package_content
     assert '"publish"' not in package_content
+
+
+def test_desktop_main_process_has_local_cowork_tools():
+    with open("desktop/src/main/main.js", encoding="utf-8") as file:
+        content = file.read()
+
+    assert "listWorkspaceFiles" in content
+    assert "searchWorkspaceFiles" in content
+    assert "readMultipleWorkspaceFiles" in content
+    assert "prepareWorkspaceChanges" in content
+    assert "applyWorkspaceChanges" in content

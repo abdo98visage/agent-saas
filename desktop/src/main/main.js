@@ -297,6 +297,157 @@ function buildDiffSummary(previousContent, nextContent) {
   };
 }
 
+function listWorkspaceFiles(rootPath, options = {}) {
+  const query = String(options.query || "").toLowerCase();
+  const limit = Math.min(Math.max(Number(options.limit || 50), 1), 200);
+  const files = scanWorkspace(rootPath)
+    .filter((file) => !query || file.path.toLowerCase().includes(query) || file.snippet.toLowerCase().includes(query))
+    .slice(0, limit);
+  return {
+    files: files.map((file) => ({
+      path: file.path,
+      size: file.size,
+      modifiedAt: file.modifiedAt,
+      snippet: file.snippet,
+    })),
+    count: files.length,
+  };
+}
+
+function searchWorkspaceFiles(rootPath, query, limit = 20) {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  if (!normalizedQuery) {
+    return { matches: [], count: 0 };
+  }
+  const maxResults = Math.min(Math.max(Number(limit || 20), 1), 100);
+  const files = scanWorkspace(rootPath);
+  const matches = [];
+
+  for (const file of files) {
+    if (matches.length >= maxResults) {
+      break;
+    }
+    const { target } = resolveWorkspaceFile(rootPath, file.path);
+    const content = fs.readFileSync(target, "utf-8");
+    const lines = content.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      if (lines[index].toLowerCase().includes(normalizedQuery)) {
+        matches.push({
+          path: file.path,
+          line: index + 1,
+          snippet: lines[index].slice(0, 500),
+        });
+        if (matches.length >= maxResults) {
+          break;
+        }
+      }
+    }
+  }
+
+  return { matches, count: matches.length };
+}
+
+function readMultipleWorkspaceFiles(rootPath, filePaths = []) {
+  const files = [];
+  for (const filePath of filePaths.slice(0, 20)) {
+    const { target } = resolveWorkspaceFile(rootPath, filePath);
+    const stat = fs.statSync(target);
+    if (stat.size > MAX_FILE_SIZE) {
+      files.push({ path: filePath, error: "File too large" });
+      continue;
+    }
+    files.push({
+      path: filePath,
+      content: fs.readFileSync(target, "utf-8"),
+      size: stat.size,
+      modifiedAt: stat.mtime.toISOString(),
+    });
+  }
+  return { files, count: files.length };
+}
+
+function prepareWorkspaceChanges(rootPath, changes = []) {
+  const previewToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const operations = [];
+  const summary = {
+    changedFiles: [],
+    createdFiles: [],
+    renamedFiles: [],
+    deletedFiles: [],
+    totalOperations: 0,
+    changedLines: 0,
+  };
+
+  for (const change of changes.slice(0, 50)) {
+    const action = String(change.action || "update");
+    if (action === "rename") {
+      const source = resolveWorkspaceFile(rootPath, change.path).target;
+      const target = resolveWorkspaceFile(rootPath, change.new_path).target;
+      operations.push({ action, source, target, path: change.path, newPath: change.new_path });
+      summary.renamedFiles.push({ from: change.path, to: change.new_path });
+      continue;
+    }
+    if (action === "delete") {
+      const target = resolveWorkspaceFile(rootPath, change.path).target;
+      operations.push({ action, target, path: change.path });
+      summary.deletedFiles.push(change.path);
+      continue;
+    }
+
+    const targetPath = resolveWorkspaceFile(rootPath, change.path).target;
+    const previousContent = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, "utf-8") : "";
+    const nextContent = String(change.content || "");
+    const diff = buildDiffSummary(previousContent, nextContent);
+    operations.push({
+      action: action === "create" ? "create" : "update",
+      target: targetPath,
+      path: change.path,
+      nextContent,
+    });
+    summary.changedLines += diff.changedLines;
+    if (action === "create" || !fs.existsSync(targetPath)) {
+      summary.createdFiles.push(change.path);
+    } else {
+      summary.changedFiles.push(change.path);
+    }
+  }
+
+  summary.totalOperations = operations.length;
+  pendingWrites.set(previewToken, { type: "workspace_changes", operations });
+  return { previewToken, summary };
+}
+
+function applyWorkspaceChanges(previewToken) {
+  const pending = pendingWrites.get(previewToken);
+  if (!pending || pending.type !== "workspace_changes") {
+    return { error: "Invalid or expired workspace change token" };
+  }
+
+  const changedFiles = [];
+  for (const operation of pending.operations) {
+    if (operation.action === "rename") {
+      fs.mkdirSync(path.dirname(operation.target), { recursive: true });
+      fs.renameSync(operation.source, operation.target);
+      changedFiles.push(operation.newPath);
+      continue;
+    }
+    if (operation.action === "delete") {
+      if (fs.existsSync(operation.target)) {
+        fs.unlinkSync(operation.target);
+      }
+      changedFiles.push(operation.path);
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(operation.target), { recursive: true });
+    fs.writeFileSync(operation.target, operation.nextContent, "utf-8");
+    changedFiles.push(operation.path);
+  }
+
+  pendingWrites.delete(previewToken);
+  return { ok: true, changedFiles };
+}
+
 app.whenReady().then(() => {
   setupSecurity();
   configureAutoUpdates();
@@ -360,6 +511,22 @@ ipcMain.handle("scan-folder", async (_, folderPath) => {
   }
 });
 
+ipcMain.handle("list-files", async (_, rootPath, options) => {
+  try {
+    return listWorkspaceFiles(rootPath, options || {});
+  } catch (error) {
+    return { files: [], error: error.message };
+  }
+});
+
+ipcMain.handle("search-files", async (_, rootPath, query, limit) => {
+  try {
+    return searchWorkspaceFiles(rootPath, query, limit);
+  } catch (error) {
+    return { matches: [], error: error.message };
+  }
+});
+
 ipcMain.handle("read-file", async (_, rootPath, filePath) => {
   try {
     const { target } = resolveWorkspaceFile(rootPath, filePath);
@@ -375,6 +542,14 @@ ipcMain.handle("read-file", async (_, rootPath, filePath) => {
     };
   } catch (error) {
     return { error: error.message };
+  }
+});
+
+ipcMain.handle("read-multiple-files", async (_, rootPath, filePaths) => {
+  try {
+    return readMultipleWorkspaceFiles(rootPath, Array.isArray(filePaths) ? filePaths : []);
+  } catch (error) {
+    return { files: [], error: error.message };
   }
 });
 
@@ -420,6 +595,22 @@ ipcMain.handle("apply-file-write", async (_, previewToken) => {
     fs.writeFileSync(pending.target, pending.nextContent, "utf-8");
     pendingWrites.delete(previewToken);
     return { ok: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("prepare-workspace-changes", async (_, rootPath, changes) => {
+  try {
+    return prepareWorkspaceChanges(rootPath, Array.isArray(changes) ? changes : []);
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("apply-workspace-changes", async (_, previewToken) => {
+  try {
+    return applyWorkspaceChanges(previewToken);
   } catch (error) {
     return { error: error.message };
   }

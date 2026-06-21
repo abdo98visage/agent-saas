@@ -59,12 +59,15 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 100
     auth_rate_limit_per_minute: int = 10
     websocket_max_message_bytes: int = 32768
+    kpi_token_alert_threshold: int = 40000
+    kpi_cost_alert_threshold: float = 25.0
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"
 
     # LLM Provider
     llm_provider: str = "mock"
+    default_model: str = "qwen3-14b"
     minimax_api_key: str = ""
     minimax_base_url: str = "https://api.minimax.chat/v1/text/chatcompletion-v2"
     openai_api_key: str = ""
@@ -74,12 +77,17 @@ class Settings(BaseSettings):
     # Hermes runtime / orchestrator
     hermes_orchestrator_url: str = ""
     hermes_orchestrator_secret: str = ""
-    hermes_request_timeout_seconds: float = 30.0
+    hermes_request_timeout_seconds: float = 120.0
 
     # Telegram
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
     telegram_webhook_url: str = ""
+
+    # Observability
+    sentry_dsn: str = ""
+    sentry_environment: str = ""
+    sentry_traces_sample_rate: float = 0.0
 
     # SMTP / Email
     smtp_host: str = ""

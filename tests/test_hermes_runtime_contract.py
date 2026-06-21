@@ -1,8 +1,10 @@
 import inspect
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from app.api import admin as admin_api
 from app import hermes_orchestrator_app
+from app import local_hermes_runtime_app
 from app.models.profile import Profile
 from app.schemas.admin import ApiKeyCreate, ProfileCreate
 from app.services.hermes_profile_sync import build_profile_sync_payload
@@ -36,10 +38,12 @@ def test_profile_sync_payload_generates_hermes_files():
     profile.version = 3
     payload = build_profile_sync_payload(profile)
 
-    assert payload["files"]["AGENTS.md"] == "# Agent"
-    assert payload["files"]["soul.md"] == "Soul"
-    assert "- copywriting" in payload["files"]["skills.md"]
+    assert payload["files"]["workspace/AGENTS.md"] == "# Agent"
+    assert payload["files"]["SOUL.md"] == "Soul"
     assert payload["files"]["system_prompt.md"] == "System"
+    assert "copywriting" in payload["files"]["skills/platform-profile/SKILL.md"]
+    assert payload["files"]["skills/copywriting/SKILL.md"]
+    assert payload["files"]["skills/campaigns/SKILL.md"]
     assert payload["profile"]["slug"] == "marketing"
     assert payload["profile"]["version"] == 3
 
@@ -58,17 +62,25 @@ def test_admin_exposes_hermes_lifecycle_endpoints():
     assert '@router.post("/profiles/{profile_id}/sync")' in source
 
 
-async def test_orchestrator_sync_profile_writes_expected_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(hermes_orchestrator_app, "HERMES_WORKSPACE_ROOT", Path(tmp_path))
-    monkeypatch.setattr(hermes_orchestrator_app, "ORCHESTRATOR_REQUIRE_SECRET", False)
-    payload = {
-        "profile": {"slug": "marketing", "version": 1},
-        "files": {"AGENTS.md": "agent", "soul.md": "soul", "skills.md": "- skill"},
-    }
-    result = await hermes_orchestrator_app.sync_profile(payload)
-    assert result["status"] == "synced"
-    assert (tmp_path / "marketing" / "AGENTS.md").read_text(encoding="utf-8") == "agent"
-    assert (tmp_path / "marketing" / "profile.json").exists()
+async def test_orchestrator_sync_profile_writes_expected_files(monkeypatch):
+    with TemporaryDirectory() as temp_dir:
+        tmp_path = Path(temp_dir)
+        monkeypatch.setattr(hermes_orchestrator_app, "HERMES_WORKSPACE_ROOT", tmp_path)
+        monkeypatch.setattr(hermes_orchestrator_app, "ORCHESTRATOR_REQUIRE_SECRET", False)
+        payload = {
+            "profile": {"slug": "marketing", "version": 1},
+            "files": {
+                "workspace/AGENTS.md": "agent",
+                "SOUL.md": "soul",
+                "skills/platform-profile/SKILL.md": "# platform skill",
+            },
+        }
+        result = await hermes_orchestrator_app.sync_profile(payload)
+        assert result["status"] == "synced"
+        assert (tmp_path / "marketing" / "workspace" / "AGENTS.md").read_text(encoding="utf-8") == "agent"
+        assert (tmp_path / "marketing" / "SOUL.md").read_text(encoding="utf-8") == "soul"
+        assert (tmp_path / "marketing" / "skills" / "platform-profile" / "SKILL.md").exists()
+        assert (tmp_path / "marketing" / "profile.json").exists()
 
 
 async def test_orchestrator_requires_secret_when_enabled(monkeypatch):
@@ -139,3 +151,47 @@ async def test_orchestrator_run_proxy_normalizes_hermes_response(monkeypatch):
     assert result["tools_used"] == ["search"]
     assert result["mcp_servers_used"] == ["filesystem"]
     assert result["total_cost"] == 0.25
+
+
+def test_local_runtime_normalizes_cowork_tool_request():
+    result = local_hermes_runtime_app._normalize_cowork_response(
+        '{"type":"tool_request","tool":"read_file","args":{"path":"app/auth.py"}}'
+    )
+    assert result["type"] == "tool_request"
+    assert result["tool"] == "read_file"
+    assert result["args"]["path"] == "app/auth.py"
+    assert result["request_id"]
+
+
+def test_local_runtime_normalizes_cowork_apply_request():
+    result = local_hermes_runtime_app._normalize_cowork_response(
+        '{"type":"apply_request","summary":"Update auth","changes":[{"action":"update","path":"app/auth.py","content":"print(1)"}]}'
+    )
+    assert result["type"] == "apply_request"
+    assert result["summary"] == "Update auth"
+    assert result["changes"][0]["action"] == "update"
+
+
+def test_local_runtime_falls_back_to_assistant_final_for_plain_text():
+    result = local_hermes_runtime_app._normalize_cowork_response("hello from hermes")
+    assert result == {"type": "assistant_final", "content": "hello from hermes"}
+
+
+def test_local_runtime_builds_cowork_prompt_with_transcript():
+    prompt = local_hermes_runtime_app._build_prompt(
+        {
+            "employee": {"email": "employee@example.com"},
+            "message": "Refactor auth",
+            "workspace": {"root_name": "my-project", "selected_files": ["app/auth.py"]},
+            "cowork": {
+                "protocol": "cowork_v1",
+                "transcript": [
+                    {"type": "tool_request", "tool": "read_file", "args": {"path": "app/auth.py"}},
+                    {"type": "tool_result", "ok": True, "result": {"path": "app/auth.py", "content": "x"}},
+                ],
+            },
+        }
+    )
+    assert "Cowork protocol mode is enabled." in prompt
+    assert "tool_request read_file" in prompt
+    assert "my-project" in prompt

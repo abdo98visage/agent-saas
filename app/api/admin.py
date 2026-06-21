@@ -951,6 +951,7 @@ async def get_dashboard_stats(
     """Get comprehensive dashboard statistics for the admin panel."""
     from datetime import timedelta, date
     from app.models.user_activity import UserActivity
+    from app.core.config import settings
     
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
@@ -1071,6 +1072,56 @@ async def get_dashboard_stats(
                 "percent_used": percent_used,
                 "alert_level": "critical" if percent_used >= 90 else "warning",
             })
+
+    profile_budget_result = await db.execute(
+        select(
+            Profile.id,
+            Profile.name,
+            Profile.daily_cost_budget,
+            func.coalesce(func.sum(AgentRun.total_cost), 0),
+        )
+        .outerjoin(
+            AgentRun,
+            (AgentRun.profile_id == Profile.id) & (AgentRun.created_at >= today_start_dt),
+        )
+        .where(Profile.is_active == True, Profile.daily_cost_budget.is_not(None))
+        .group_by(Profile.id, Profile.name, Profile.daily_cost_budget)
+    )
+    profile_budget_pressure = []
+    for row in profile_budget_result.all():
+        profile_budget = float(row[2] or 0.0)
+        spent_today = float(row[3] or 0.0)
+        percent_used = round((spent_today / profile_budget) * 100, 2) if profile_budget else 0.0
+        if percent_used >= 70:
+            profile_budget_pressure.append({
+                "profile_id": str(row[0]),
+                "profile_name": row[1],
+                "daily_cost_budget": profile_budget,
+                "spent_today": spent_today,
+                "percent_used": percent_used,
+                "alert_level": "critical" if percent_used >= 90 else "warning",
+            })
+
+    kpi_alert_result = await db.execute(
+        select(User.email, User.full_name, KPI.tokens_used, KPI.total_cost)
+        .join(KPI, KPI.user_id == User.id)
+        .where(
+            KPI.date == today,
+            (KPI.tokens_used > settings.kpi_token_alert_threshold) | (KPI.total_cost > settings.kpi_cost_alert_threshold),
+        )
+        .order_by(desc(KPI.total_cost), desc(KPI.tokens_used))
+        .limit(10)
+    )
+    kpi_alerts = [
+        {
+            "email": row[0],
+            "full_name": row[1],
+            "tokens_used": int(row[2] or 0),
+            "total_cost": float(row[3] or 0.0),
+            "alert_level": "critical" if float(row[3] or 0.0) > settings.kpi_cost_alert_threshold else "warning",
+        }
+        for row in kpi_alert_result.all()
+    ]
     
     # Messages this week
     week_messages = await db.execute(
@@ -1163,6 +1214,53 @@ async def get_dashboard_stats(
         hermes = await hermes_orchestrator.status()
     except Exception as exc:
         hermes = {"status": "error", "message": str(exc)}
+
+    alerts = []
+    if hermes.get("run_health") == "unhealthy" or hermes.get("status") in {"error", "unhealthy"}:
+        alerts.append({
+            "type": "hermes_runtime",
+            "level": "critical",
+            "message": "Hermes runtime is unhealthy or unreachable.",
+        })
+    if failed_profile_syncs:
+        alerts.append({
+            "type": "profile_sync",
+            "level": "warning",
+            "message": f"{failed_profile_syncs} profile syncs require attention.",
+        })
+    if failed_runs_today:
+        alerts.append({
+            "type": "agent_runs",
+            "level": "warning" if failed_runs_today < 5 else "critical",
+            "message": f"{failed_runs_today} agent runs failed today.",
+        })
+    alerts.extend(
+        {
+            "type": "api_key_budget",
+            "level": item["alert_level"],
+            "message": f"API key budget usage is {item['percent_used']}% for {item['provider']} ({item['owner_type']}).",
+            "context": item,
+        }
+        for item in key_budget_pressure[:10]
+    )
+    alerts.extend(
+        {
+            "type": "profile_budget",
+            "level": item["alert_level"],
+            "message": f"Profile {item['profile_name']} used {item['percent_used']}% of its daily budget.",
+            "context": item,
+        }
+        for item in profile_budget_pressure[:10]
+    )
+    alerts.extend(
+        {
+            "type": "user_kpi",
+            "level": item["alert_level"],
+            "message": f"User {item['email']} exceeded KPI alert thresholds.",
+            "context": item,
+        }
+        for item in kpi_alerts
+    )
     
     return {
         "summary": {
@@ -1184,6 +1282,9 @@ async def get_dashboard_stats(
             "run_failure_rate_today": run_failure_rate_today,
             "avg_latency_ms_today": avg_latency_today,
             "api_keys_over_70pct_budget": len(key_budget_pressure),
+            "profiles_over_70pct_budget": len(profile_budget_pressure),
+            "users_over_kpi_alert_threshold": len(kpi_alerts),
+            "active_alerts": len(alerts),
         },
         "top_users": [{
             "id": str(u.id),
@@ -1198,5 +1299,13 @@ async def get_dashboard_stats(
         "profile_usage": profile_usage,
         "employee_cost": employee_cost,
         "key_budget_pressure": key_budget_pressure,
+        "profile_budget_pressure": profile_budget_pressure,
+        "kpi_alerts": kpi_alerts,
+        "alerts": alerts,
+        "observability": {
+            "sentry_configured": bool(settings.sentry_dsn),
+            "sentry_environment": settings.sentry_environment or settings.environment,
+            "sentry_traces_sample_rate": settings.sentry_traces_sample_rate,
+        },
         "hermes": hermes,
     }

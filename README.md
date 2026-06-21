@@ -80,6 +80,18 @@ Before starting production, copy `.env.production.example` to `.env.production`,
 
 The default Docker stack runs the Hermes-compatible runtime as an internal service on the private Docker network and does not mount the host Docker socket.
 
+Deployment templates:
+
+- Current `llama.cpp` / OpenAI-compatible mode: `.env.production.llama.example`
+- Final `MiniMax` mode: `.env.production.minimax.example`
+
+Operational docs:
+
+- `docs/SAFE_PRODUCTION_DEPLOY.md`
+- `docs/PRODUCTION_DEPLOYMENT_FINAL.md`
+- `docs/RELEASE_CHECKLIST.md`
+- `docs/DESKTOP_RELEASE_RUNBOOK.md`
+
 Start production with the env file explicitly:
 
 ```powershell
@@ -104,6 +116,12 @@ cd desktop
 npm run build
 ```
 
+For production-style release packaging with an optional generic update feed, set `UPDATE_FEED_URL` before building. If it is omitted, the desktop app still builds, but update checks remain unconfigured.
+
+For the full Windows release checklist including signing and update-feed preflight, see:
+
+- `docs/DESKTOP_RELEASE_RUNBOOK.md`
+
 ### Configure
 
 Copy `.env.example` to `.env` and set your values:
@@ -116,6 +134,27 @@ LLM_PROVIDER=minimax
 MINIMAX_API_KEY=your-key-here
 MINIMAX_BASE_URL=https://api.minimax.chat/v1/chat/completions
 SECRET_KEY=your-jwt-secret-key
+```
+
+OpenAI-compatible local provider example for `llama.cpp`:
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=local-llama
+OPENAI_BASE_URL=http://your-llama-host:54175/v1/chat/completions
+```
+
+Recommended usage:
+
+- Local/staging validation now: `LLM_PROVIDER=openai` with `OPENAI_BASE_URL` pointed at your OpenAI-compatible `llama.cpp` endpoint.
+- Production later: switch to `LLM_PROVIDER=minimax` with a real `MINIMAX_API_KEY`.
+
+Optional backend observability:
+
+```bash
+SENTRY_DSN=your-sentry-dsn
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
 ```
 
 ## API Endpoints

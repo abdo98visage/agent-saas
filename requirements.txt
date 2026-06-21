@@ -15,3 +15,4 @@ redis==5.0.4
 celery==5.4.0
 cryptography==42.0.5
 hermes-agent
+sentry-sdk[fastapi]==2.23.1

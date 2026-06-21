@@ -11,6 +11,8 @@ from app.core.security import (
     verify_password, get_password_hash,
 )
 from app.models.user import User
+from app.models.profile import Profile
+from app.models.profile_user import ProfileUser
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.schemas.user import UserResponse
 from app.core.config import settings
@@ -181,3 +183,34 @@ async def create_websocket_token(user: User = Depends(get_current_user)):
         expires_delta=timedelta(minutes=5),
     )
     return {"access_token": token, "expires_in": 300, "token_type": "bearer"}
+
+
+@router.get("/assigned-profiles")
+async def get_assigned_profiles(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List active Hermes profiles assigned to the current employee."""
+    result = await db.execute(
+        select(ProfileUser, Profile)
+        .join(Profile, Profile.id == ProfileUser.profile_id)
+        .where(
+            ProfileUser.user_id == user.id,
+            Profile.is_active == True,
+        )
+        .order_by(ProfileUser.priority.asc(), Profile.name.asc())
+    )
+    rows = result.all()
+    return {
+        "profiles": [
+            {
+                "id": str(profile.id),
+                "name": profile.name,
+                "slug": profile.slug,
+                "priority": assignment.priority,
+                "runtime_type": profile.runtime_type,
+            }
+            for assignment, profile in rows
+        ],
+        "count": len(rows),
+    }
