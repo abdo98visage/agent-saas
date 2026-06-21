@@ -24,6 +24,7 @@ class AgentRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
     total_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    pricing_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
     model: Mapped[str] = mapped_column(String(100), nullable=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=True)
     tools_used: Mapped[list] = mapped_column(JSONB, default=list)

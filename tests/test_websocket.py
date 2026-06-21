@@ -78,10 +78,13 @@ class TestWebSocketModule:
     def test_websocket_endpoint_has_auth(self):
         """Test WebSocket endpoint requires authentication."""
         from app.api.websocket_chat import websocket_chat
+        from app.api.websocket_chat import get_websocket_user
         import inspect
         source = inspect.getsource(websocket_chat)
+        auth_source = inspect.getsource(get_websocket_user)
         assert "get_websocket_user" in source
         assert "Authentication failed" in source
+        assert "consume_ws_ticket" in auth_source or "purpose" in auth_source
 
     def test_websocket_endpoint_handles_events(self):
         """Test WebSocket endpoint handles all event types."""
@@ -143,6 +146,13 @@ class TestDesktopWebSocketClient:
         assert "tool_result" in content
         assert "apply_result" in content
         assert "user_message" in content
+
+    def test_desktop_main_encrypts_tokens_at_rest(self):
+        with open("desktop/src/main/main.js", encoding="utf-8") as f:
+            content = f.read()
+        assert "safeStorage" in content
+        assert "encryptToken" in content
+        assert "decryptToken" in content
 
     def test_desktop_synced_with_dist(self):
         """Test that dist/ matches src/."""

@@ -12,6 +12,7 @@ import { Plus, Trash2, Edit, Key, CreditCard, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import apiClient from "@/lib/api/client";
 import { getErrorMessage } from "@/lib/api/errors";
+import { adminApi, type ProviderPricing } from "@/lib/api/agentService";
 
 interface ApiKey {
   id: string;
@@ -42,6 +43,7 @@ export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [profiles, setProfiles] = useState<ProfileOption[]>([]);
+  const [pricing, setPricing] = useState<ProviderPricing | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -58,16 +60,31 @@ export default function ApiKeysPage() {
     is_active: true,
     daily_budget: 50000,
   });
+  const [pricingForm, setPricingForm] = useState({
+    monthly_price_usd: 20,
+    monthly_token_allowance: 1_700_000_000,
+    currency: "USD",
+  });
 
   const load = async () => {
-    const [keysResponse, employeesResponse, profilesResponse] = await Promise.all([
+    const [keysResponse, employeesResponse, profilesResponse, pricingResponse] = await Promise.all([
       apiClient.get("/admin/api-keys"),
       apiClient.get("/admin/employees"),
       apiClient.get("/admin/profiles"),
+      adminApi.getProviderPricing({ provider: "minimax" }),
     ]);
     setKeys(keysResponse.data.api_keys || []);
     setEmployees(employeesResponse.data.employees || []);
     setProfiles(profilesResponse.data.profiles || []);
+    const activePricing = (pricingResponse.data.pricing || []).find((item: ProviderPricing) => item.is_active) || null;
+    setPricing(activePricing);
+    if (activePricing) {
+      setPricingForm({
+        monthly_price_usd: activePricing.monthly_price_usd,
+        monthly_token_allowance: activePricing.monthly_token_allowance,
+        currency: activePricing.currency,
+      });
+    }
     setLoading(false);
   };
 
@@ -75,15 +92,25 @@ export default function ApiKeysPage() {
     let cancelled = false;
 
     const run = async () => {
-      const [keysResponse, employeesResponse, profilesResponse] = await Promise.all([
+      const [keysResponse, employeesResponse, profilesResponse, pricingResponse] = await Promise.all([
         apiClient.get("/admin/api-keys"),
         apiClient.get("/admin/employees"),
         apiClient.get("/admin/profiles"),
+        adminApi.getProviderPricing({ provider: "minimax" }),
       ]);
       if (!cancelled) {
         setKeys(keysResponse.data.api_keys || []);
         setEmployees(employeesResponse.data.employees || []);
         setProfiles(profilesResponse.data.profiles || []);
+        const activePricing = (pricingResponse.data.pricing || []).find((item: ProviderPricing) => item.is_active) || null;
+        setPricing(activePricing);
+        if (activePricing) {
+          setPricingForm({
+            monthly_price_usd: activePricing.monthly_price_usd,
+            monthly_token_allowance: activePricing.monthly_token_allowance,
+            currency: activePricing.currency,
+          });
+        }
         setLoading(false);
       }
     };
@@ -146,6 +173,16 @@ export default function ApiKeysPage() {
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Failed to delete API key"));
+    }
+  };
+
+  const handlePricingSave = async () => {
+    try {
+      await adminApi.updateProviderPricing("minimax", pricingForm);
+      toast.success("MiniMax pricing updated");
+      await load();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Failed to update pricing"));
     }
   };
 
@@ -294,6 +331,50 @@ export default function ApiKeysPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="kos-card">
+        <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #0F766E, #0EA5A4)" }} />
+        <CardHeader>
+          <CardTitle>MiniMax Monthly Pricing Model</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-4">
+          <div className="space-y-2">
+            <Label>Monthly Price (USD)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={pricingForm.monthly_price_usd}
+              onChange={(event) => setPricingForm({ ...pricingForm, monthly_price_usd: Number.parseFloat(event.target.value) || 0 })}
+              className="kos-input"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Monthly Token Allowance</Label>
+            <Input
+              type="number"
+              value={pricingForm.monthly_token_allowance}
+              onChange={(event) => setPricingForm({ ...pricingForm, monthly_token_allowance: Number.parseInt(event.target.value, 10) || 0 })}
+              className="kos-input"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Currency</Label>
+            <Input
+              value={pricingForm.currency}
+              onChange={(event) => setPricingForm({ ...pricingForm, currency: event.target.value.toUpperCase() })}
+              className="kos-input"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button className="w-full kos-gradient-btn text-white" onClick={() => void handlePricingSave()}>
+              Save Pricing
+            </Button>
+          </div>
+          <div className="md:col-span-4 text-sm text-muted-foreground">
+            Current rate: {pricing ? `${pricing.usd_per_1m_tokens.toFixed(4)} USD per 1M tokens` : "No active pricing configured yet."}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="kos-card">
         <CardContent className="pt-6">

@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
 
 $dbBackup = Join-Path $backupRoot "agentsaas-db-$timestamp.sql"
 $hermesBackup = Join-Path $backupRoot "agentsaas-hermes-profiles-$timestamp.tar"
+$manifestPath = Join-Path $backupRoot "agentsaas-backup-$timestamp.manifest.json"
 
 Push-Location $root
 try {
@@ -32,8 +33,25 @@ try {
   $orchestratorContainer = docker compose --env-file $EnvFile -f $ComposeFile ps -q hermes-orchestrator
   docker cp "${orchestratorContainer}:/tmp/hermes-profiles.tar" $hermesBackup
   docker compose --env-file $EnvFile -f $ComposeFile exec -T hermes-orchestrator rm -f /tmp/hermes-profiles.tar
+  $dbHash = (Get-FileHash -Algorithm SHA256 $dbBackup).Hash
+  $hermesHash = (Get-FileHash -Algorithm SHA256 $hermesBackup).Hash
+  $manifest = [ordered]@{
+    created_at = (Get-Date).ToString("o")
+    compose_file = $ComposeFile
+    env_file = $EnvFile
+    database_backup = @{
+      path = (Resolve-Path $dbBackup).Path
+      sha256 = $dbHash
+    }
+    hermes_profiles_backup = @{
+      path = (Resolve-Path $hermesBackup).Path
+      sha256 = $hermesHash
+    }
+  }
+  $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $manifestPath
   Write-Output "Database backup: $dbBackup"
   Write-Output "Hermes profile backup: $hermesBackup"
+  Write-Output "Backup manifest: $manifestPath"
 }
 finally {
   Pop-Location

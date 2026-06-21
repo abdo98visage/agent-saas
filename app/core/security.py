@@ -1,11 +1,16 @@
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from jose import jwt
 from app.core.config import settings
 
 
-def create_access_token(user_id: str, role: str = "employee", expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    user_id: str,
+    role: str = "employee",
+    expires_delta: Optional[timedelta] = None,
+    extra_claims: Optional[dict[str, Any]] = None,
+) -> str:
     """Create JWT access token with user_id and role."""
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
@@ -16,6 +21,8 @@ def create_access_token(user_id: str, role: str = "employee", expires_delta: Opt
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 

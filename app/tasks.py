@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.models.user_api_key import UserApiKey
 from app.models.session import Session
 from app.models.message import Message
+from app.services.alert_service import alert_service
 
 engine = create_async_engine(settings.database_url)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -143,3 +144,38 @@ def track_token_usage(user_id: str, model: str, tokens_used: int, cost: float):
             pass
     asyncio.run(_track())
     return "Token usage tracked"
+
+
+@celery_app.task(name="app.tasks.evaluate_platform_alerts")
+def evaluate_platform_alerts():
+    """Evaluate operational alerts and persist them for the admin dashboard."""
+    import asyncio
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from app.core.config import settings
+
+    task_engine = create_async_engine(settings.database_url)
+    task_session = sessionmaker(task_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _evaluate():
+        async with task_session() as session:
+            candidates = await alert_service.collect_candidates(session)
+            result = await alert_service.sync_candidates(session, candidates)
+            if settings.smtp_host and settings.alert_notification_recipients:
+                pending_alerts = await alert_service.pending_notifications(session)
+                for alert in pending_alerts:
+                    subject = alert_service.notification_subject(alert)
+                    body = alert_service.notification_body(alert)
+                    for recipient in settings.alert_notification_recipients:
+                        send_email_notification.delay(recipient, subject, body)
+                    alert.last_notified_at = datetime.datetime.utcnow()
+            await session.commit()
+            return result
+
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(_evaluate())
+    finally:
+        loop.run_until_complete(task_engine.dispose())
+        loop.close()
+    return result

@@ -1,47 +1,95 @@
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+
 from app.core.config import settings
-from app.core.db import get_db
+from app.services.hermes_orchestrator import hermes_orchestrator
 
 router = APIRouter()
 
 
-@router.get("/health")
-async def health_check(db=None):
-    """Health check with actual DB and Redis connectivity tests."""
-    health = {
-        "status": "ok",
-        "app": settings.app_name,
-        "version": settings.version,
-        "llm_provider": settings.llm_provider,
-        "checks": {},
-    }
-
-    # Check PostgreSQL connectivity
-    db_status = "unavailable"
+async def _database_check() -> tuple[bool, str]:
     try:
         from sqlalchemy.ext.asyncio import create_async_engine
+
         engine = create_async_engine(settings.database_url)
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         await engine.dispose()
-        db_status = "connected"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-        health["status"] = "degraded"
-    health["checks"]["database"] = db_status
+        return True, "connected"
+    except Exception as exc:
+        return False, f"error: {exc}"
 
-    # Check Redis connectivity
-    redis_status = "unavailable"
+
+async def _redis_check() -> tuple[bool, str]:
     try:
         import redis.asyncio as aioredis
+
         redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
         await redis_client.ping()
         await redis_client.close()
-        redis_status = "connected"
-    except Exception as e:
-        redis_status = f"error: {str(e)}"
-        health["status"] = "degraded"
-    health["checks"]["redis"] = redis_status
+        return True, "connected"
+    except Exception as exc:
+        return False, f"error: {exc}"
 
-    return health
+
+async def _hermes_check() -> tuple[bool | None, str]:
+    if not settings.hermes_orchestrator_url:
+        return None, "not_configured"
+    try:
+        status = await hermes_orchestrator.status()
+        healthy = status.get("run_health") == "healthy" or status.get("status") in {"ready", "managed_externally", "healthy"}
+        return healthy, status.get("status", "unknown")
+    except Exception as exc:
+        return False, f"error: {exc}"
+
+
+@router.get("/live")
+async def live_check():
+    return {"status": "alive", "app": settings.app_name, "version": settings.version}
+
+
+@router.get("/ready")
+async def readiness_check():
+    database_ok, database_status = await _database_check()
+    redis_ok, redis_status = await _redis_check()
+    hermes_ok, hermes_status = await _hermes_check()
+
+    ready = database_ok and redis_ok and (hermes_ok is not False)
+    payload = {
+        "status": "ready" if ready else "not_ready",
+        "checks": {
+            "database": database_status,
+            "redis": redis_status,
+            "hermes": hermes_status,
+        },
+    }
+    if ready:
+        return payload
+    return JSONResponse(status_code=503, content=payload)
+
+
+@router.get("/health")
+async def health_check():
+    """Detailed health check for operators."""
+    database_ok, database_status = await _database_check()
+    redis_ok, redis_status = await _redis_check()
+    hermes_ok, hermes_status = await _hermes_check()
+
+    checks = {
+        "database": database_status,
+        "redis": redis_status,
+        "hermes": hermes_status,
+    }
+    status = "ok"
+    if not database_ok or not redis_ok:
+        status = "degraded"
+    if hermes_ok is False:
+        status = "degraded"
+
+    return {
+        "status": status,
+        "app": settings.app_name,
+        "version": settings.version,
+        "checks": checks,
+    }

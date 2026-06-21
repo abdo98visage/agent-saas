@@ -35,6 +35,10 @@ celery_app.conf.update(
             "task": "app.tasks.cleanup_old_sessions",
             "schedule": crontab(hour=2, minute=0),
         },
+        "evaluate-platform-alerts": {
+            "task": "app.tasks.evaluate_platform_alerts",
+            "schedule": crontab(minute="*/10"),
+        },
     },
 )
 

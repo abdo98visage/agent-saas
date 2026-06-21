@@ -23,6 +23,7 @@ class TestModels:
     def test_user_has_invite_token_field(self):
         assert hasattr(User, "invite_token")
         assert hasattr(User, "is_activated")
+        assert hasattr(User, "invite_token_expires_at")
 
     def test_profile_has_soul_md(self):
         assert hasattr(Profile, "soul_md")
@@ -32,6 +33,7 @@ class TestModels:
         assert hasattr(TelegramBinding, "user_id")
         assert hasattr(TelegramBinding, "telegram_chat_id")
         assert hasattr(TelegramBinding, "binding_token")
+        assert hasattr(TelegramBinding, "binding_token_expires_at")
 
     def test_user_pending_employee(self):
         u = User(email="t@t.com", hashed_password="h",
@@ -53,20 +55,23 @@ class TestSecurity:
 
     def test_jwt_create_and_decode(self):
         uid = str(uuid.uuid4())
-        token = create_access_token(uid, "admin")
+        token = create_access_token(uid, "admin", extra_claims={"ver": 0})
         payload = decode_access_token(token)
         assert payload is not None
         assert payload["sub"] == uid
         assert payload["role"] == "admin"
+        assert payload["ver"] == 0
 
     def test_jwt_invalid_token(self):
         assert decode_access_token("invalid-token") is None
 
     def test_jwt_employee_role(self):
         uid = str(uuid.uuid4())
-        token = create_access_token(uid, "employee")
+        token = create_access_token(uid, "employee", extra_claims={"purpose": "ws", "ver": 2})
         payload = decode_access_token(token)
         assert payload["role"] == "employee"
+        assert payload["purpose"] == "ws"
+        assert payload["ver"] == 2
 
 
 # ============= ENDPOINT VERIFICATION =============
@@ -91,6 +96,7 @@ class TestEndpoints:
         assert "/kpis" in paths
         assert "/audit-log" in paths
         assert "/agent-templates" in paths
+        assert "/monitoring/alerts" in paths
 
     def test_chat_endpoints(self):
         from app.api.chat import router
@@ -112,6 +118,13 @@ class TestEndpoints:
         from app.api.websocket_chat import router
         paths = [r.path for r in router.routes]
         assert "/ws/chat" in paths
+
+    def test_health_endpoints(self):
+        from app.api.health import router
+        paths = [r.path for r in router.routes]
+        assert "/health" in paths
+        assert "/live" in paths
+        assert "/ready" in paths
 
     def test_all_routers_registered_in_app(self):
         from app.main import app
@@ -301,11 +314,14 @@ class TestMigration:
         files = glob.glob("migrations/versions/*.py")
         migration_files = [f for f in files if "initial" not in f]
         if migration_files:
-            with open(migration_files[0]) as f:
-                content = f.read()
-            assert "soul_md" in content
-            assert "invite_token" in content
-            assert "is_activated" in content
+            contents = []
+            for path in migration_files:
+                with open(path, encoding="utf-8") as f:
+                    contents.append(f.read())
+            merged = "\n".join(contents)
+            assert "soul_md" in merged
+            assert "invite_token" in merged
+            assert "is_activated" in merged
 
 
 # ============= CONFIG =============
@@ -320,6 +336,8 @@ class TestConfig:
         assert hasattr(settings, "telegram_bot_token")
         assert hasattr(settings, "telegram_webhook_secret")
         assert hasattr(settings, "telegram_webhook_url")
+        assert hasattr(settings, "alert_notification_emails")
+        assert hasattr(settings, "alert_notification_recipients")
 
 
 # ============= CELERY =============
@@ -335,3 +353,4 @@ class TestCelery:
         assert hasattr(tasks, "cleanup_old_sessions")
         assert hasattr(tasks, "send_email_notification")
         assert hasattr(tasks, "track_token_usage")
+        assert hasattr(tasks, "evaluate_platform_alerts")

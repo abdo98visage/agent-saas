@@ -41,15 +41,28 @@ def test_production_env_example_documents_required_secrets():
         "HERMES_ORCHESTRATOR_SECRET",
         "HERMES_RUN_PATH",
         "HERMES_RUN_STREAM_PATH",
+        "ALERT_NOTIFICATION_EMAILS",
+        "SMTP_HOST",
     ]:
         assert name in content
 
 
 def test_backup_restore_and_smoke_scripts_exist():
-    for script_name in ["backup.ps1", "restore.ps1", "smoke_test.ps1", "production_readiness_check.ps1"]:
+    for script_name in ["backup.ps1", "restore.ps1", "verify_backup.ps1", "smoke_test.ps1", "production_readiness_check.ps1", "load_test.py"]:
         script = ROOT / "deploy" / script_name
         assert script.exists()
-        assert "docker compose" in script.read_text(encoding="utf-8") or script_name in {"smoke_test.ps1", "production_readiness_check.ps1"}
+        assert "docker compose" in script.read_text(encoding="utf-8") or script_name in {"verify_backup.ps1", "smoke_test.ps1", "production_readiness_check.ps1", "load_test.py"}
+
+
+def test_backup_scripts_generate_and_verify_manifest():
+    backup = (ROOT / "deploy" / "backup.ps1").read_text(encoding="utf-8")
+    restore = (ROOT / "deploy" / "restore.ps1").read_text(encoding="utf-8")
+    verify = (ROOT / "deploy" / "verify_backup.ps1").read_text(encoding="utf-8")
+
+    assert "Get-FileHash -Algorithm SHA256" in backup
+    assert "Backup manifest" in backup
+    assert "Assert-HashMatches" in restore
+    assert "ConvertFrom-Json" in verify
 
 
 def test_frontend_uses_relative_api_by_default():
@@ -64,12 +77,15 @@ def test_runtime_security_guards_are_configured():
     config = (ROOT / "app" / "core" / "config.py").read_text(encoding="utf-8")
     main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
     websocket = (ROOT / "app" / "api" / "websocket_chat.py").read_text(encoding="utf-8")
+    health = (ROOT / "app" / "api" / "health.py").read_text(encoding="utf-8")
 
     assert "HERMES_ORCHESTRATOR_SECRET must be at least 32 characters" in config
     assert "LLM_PROVIDER must be minimax, openai, or ollama in production" in config
     assert "redis.asyncio" in main
     assert "rate-limit:" in main
     assert "websocket_max_message_bytes" in websocket
+    assert '@router.get("/live")' in health
+    assert '@router.get("/ready")' in health
 
 
 def test_telegram_webhook_sends_replies():
@@ -84,16 +100,39 @@ def test_smoke_script_exercises_full_platform_journey():
     content = (ROOT / "deploy" / "smoke_test.ps1").read_text(encoding="utf-8")
 
     for token in [
+        "/api/ready",
+        "/api/admin/provider-pricing/",
         "/api/admin/hermes/status",
         "/api/admin/profiles",
         "/api/admin/api-keys",
         "/api/admin/employees",
         "/api/admin/assignments",
         "/api/auth/activate",
+        "/api/auth/ws-token",
         "/api/chat/message",
         "/api/admin/sessions/",
         "/api/admin/monitoring/dashboard-stats",
+        "/api/admin/usage-report",
+        "/api/admin/monitoring/alerts/run",
+        "/api/admin/monitoring/alerts",
+        "pricing_snapshot",
         "runtime_type = \"hermes\"",
+    ]:
+        assert token in content
+
+
+def test_production_readiness_check_covers_new_runtime_guards():
+    content = (ROOT / "deploy" / "production_readiness_check.ps1").read_text(encoding="utf-8")
+
+    for token in [
+        "WEBSOCKET_MAX_MESSAGE_BYTES",
+        "ALERT_NOTIFICATION_EMAILS",
+        "SMTP_HOST",
+        "HERMES_MANAGED_EXTERNALLY",
+        "NEXT_PUBLIC_API_URL",
+        "ALLOWED_ORIGINS",
+        "HERMES_ORCHESTRATOR_SECRET",
+        "docker compose --env-file",
     ]:
         assert token in content
 
@@ -108,3 +147,17 @@ def test_docker_e2e_compose_uses_local_hermes_runtime():
     assert "alembic upgrade head" in compose
     assert "python seed_templates.py" in compose
     assert "smoke_test.ps1" in docker_script
+
+
+def test_load_test_script_covers_rest_and_websocket_latency():
+    content = (ROOT / "deploy" / "load_test.py").read_text(encoding="utf-8")
+
+    for token in [
+        "/api/ready",
+        "/api/chat/message",
+        "/api/auth/ws-token",
+        "p95_ms",
+        "WebSocket",
+        "REST",
+    ]:
+        assert token in content

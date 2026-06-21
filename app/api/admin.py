@@ -1,6 +1,6 @@
 from uuid import UUID
 from typing import Optional
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
@@ -18,15 +18,20 @@ from app.models.user_api_key import UserApiKey
 from app.models.session import Session
 from app.models.message import Message
 from app.models.agent_run import AgentRun, AgentRunEvent
+from app.models.provider_pricing import ProviderPricing
+from app.models.alert_event import AlertEvent
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.services.hermes_orchestrator import hermes_orchestrator
 from app.services.hermes_profile_sync import hermes_profile_sync_service
+from app.services.pricing_service import pricing_service
+from app.services.alert_service import alert_service
 from app.schemas.admin import (
     EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
     ProfileCreate, ProfileUpdate,
     AssignmentCreate,
     AgentTemplateCreate, AgentTemplateUpdate,
-    ApiKeyCreate, ApiKeyUpdate,
+    ApiKeyCreate, ApiKeyUpdate, ProviderPricingUpsert,
 )
 
 router = APIRouter()
@@ -102,6 +107,7 @@ async def create_employee(
         raise HTTPException(status_code=409, detail="Email already registered")
 
     invite_token = secrets.token_urlsafe(48)
+    invite_token_expires_at = datetime.utcnow() + timedelta(hours=settings.invite_token_ttl_hours)
 
     user = User(
         email=req.email,
@@ -112,6 +118,7 @@ async def create_employee(
         is_active=False,
         is_activated=False,
         invite_token=invite_token,
+        invite_token_expires_at=invite_token_expires_at,
         max_tokens_per_day=req.max_tokens_per_day,
         max_requests_per_day=req.max_requests_per_day,
     )
@@ -471,8 +478,11 @@ async def view_session_messages(
             "profile_id": str(r.profile_id) if r.profile_id else None,
             "profile_version": r.profile_version,
             "latency_ms": r.latency_ms,
+            "input_tokens": r.input_tokens,
             "output_tokens": r.output_tokens,
+            "total_tokens": int(r.input_tokens or 0) + int(r.output_tokens or 0),
             "total_cost": r.total_cost,
+            "pricing_snapshot": r.pricing_snapshot,
             "model": r.model,
             "provider": r.provider,
             "tools_used": r.tools_used,
@@ -624,6 +634,240 @@ async def rotate_api_key(
     return {"message": "API key rotated (deactivated). Create a new key to replace it."}
 
 
+@router.get("/provider-pricing")
+async def list_provider_pricing(
+    provider: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    query = select(ProviderPricing).order_by(ProviderPricing.provider.asc(), ProviderPricing.updated_at.desc())
+    if provider:
+        query = query.where(ProviderPricing.provider == provider)
+    result = await db.execute(query)
+    items = result.scalars().all()
+    return {
+        "pricing": [
+            {
+                "id": str(item.id),
+                "provider": item.provider,
+                "currency": item.currency,
+                "monthly_price_usd": item.monthly_price_usd,
+                "monthly_token_allowance": item.monthly_token_allowance,
+                "is_active": item.is_active,
+                "usd_per_1m_tokens": round((item.monthly_price_usd / item.monthly_token_allowance) * 1_000_000, 6)
+                if item.monthly_token_allowance
+                else 0.0,
+                "created_at": str(item.created_at),
+                "updated_at": str(item.updated_at),
+            }
+            for item in items
+        ],
+        "count": len(items),
+    }
+
+
+@router.put("/provider-pricing/{provider}")
+async def upsert_provider_pricing(
+    provider: str,
+    req: ProviderPricingUpsert,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    provider_name = provider.strip().lower()
+    if provider_name not in {"minimax", "openai", "ollama"}:
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+
+    existing_result = await db.execute(
+        select(ProviderPricing).where(
+            ProviderPricing.provider == provider_name,
+            ProviderPricing.is_active == True,
+        )
+    )
+    for existing in existing_result.scalars().all():
+        existing.is_active = False
+
+    pricing = ProviderPricing(
+        provider=provider_name,
+        currency=req.currency.upper(),
+        monthly_price_usd=req.monthly_price_usd,
+        monthly_token_allowance=req.monthly_token_allowance,
+        is_active=True,
+    )
+    db.add(pricing)
+    await db.flush()
+
+    db.add(
+        AuditLog(
+            user_id=str(admin.id),
+            action="upsert_provider_pricing",
+            details={
+                "provider": provider_name,
+                "monthly_price_usd": req.monthly_price_usd,
+                "monthly_token_allowance": req.monthly_token_allowance,
+                "currency": req.currency.upper(),
+            },
+        )
+    )
+    return {
+        "id": str(pricing.id),
+        "provider": pricing.provider,
+        "currency": pricing.currency,
+        "monthly_price_usd": pricing.monthly_price_usd,
+        "monthly_token_allowance": pricing.monthly_token_allowance,
+        "usd_per_1m_tokens": round((pricing.monthly_price_usd / pricing.monthly_token_allowance) * 1_000_000, 6),
+    }
+
+
+@router.get("/usage-report")
+async def get_usage_report(
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    user_id: Optional[str] = None,
+    profile_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    today = datetime.utcnow()
+    report_year = year or today.year
+    report_month = month or today.month
+    period_start = datetime(report_year, report_month, 1)
+    if report_month == 12:
+        period_end = datetime(report_year + 1, 1, 1)
+    else:
+        period_end = datetime(report_year, report_month + 1, 1)
+
+    query = (
+        select(AgentRun, User, Profile)
+        .join(User, User.id == AgentRun.user_id)
+        .outerjoin(Profile, Profile.id == AgentRun.profile_id)
+        .where(
+            AgentRun.created_at >= period_start,
+            AgentRun.created_at < period_end,
+            AgentRun.status == "completed",
+        )
+        .order_by(AgentRun.created_at.desc())
+    )
+    if user_id:
+        try:
+            query = query.where(AgentRun.user_id == UUID(user_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid user_id filter") from exc
+    if profile_id:
+        try:
+            query = query.where(AgentRun.profile_id == UUID(profile_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid profile_id filter") from exc
+
+    rows = (await db.execute(query)).all()
+
+    def _usage_totals() -> dict:
+        return {
+            "runs": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "total_cost": 0.0,
+        }
+
+    summary = _usage_totals()
+    by_employee: dict[str, dict] = {}
+    by_profile: dict[str, dict] = {}
+    by_employee_profile: dict[str, dict] = {}
+
+    for run, employee, profile in rows:
+        input_tokens = int(run.input_tokens or 0)
+        output_tokens = int(run.output_tokens or 0)
+        total_tokens = input_tokens + output_tokens
+        total_cost = round(float(run.total_cost or 0.0), 6)
+
+        summary["runs"] += 1
+        summary["input_tokens"] += input_tokens
+        summary["output_tokens"] += output_tokens
+        summary["total_tokens"] += total_tokens
+        summary["total_cost"] = round(summary["total_cost"] + total_cost, 6)
+
+        employee_key = str(employee.id)
+        employee_entry = by_employee.setdefault(
+            employee_key,
+            {
+                "user_id": employee_key,
+                "email": employee.email,
+                "full_name": employee.full_name,
+                **_usage_totals(),
+            },
+        )
+        employee_entry["runs"] += 1
+        employee_entry["input_tokens"] += input_tokens
+        employee_entry["output_tokens"] += output_tokens
+        employee_entry["total_tokens"] += total_tokens
+        employee_entry["total_cost"] = round(employee_entry["total_cost"] + total_cost, 6)
+
+        profile_key = str(profile.id) if profile else "unassigned"
+        profile_entry = by_profile.setdefault(
+            profile_key,
+            {
+                "profile_id": str(profile.id) if profile else None,
+                "profile_name": profile.name if profile else "Unassigned",
+                "profile_slug": profile.slug if profile else None,
+                **_usage_totals(),
+            },
+        )
+        profile_entry["runs"] += 1
+        profile_entry["input_tokens"] += input_tokens
+        profile_entry["output_tokens"] += output_tokens
+        profile_entry["total_tokens"] += total_tokens
+        profile_entry["total_cost"] = round(profile_entry["total_cost"] + total_cost, 6)
+
+        employee_profile_key = f"{employee_key}:{profile_key}"
+        employee_profile_entry = by_employee_profile.setdefault(
+            employee_profile_key,
+            {
+                "user_id": employee_key,
+                "email": employee.email,
+                "full_name": employee.full_name,
+                "profile_id": str(profile.id) if profile else None,
+                "profile_name": profile.name if profile else "Unassigned",
+                "profile_slug": profile.slug if profile else None,
+                **_usage_totals(),
+            },
+        )
+        employee_profile_entry["runs"] += 1
+        employee_profile_entry["input_tokens"] += input_tokens
+        employee_profile_entry["output_tokens"] += output_tokens
+        employee_profile_entry["total_tokens"] += total_tokens
+        employee_profile_entry["total_cost"] = round(employee_profile_entry["total_cost"] + total_cost, 6)
+
+    pricing = await pricing_service.get_active_pricing(db, settings.llm_provider)
+    active_pricing = None
+    if pricing:
+        active_pricing = {
+            "provider": pricing.provider,
+            "currency": pricing.currency,
+            "monthly_price_usd": pricing.monthly_price_usd,
+            "monthly_token_allowance": pricing.monthly_token_allowance,
+            "usd_per_1m_tokens": round((pricing.monthly_price_usd / pricing.monthly_token_allowance) * 1_000_000, 6)
+            if pricing.monthly_token_allowance
+            else 0.0,
+        }
+
+    return {
+        "period": {
+            "year": report_year,
+            "month": report_month,
+            "start": period_start.isoformat(),
+            "end": period_end.isoformat(),
+        },
+        "pricing": active_pricing,
+        "summary": summary,
+        "employees": sorted(by_employee.values(), key=lambda item: (-item["total_cost"], -item["total_tokens"], item["email"])),
+        "profiles": sorted(by_profile.values(), key=lambda item: (-item["total_cost"], -item["total_tokens"], item["profile_name"] or "")),
+        "employee_profiles": sorted(
+            by_employee_profile.values(),
+            key=lambda item: (-item["total_cost"], -item["total_tokens"], item["email"], item["profile_name"] or ""),
+        ),
+    }
+
+
 # ==================== HERMES RUNTIME CONTROL ====================
 
 @router.get("/hermes/status")
@@ -701,6 +945,73 @@ async def hermes_logs(
     admin: User = Depends(get_current_admin_user),
 ):
     return await hermes_orchestrator.logs(limit=limit)
+
+
+@router.get("/monitoring/alerts")
+async def get_alerts(
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = Query(100, le=500),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    alerts = await alert_service.list_alerts(db, status=status, severity=severity, limit=limit)
+    return {
+        "alerts": [
+            {
+                "id": str(alert.id),
+                "alert_type": alert.alert_type,
+                "severity": alert.severity,
+                "status": alert.status,
+                "title": alert.title,
+                "message": alert.message,
+                "context": alert.context,
+                "first_seen_at": str(alert.first_seen_at),
+                "last_seen_at": str(alert.last_seen_at),
+                "last_notified_at": str(alert.last_notified_at) if alert.last_notified_at else None,
+                "is_acknowledged": alert.is_acknowledged,
+                "created_at": str(alert.created_at),
+            }
+            for alert in alerts
+        ],
+        "count": len(alerts),
+    }
+
+
+@router.post("/monitoring/alerts/run")
+async def run_alert_evaluation(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    candidates = await alert_service.collect_candidates(db)
+    result = await alert_service.sync_candidates(db, candidates)
+    db.add(
+        AuditLog(
+            user_id=str(admin.id),
+            action="run_alert_evaluation",
+            details=result,
+        )
+    )
+    return result
+
+
+@router.post("/monitoring/alerts/{alert_id}/ack")
+async def acknowledge_alert(
+    alert_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    alert = await alert_service.acknowledge(db, str(alert_id))
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    db.add(
+        AuditLog(
+            user_id=str(admin.id),
+            action="acknowledge_alert",
+            details={"alert_id": str(alert_id), "alert_type": alert.alert_type},
+        )
+    )
+    return {"message": "Alert acknowledged", "alert_id": str(alert_id)}
 
 
 # ==================== EXISTING ENDPOINTS ====================

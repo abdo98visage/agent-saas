@@ -1,4 +1,5 @@
 import secrets
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -70,6 +71,10 @@ def _inactive_user_message(user: User | None) -> str | None:
     return None
 
 
+def _binding_expired(binding: TelegramBinding) -> bool:
+    return bool(binding.binding_token_expires_at and binding.binding_token_expires_at < datetime.utcnow())
+
+
 @router.post("/webhook")
 async def telegram_webhook(
     request: Request,
@@ -103,8 +108,16 @@ async def telegram_webhook(
                 "Invalid bind code. Generate a new code from the desktop app and try again.",
                 bound=False,
             )
+        if _binding_expired(binding):
+            await db.delete(binding)
+            return await _reply(
+                chat_id,
+                "This bind code expired. Generate a new code from the desktop app and try again.",
+                bound=False,
+            )
 
         binding.telegram_chat_id = chat_id
+        binding.binding_token_expires_at = None
         await db.flush()
 
         user_result = await db.execute(select(User).where(User.id == binding.user_id))
@@ -216,6 +229,7 @@ async def bind_telegram(
             user_id=user.id,
             telegram_chat_id=telegram_chat_id,
             binding_token=secrets.token_hex(32),
+            binding_token_expires_at=datetime.utcnow() + timedelta(minutes=settings.telegram_bind_code_ttl_minutes),
         )
         db.add(binding)
 
@@ -238,27 +252,33 @@ async def generate_telegram_bind_code(
     )
     existing_binding = existing.scalar_one_or_none()
     if existing_binding:
-        if existing_binding.telegram_chat_id != 0:
+        if _binding_expired(existing_binding):
+            await db.delete(existing_binding)
+        elif existing_binding.telegram_chat_id != 0:
             return {
                 "message": "Already bound",
                 "telegram_chat_id": existing_binding.telegram_chat_id,
             }
-        return {
-            "bind_code": existing_binding.binding_token,
-            "message": "Send /bind <code> to the Telegram bot",
-        }
+        else:
+            return {
+                "bind_code": existing_binding.binding_token,
+                "expires_at": existing_binding.binding_token_expires_at.isoformat() if existing_binding.binding_token_expires_at else None,
+                "message": "Send /bind <code> to the Telegram bot",
+            }
 
     code = secrets.token_hex(6)
     binding = TelegramBinding(
         user_id=user.id,
         telegram_chat_id=0,
         binding_token=code,
+        binding_token_expires_at=datetime.utcnow() + timedelta(minutes=settings.telegram_bind_code_ttl_minutes),
     )
     db.add(binding)
     await db.flush()
 
     return {
         "bind_code": code,
+        "expires_at": binding.binding_token_expires_at.isoformat() if binding.binding_token_expires_at else None,
         "message": "Send /bind <code> to the Telegram bot",
     }
 
@@ -283,10 +303,14 @@ async def bind_with_code(
     binding = result.scalar_one_or_none()
     if not binding:
         raise HTTPException(status_code=404, detail="Invalid or expired bind code")
+    if _binding_expired(binding):
+        await db.delete(binding)
+        raise HTTPException(status_code=410, detail="Bind code expired. Generate a new code and try again.")
     if binding.telegram_chat_id == 0:
         raise HTTPException(
             status_code=400,
             detail="Not bound yet. Send /bind <code> to the Telegram bot first.",
         )
 
+    binding.binding_token_expires_at = None
     return {"message": "Telegram bound successfully", "telegram_chat_id": binding.telegram_chat_id}

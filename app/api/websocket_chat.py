@@ -17,6 +17,7 @@ from datetime import date
 from app.core.config import settings
 from app.core.db import async_session
 from app.core.security import decode_access_token
+from app.api.auth import consume_ws_ticket
 from app.models.user import User
 from app.models.session import Session
 from app.models.message import Message
@@ -25,6 +26,7 @@ from app.models.user_activity import UserActivity
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.services.agent_service import AgentService
 from app.services.hermes_orchestrator import hermes_orchestrator
+from app.services.pricing_service import pricing_service
 from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
 
 router = APIRouter()
@@ -47,10 +49,17 @@ class WebSocketUser:
     max_tokens_per_day: int
 
 
-async def get_websocket_user(token: str) -> Optional[WebSocketUser]:
+async def get_websocket_user(token: str, app=None) -> Optional[WebSocketUser]:
     """Extract user from WebSocket query token."""
     payload = decode_access_token(token)
     if not payload:
+        return None
+    if payload.get("purpose") != "ws":
+        return None
+    ticket_id = payload.get("jti")
+    if not ticket_id or app is None:
+        return None
+    if not await consume_ws_ticket(app, ticket_id):
         return None
     user_id = payload.get("sub")
     if not user_id:
@@ -59,6 +68,8 @@ async def get_websocket_user(token: str) -> Optional[WebSocketUser]:
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
+            return None
+        if int(payload.get("ver", 0)) != int(user.token_version or 0):
             return None
         return WebSocketUser(
             id=user.id,
@@ -335,6 +346,17 @@ async def _run_cowork_loop(
             )
             async with async_session() as final_db:
                 persisted_run = await final_db.get(AgentRun, run.id)
+                effective_input_tokens = input_tokens or agent_service._estimate_tokens(
+                    "\n".join(part for part in [user_message, project_context or ""] if part)
+                )
+                effective_output_tokens = output_tokens or assistant_msg.tokens_used
+                cost_calc = await pricing_service.calculate_cost(
+                    final_db,
+                    settings.llm_provider,
+                    input_tokens=effective_input_tokens,
+                    output_tokens=effective_output_tokens,
+                    fallback_cost=total_cost,
+                )
                 final_db.add(assistant_msg)
                 await final_db.flush()
                 await agent_service._finish_run(
@@ -342,20 +364,24 @@ async def _run_cowork_loop(
                     persisted_run,
                     "completed",
                     0,
-                    output_tokens=assistant_msg.tokens_used,
-                    input_tokens=input_tokens,
-                    total_cost=total_cost,
+                    output_tokens=effective_output_tokens,
+                    input_tokens=effective_input_tokens,
+                    total_cost=cost_calc.total_cost,
                     tools_used=["hermes-agent", *sorted({item["tool"] for item in transcript if item.get("type") == "tool_request"})],
                     mcp_servers_used=[],
+                    pricing_snapshot=cost_calc.pricing_snapshot,
                 )
                 await final_db.commit()
             return {
                 "message_id": str(assistant_msg.id),
-                "tokens_used": assistant_msg.tokens_used,
+                "tokens_used": effective_input_tokens + effective_output_tokens,
+                "input_tokens": effective_input_tokens,
+                "total_tokens": effective_input_tokens + effective_output_tokens,
                 "model": model_name,
                 "profile_name": resolved_profile,
                 "profile_id": str(profile.id) if profile else None,
-                "total_cost": total_cost,
+                "total_cost": cost_calc.total_cost,
+                "pricing_snapshot": cost_calc.pricing_snapshot,
                 "conversation_id": str(session_obj.id),
             }
 
@@ -399,7 +425,7 @@ async def websocket_chat(
       {"type": "error", "detail": "..."}
     """
     # 1. Authenticate
-    user = await get_websocket_user(token)
+    user = await get_websocket_user(token, websocket.app)
     if not user:
         await websocket.close(code=4001, reason="Authentication failed")
         return

@@ -81,6 +81,9 @@ def test_desktop_has_update_feed_hook():
     assert '"electron": "^42.4.0"' in package_content
     assert '"electron-builder": "^26.15.3"' in package_content
     assert '"publish"' not in package_content
+    assert "requiredForRelease.push(\"UPDATE_FEED_URL is not set.\")" in open("desktop/scripts/release-check.js", encoding="utf-8").read()
+    assert "ALLOW_INSECURE_DESKTOP_RELEASE" in open("desktop/scripts/release-check.js", encoding="utf-8").read()
+    assert "Desktop release API URL still points to localhost." in open("desktop/scripts/release-check.js", encoding="utf-8").read()
 
 
 def test_desktop_main_process_has_local_cowork_tools():

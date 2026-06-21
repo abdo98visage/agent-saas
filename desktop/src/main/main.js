@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session: electronSession, autoUpdater } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session: electronSession, autoUpdater, safeStorage } = require("electron");
 const Store = require("electron-store");
 const fs = require("fs");
 const path = require("path");
@@ -7,6 +7,41 @@ const store = new Store();
 const pendingWrites = new Map();
 
 let mainWindow;
+
+function encryptToken(token) {
+  if (!token) {
+    return "";
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    return token;
+  }
+  return safeStorage.encryptString(token).toString("base64");
+}
+
+function decryptToken(value) {
+  if (!value) {
+    return "";
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    return value;
+  }
+  try {
+    return safeStorage.decryptString(Buffer.from(value, "base64"));
+  } catch {
+    return value;
+  }
+}
+
+function buildRendererSettings() {
+  const rawStore = { ...store.store };
+  const encryptedToken = typeof rawStore.token === "string" ? rawStore.token : "";
+  return {
+    ...rawStore,
+    token: decryptToken(encryptedToken),
+    offlineQueue: Array.isArray(rawStore.offlineQueue) ? rawStore.offlineQueue : [],
+    selectedProjectFiles: Array.isArray(rawStore.selectedProjectFiles) ? rawStore.selectedProjectFiles : [],
+  };
+}
 
 function readDesktopConfig() {
   const candidates = [
@@ -457,18 +492,18 @@ app.on("window-all-closed", () => app.quit());
 
 ipcMain.handle("get-settings", () => ({
   apiUrl: API_URL,
-  offlineQueue: [],
-  selectedProjectFiles: [],
-  ...store.store,
+  ...buildRendererSettings(),
 }));
 
 ipcMain.handle("set-settings", (_, settings) => {
-  store.set(settings);
+  const nextSettings = { ...settings };
+  if (Object.prototype.hasOwnProperty.call(nextSettings, "token")) {
+    nextSettings.token = encryptToken(String(nextSettings.token || ""));
+  }
+  store.set(nextSettings);
   return {
     apiUrl: API_URL,
-    offlineQueue: [],
-    selectedProjectFiles: [],
-    ...store.store,
+    ...buildRendererSettings(),
   };
 });
 

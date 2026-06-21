@@ -16,6 +16,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { adminApi, type AlertItem } from "@/lib/api/agentService";
 
 interface DashboardStats {
   summary: {
@@ -73,22 +74,25 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   useEffect(() => {
     let mounted = true;
 
     const load = async () => {
       try {
-        const [statsRes, onlineRes, activitiesRes] = await Promise.all([
+        const [statsRes, onlineRes, activitiesRes, alertsRes] = await Promise.all([
           apiClient.get("/admin/monitoring/dashboard-stats"),
           apiClient.get("/admin/monitoring/online-users"),
           apiClient.get("/admin/monitoring/activity-feed?limit=50"),
+          adminApi.getAlerts({ status: "active", limit: 20 }),
         ]);
 
         if (mounted) {
           setStats(statsRes.data);
           setOnlineUsers(onlineRes.data.online_users || []);
           setActivities(activitiesRes.data.activities || []);
+          setAlerts(alertsRes.data.alerts || []);
         }
       } catch {
         // Keep dashboard resilient when backend data is incomplete.
@@ -353,6 +357,32 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="kos-card">
+        <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #EF4444, #DC2626)" }} />
+        <CardHeader>
+          <CardTitle>Active Alerts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {alerts.length > 0 ? (
+            <div className="space-y-3">
+              {alerts.map((alert) => (
+                <div key={alert.id} className="flex items-start justify-between gap-4 p-3 rounded-xl border border-red-100 bg-red-50/40">
+                  <div>
+                    <p className="font-semibold">{alert.title}</p>
+                    <p className="text-sm text-muted-foreground">{alert.message}</p>
+                  </div>
+                  <Badge variant="outline" className={alert.severity === "critical" ? "border-red-400 text-red-700" : "border-amber-400 text-amber-700"}>
+                    {alert.severity}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm italic text-center py-4">No active alerts.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="kos-card">
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #6366F1, #4F46E5)" }} />

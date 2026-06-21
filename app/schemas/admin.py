@@ -119,3 +119,9 @@ class ApiKeyUpdate(BaseModel):
     is_active: Optional[bool] = None
     daily_budget: Optional[int] = Field(None, ge=1000, le=10000000)
     api_key: Optional[str] = Field(None, min_length=10, max_length=500)
+
+
+class ProviderPricingUpsert(BaseModel):
+    monthly_price_usd: float = Field(..., gt=0, le=1000000)
+    monthly_token_allowance: int = Field(..., gt=0, le=1000000000000)
+    currency: str = Field("USD", min_length=3, max_length=8)

@@ -11,7 +11,7 @@ class DirectLLMRuntime:
     def __init__(self, agent_service: Any) -> None:
         self.agent_service = agent_service
 
-    async def complete(self, messages: list, model: str, temperature: float, max_tokens: int, api_key: Optional[str]) -> str:
+    async def complete(self, messages: list, model: str, temperature: float, max_tokens: int, api_key: Optional[str]) -> dict:
         return await self.agent_service._call_llm(messages, model, temperature, max_tokens, api_key)
 
     async def stream(

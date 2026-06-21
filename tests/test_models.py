@@ -13,6 +13,8 @@ from app.models.audit_log import AuditLog
 from app.models.user_api_key import UserApiKey
 from app.models.profile_user import ProfileUser
 from app.models.agent_run import AgentRun, AgentRunEvent
+from app.models.provider_pricing import ProviderPricing
+from app.models.alert_event import AlertEvent
 
 
 class TestUserModel:
@@ -21,6 +23,7 @@ class TestUserModel:
         assert hasattr(User, "is_activated")
         assert hasattr(User, "is_active")
         assert hasattr(User, "role")
+        assert hasattr(User, "token_version")
 
     def test_pending_employee(self):
         u = User(
@@ -31,6 +34,7 @@ class TestUserModel:
         assert u.is_activated is False
         assert u.is_active is False
         assert len(u.invite_token) > 20
+        assert hasattr(u, "invite_token_expires_at")
 
     def test_admin_user(self):
         u = User(
@@ -74,6 +78,7 @@ class TestTelegramBindingModel:
         assert b.user_id == uid
         assert b.telegram_chat_id == 0
         assert len(b.binding_token) == 12
+        assert hasattr(b, "binding_token_expires_at")
 
 
 class TestSessionModel:
@@ -148,6 +153,7 @@ class TestAgentRunModel:
         assert run.session_id == sid
         assert run.user_id == uid
         assert run.runtime_type == "hermes"
+        assert hasattr(run, "pricing_snapshot")
 
     def test_agent_run_event_fields(self):
         rid = uuid.uuid4()
@@ -155,3 +161,34 @@ class TestAgentRunModel:
         assert event.run_id == rid
         assert event.event_type == "tool_call"
         assert event.payload == {"name": "search"}
+
+
+class TestProviderPricingModel:
+    def test_provider_pricing_fields(self):
+        pricing = ProviderPricing(
+            provider="minimax",
+            monthly_price_usd=20.0,
+            monthly_token_allowance=1_700_000_000,
+            currency="USD",
+        )
+        assert pricing.provider == "minimax"
+        assert pricing.monthly_price_usd == 20.0
+        assert pricing.monthly_token_allowance == 1_700_000_000
+
+
+class TestAlertEventModel:
+    def test_alert_event_fields(self):
+        alert = AlertEvent(
+            alert_type="hermes_runtime",
+            severity="critical",
+            status="active",
+            title="Hermes runtime is unhealthy",
+            message="Runtime is down",
+            fingerprint="hermes_runtime",
+            context={"status": "down"},
+            first_seen_at=__import__("datetime").datetime.utcnow(),
+            last_seen_at=__import__("datetime").datetime.utcnow(),
+        )
+        assert alert.alert_type == "hermes_runtime"
+        assert alert.severity == "critical"
+        assert alert.fingerprint == "hermes_runtime"

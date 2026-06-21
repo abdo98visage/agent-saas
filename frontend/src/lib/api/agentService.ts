@@ -43,6 +43,62 @@ export interface KPI {
   tools_used: string[];
 }
 
+export interface ProviderPricing {
+  id?: string;
+  provider: string;
+  currency: string;
+  monthly_price_usd: number;
+  monthly_token_allowance: number;
+  is_active?: boolean;
+  usd_per_1m_tokens: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UsageSummary {
+  runs: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+}
+
+export interface UsageEmployeeRow extends UsageSummary {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+}
+
+export interface UsageProfileRow extends UsageSummary {
+  profile_id: string | null;
+  profile_name: string;
+  profile_slug: string | null;
+}
+
+export interface UsageEmployeeProfileRow extends UsageSummary {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  profile_id: string | null;
+  profile_name: string;
+  profile_slug: string | null;
+}
+
+export interface AlertItem {
+  id: string;
+  alert_type: string;
+  severity: string;
+  status: string;
+  title: string;
+  message: string;
+  context: Record<string, unknown>;
+  first_seen_at: string;
+  last_seen_at: string;
+  last_notified_at: string | null;
+  is_acknowledged: boolean;
+  created_at: string;
+}
+
 export interface AuditLog {
   id: number;
   user_id: string | null;
@@ -189,6 +245,26 @@ export const adminApi = {
   // API Keys
   getApiKeys: () =>
     apiClient.get("/admin/api-keys"),
+
+  getProviderPricing: (params?: Record<string, string>) =>
+    apiClient.get("/admin/provider-pricing", { params }),
+
+  updateProviderPricing: (
+    provider: string,
+    data: { monthly_price_usd: number; monthly_token_allowance: number; currency?: string }
+  ) => apiClient.put(`/admin/provider-pricing/${provider}`, data),
+
+  getUsageReport: (params?: { year?: number; month?: number; user_id?: string; profile_id?: string }) =>
+    apiClient.get("/admin/usage-report", { params }),
+
+  getAlerts: (params?: { status?: string; severity?: string; limit?: number }) =>
+    apiClient.get("/admin/monitoring/alerts", { params }),
+
+  runAlertEvaluation: () =>
+    apiClient.post("/admin/monitoring/alerts/run"),
+
+  acknowledgeAlert: (alertId: string) =>
+    apiClient.post(`/admin/monitoring/alerts/${alertId}/ack`),
 
   createApiKey: (data: {
     owner_type: "user" | "profile" | "platform";

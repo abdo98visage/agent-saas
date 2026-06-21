@@ -5,22 +5,74 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { adminApi, type KPI } from "@/lib/api/agentService";
-import { BarChart3, MessageSquare, Clock, Target, Sparkles, TrendingUp } from "lucide-react";
+import {
+  adminApi,
+  type Employee,
+  type KPI,
+  type Profile,
+  type ProviderPricing,
+  type UsageEmployeeProfileRow,
+  type UsageEmployeeRow,
+  type UsageProfileRow,
+  type UsageSummary,
+} from "@/lib/api/agentService";
+import { DollarSign, Sparkles, UserRound, Bot, BarChart3, CalendarDays } from "lucide-react";
+
+interface UsageReport {
+  pricing: ProviderPricing | null;
+  summary: UsageSummary;
+  employees: UsageEmployeeRow[];
+  profiles: UsageProfileRow[];
+  employee_profiles: UsageEmployeeProfileRow[];
+  period: {
+    year: number;
+    month: number;
+    start: string;
+    end: string;
+  };
+}
+
+const emptySummary: UsageSummary = {
+  runs: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  total_cost: 0,
+};
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
 export default function KPIsPage() {
   const [kpis, setKpis] = useState<KPI[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [usageReport, setUsageReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filterUserId, setFilterUserId] = useState("");
-  const [filterDate, setFilterDate] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthValue());
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState("");
 
   const load = async () => {
     setLoading(true);
-    const params: Record<string, string> = {};
-    if (filterUserId) params.user_id = filterUserId;
-    if (filterDate) params.date = filterDate;
-    const response = await adminApi.getKPIs(params);
-    setKpis(response.data.kpis || []);
+    const [year, month] = selectedMonth.split("-").map((value) => Number.parseInt(value, 10));
+    const params: { year?: number; month?: number; user_id?: string; profile_id?: string } = { year, month };
+    if (selectedUserId) params.user_id = selectedUserId;
+    if (selectedProfileId) params.profile_id = selectedProfileId;
+
+    const [usageResponse, kpiResponse, employeesResponse, profilesResponse] = await Promise.all([
+      adminApi.getUsageReport(params),
+      adminApi.getKPIs(),
+      adminApi.getEmployees(),
+      adminApi.getProfiles(),
+    ]);
+
+    setUsageReport(usageResponse.data);
+    setKpis(kpiResponse.data.kpis || []);
+    setEmployees(employeesResponse.data.employees || []);
+    setProfiles(profilesResponse.data.profiles || []);
     setLoading(false);
   };
 
@@ -28,12 +80,23 @@ export default function KPIsPage() {
     let cancelled = false;
 
     const run = async () => {
-      const params: Record<string, string> = {};
-      if (filterUserId) params.user_id = filterUserId;
-      if (filterDate) params.date = filterDate;
-      const response = await adminApi.getKPIs(params);
+      const [year, month] = selectedMonth.split("-").map((value) => Number.parseInt(value, 10));
+      const params: { year?: number; month?: number; user_id?: string; profile_id?: string } = { year, month };
+      if (selectedUserId) params.user_id = selectedUserId;
+      if (selectedProfileId) params.profile_id = selectedProfileId;
+
+      const [usageResponse, kpiResponse, employeesResponse, profilesResponse] = await Promise.all([
+        adminApi.getUsageReport(params),
+        adminApi.getKPIs(),
+        adminApi.getEmployees(),
+        adminApi.getProfiles(),
+      ]);
+
       if (!cancelled) {
-        setKpis(response.data.kpis || []);
+        setUsageReport(usageResponse.data);
+        setKpis(kpiResponse.data.kpis || []);
+        setEmployees(employeesResponse.data.employees || []);
+        setProfiles(profilesResponse.data.profiles || []);
         setLoading(false);
       }
     };
@@ -43,92 +106,98 @@ export default function KPIsPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterDate, filterUserId]);
+  }, [selectedMonth, selectedProfileId, selectedUserId]);
 
-  const totalMessages = kpis.reduce((sum, kpi) => sum + kpi.messages_sent, 0);
-  const totalTasks = kpis.reduce((sum, kpi) => sum + kpi.tasks_completed, 0);
-  const totalMinutes = kpis.reduce((sum, kpi) => sum + kpi.active_minutes, 0);
-  const totalTokens = kpis.reduce((sum, kpi) => sum + (kpi.tokens_used || 0), 0);
-  const avgQuality = kpis.length > 0
-    ? (kpis.filter((kpi) => kpi.avg_response_quality !== null).reduce((sum, kpi) => sum + (kpi.avg_response_quality || 0), 0) / kpis.length).toFixed(1)
-    : "—";
-
-  const maxBar = Math.max(...kpis.map((kpi) => kpi.messages_sent), 1);
+  const summary = usageReport?.summary || emptySummary;
+  const pricing = usageReport?.pricing || null;
+  const avgCostPerRun = summary.runs > 0 ? summary.total_cost / summary.runs : 0;
+  const avgTokensPerRun = summary.runs > 0 ? summary.total_tokens / summary.runs : 0;
+  const totalKpiTokens = kpis.reduce((sum, kpi) => sum + (kpi.tokens_used || 0), 0);
 
   return (
     <div className="p-8 space-y-6 kos-animate-in">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">KPIs</h1>
-        <p className="text-muted-foreground mt-1">Review employee activity, throughput, and token usage.</p>
+        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Usage Analytics</h1>
+        <p className="text-muted-foreground mt-1">Track monthly token and cost consumption by employee and by agent.</p>
       </div>
 
       <Card className="kos-card">
-        <CardContent className="pt-6 flex gap-4">
-          <div className="space-y-2 flex-1">
-            <Label>User ID</Label>
-            <Input value={filterUserId} onChange={(event) => setFilterUserId(event.target.value)} className="kos-input" />
+        <CardContent className="pt-6 grid gap-4 md:grid-cols-4">
+          <div className="space-y-2">
+            <Label>Month</Label>
+            <Input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="kos-input" />
           </div>
-          <div className="space-y-2 flex-1">
-            <Label>Date</Label>
-            <Input type="date" value={filterDate} onChange={(event) => setFilterDate(event.target.value)} className="kos-input" />
+          <div className="space-y-2">
+            <Label>Employee</Label>
+            <select className="w-full p-2 border rounded-xl text-sm kos-input" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+              <option value="">All employees</option>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.full_name || employee.email}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>Agent / Profile</Label>
+            <select className="w-full p-2 border rounded-xl text-sm kos-input" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}>
+              <option value="">All agents</option>
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex items-end">
-            <button onClick={() => void load()} className="kos-gradient-btn text-white px-6 py-2 rounded-xl font-medium">
-              Apply
+            <button onClick={() => void load()} className="kos-gradient-btn text-white px-6 py-2 rounded-xl font-medium w-full">
+              Apply Filters
             </button>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card className="kos-card">
           <div className="card-gradient-top" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Messages</CardTitle>
-            <MessageSquare className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-sm font-medium">Monthly Cost</CardTitle>
+            <DollarSign className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalMessages.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card className="kos-card">
-          <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #10B981, #059669)" }} />
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Tasks</CardTitle>
-            <Target className="h-4 w-4 text-emerald-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalTasks.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card className="kos-card">
-          <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #8B5CF6, #7C3AED)" }} />
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Minutes</CardTitle>
-            <Clock className="h-4 w-4 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalMinutes.toLocaleString()}</div>
+            <div className="text-2xl font-bold">${summary.total_cost.toFixed(4)}</div>
           </CardContent>
         </Card>
         <Card className="kos-card">
           <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #F59E0B, #D97706)" }} />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Tokens</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Tokens</CardTitle>
             <Sparkles className="h-4 w-4 text-amber-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalTokens.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{summary.total_tokens.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card className="kos-card">
-          <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #EC4899, #DB2777)" }} />
+          <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #3B82F6, #2563EB)" }} />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Quality</CardTitle>
-            <TrendingUp className="h-4 w-4 text-pink-600" />
+            <CardTitle className="text-sm font-medium">Runs</CardTitle>
+            <BarChart3 className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{avgQuality}</div>
+            <div className="text-2xl font-bold">{summary.runs.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">{avgTokensPerRun.toFixed(0)} avg tokens/run</p>
+          </CardContent>
+        </Card>
+        <Card className="kos-card">
+          <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #8B5CF6, #7C3AED)" }} />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Pricing</CardTitle>
+            <CalendarDays className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold">{pricing ? `$${pricing.monthly_price_usd} / ${pricing.monthly_token_allowance.toLocaleString()} tok` : "Not set"}</div>
+            <p className="text-xs text-muted-foreground mt-1">{pricing ? `${pricing.usd_per_1m_tokens.toFixed(4)} USD / 1M tok` : `${totalKpiTokens.toLocaleString()} KPI tokens tracked`}</p>
           </CardContent>
         </Card>
       </div>
@@ -136,87 +205,128 @@ export default function KPIsPage() {
       <Card className="kos-card">
         <div className="card-gradient-top" />
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-indigo-600" />
-            Messages Per User
-          </CardTitle>
+          <CardTitle>Employee Consumption This Month</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
             <p className="text-muted-foreground">Loading...</p>
           ) : (
-            <div className="space-y-3">
-              {kpis.map((kpi) => (
-                <div key={`${kpi.user_id}-${kpi.date}`} className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-mono truncate max-w-[200px]">{kpi.user_id}</span>
-                    <span className="text-muted-foreground">{kpi.messages_sent.toLocaleString()} messages</span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-500"
-                      style={{ width: `${(kpi.messages_sent / maxBar) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-              {kpis.length === 0 && (
-                <p className="text-muted-foreground text-sm italic text-center py-4">No KPI data yet.</p>
-              )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-3 font-medium">Employee</th>
+                    <th className="text-left py-2 px-3 font-medium">Runs</th>
+                    <th className="text-left py-2 px-3 font-medium">Input Tokens</th>
+                    <th className="text-left py-2 px-3 font-medium">Output Tokens</th>
+                    <th className="text-left py-2 px-3 font-medium">Total Tokens</th>
+                    <th className="text-left py-2 px-3 font-medium">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(usageReport?.employees || []).map((row) => (
+                    <tr key={row.user_id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
+                      <td className="py-2 px-3">
+                        <div className="font-medium">{row.full_name || row.email}</div>
+                        <div className="text-xs text-muted-foreground">{row.email}</div>
+                      </td>
+                      <td className="py-2 px-3">{row.runs}</td>
+                      <td className="py-2 px-3">{row.input_tokens.toLocaleString()}</td>
+                      <td className="py-2 px-3">{row.output_tokens.toLocaleString()}</td>
+                      <td className="py-2 px-3 font-semibold">{row.total_tokens.toLocaleString()}</td>
+                      <td className="py-2 px-3 text-emerald-700 font-semibold">${row.total_cost.toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
       </Card>
 
       <Card className="kos-card">
-        <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #10B981, #059669)" }} />
+        <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #0F766E, #0EA5A4)" }} />
         <CardHeader>
-          <CardTitle>Details</CardTitle>
+          <CardTitle>Agent Consumption This Month</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-3 font-medium">User</th>
-                  <th className="text-left py-2 px-3 font-medium">Date</th>
-                  <th className="text-left py-2 px-3 font-medium">Messages</th>
-                  <th className="text-left py-2 px-3 font-medium">Tasks</th>
-                  <th className="text-left py-2 px-3 font-medium">Minutes</th>
-                  <th className="text-left py-2 px-3 font-medium">Tokens</th>
-                  <th className="text-left py-2 px-3 font-medium">Quality</th>
-                  <th className="text-left py-2 px-3 font-medium">Tools</th>
-                </tr>
-              </thead>
-              <tbody>
-                {kpis.map((kpi) => (
-                  <tr key={`${kpi.user_id}-${kpi.date}-row`} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
-                    <td className="py-2 px-3 font-mono text-xs truncate max-w-[120px]">{kpi.user_id}</td>
-                    <td className="py-2 px-3">{kpi.date}</td>
-                    <td className="py-2 px-3 font-medium">{kpi.messages_sent}</td>
-                    <td className="py-2 px-3">{kpi.tasks_completed}</td>
-                    <td className="py-2 px-3">{kpi.active_minutes}</td>
-                    <td className="py-2 px-3">{kpi.tokens_used?.toLocaleString() || 0}</td>
-                    <td className="py-2 px-3">{kpi.avg_response_quality || "—"}</td>
-                    <td className="py-2 px-3">
-                      <div className="flex gap-1">
-                        {(kpi.tools_used || []).slice(0, 3).map((tool) => (
-                          <Badge key={tool} variant="outline" className="text-xs">
-                            {tool}
-                          </Badge>
-                        ))}
+          {loading ? (
+            <p className="text-muted-foreground">Loading...</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-3 font-medium">Agent</th>
+                    <th className="text-left py-2 px-3 font-medium">Runs</th>
+                    <th className="text-left py-2 px-3 font-medium">Input Tokens</th>
+                    <th className="text-left py-2 px-3 font-medium">Output Tokens</th>
+                    <th className="text-left py-2 px-3 font-medium">Total Tokens</th>
+                    <th className="text-left py-2 px-3 font-medium">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(usageReport?.profiles || []).map((row) => (
+                    <tr key={row.profile_id || "unassigned"} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
+                      <td className="py-2 px-3">
+                        <div className="font-medium">{row.profile_name}</div>
+                        <div className="text-xs text-muted-foreground">{row.profile_slug || "unassigned"}</div>
+                      </td>
+                      <td className="py-2 px-3">{row.runs}</td>
+                      <td className="py-2 px-3">{row.input_tokens.toLocaleString()}</td>
+                      <td className="py-2 px-3">{row.output_tokens.toLocaleString()}</td>
+                      <td className="py-2 px-3 font-semibold">{row.total_tokens.toLocaleString()}</td>
+                      <td className="py-2 px-3 text-emerald-700 font-semibold">${row.total_cost.toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="kos-card">
+        <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #6366F1, #4F46E5)" }} />
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserRound className="h-4 w-4 text-indigo-600" />
+            Employee x Agent Matrix
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-muted-foreground">Loading...</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {(usageReport?.employee_profiles || []).map((row) => (
+                <Card key={`${row.user_id}-${row.profile_id || "unassigned"}`} className="border border-gray-100 shadow-none">
+                  <CardContent className="pt-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium">{row.full_name || row.email}</p>
+                        <p className="text-xs text-muted-foreground">{row.email}</p>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-                {kpis.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="text-center py-8 text-muted-foreground">No KPI rows yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      <Badge variant="outline">
+                        <Bot className="mr-1 h-3 w-3" />
+                        {row.profile_name}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>Runs: <span className="font-semibold">{row.runs}</span></div>
+                      <div>Total tokens: <span className="font-semibold">{row.total_tokens.toLocaleString()}</span></div>
+                      <div>Input: <span className="font-semibold">{row.input_tokens.toLocaleString()}</span></div>
+                      <div>Output: <span className="font-semibold">{row.output_tokens.toLocaleString()}</span></div>
+                    </div>
+                    <div className="text-emerald-700 font-semibold">${row.total_cost.toFixed(4)}</div>
+                  </CardContent>
+                </Card>
+              ))}
+              {(usageReport?.employee_profiles || []).length === 0 && (
+                <p className="text-muted-foreground text-sm italic text-center py-4 md:col-span-2">No monthly usage rows yet.</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

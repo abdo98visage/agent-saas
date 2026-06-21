@@ -44,6 +44,8 @@ class Settings(BaseSettings):
             raise RuntimeError("SECURITY ERROR: ALLOWED_ORIGINS cannot contain '*' in production.")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    invite_token_ttl_hours: int = 72
+    telegram_bind_code_ttl_minutes: int = 30
 
     # Database
     postgres_user: str = "postgres"
@@ -88,6 +90,8 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_environment: str = ""
     sentry_traces_sample_rate: float = 0.0
+    alert_notification_emails: str = ""
+    alert_notification_cooldown_minutes: int = 60
 
     # SMTP / Email
     smtp_host: str = ""
@@ -111,6 +115,10 @@ class Settings(BaseSettings):
     @property
     def is_mock(self) -> bool:
         return self.llm_provider == "mock"
+
+    @property
+    def alert_notification_recipients(self) -> list[str]:
+        return [item.strip() for item in self.alert_notification_emails.split(",") if item.strip()]
 
     model_config = {
         "env_file": ".env",

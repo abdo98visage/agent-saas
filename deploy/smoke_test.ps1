@@ -46,6 +46,10 @@ $status = Invoke-Json -Method GET -Uri "$BaseUrl/api/status"
 if ($status.status -ne "healthy") {
   throw "API status check failed"
 }
+$ready = Invoke-Json -Method GET -Uri "$BaseUrl/api/ready"
+if ($ready.status -ne "ready") {
+  throw "API readiness check failed"
+}
 
 Write-Output "Logging in as admin $AdminEmail ..."
 $login = Invoke-Json -Method POST -Uri "$BaseUrl/api/auth/login" -Body @{
@@ -53,6 +57,14 @@ $login = Invoke-Json -Method POST -Uri "$BaseUrl/api/auth/login" -Body @{
   password = $AdminPassword
 }
 $adminHeaders = @{ Authorization = "Bearer $($login.access_token)" }
+
+Write-Output "Configuring provider pricing for $Provider ..."
+$pricing = Invoke-Json -Method PUT -Uri "$BaseUrl/api/admin/provider-pricing/$Provider" -Headers $adminHeaders -Body @{
+  currency = "USD"
+  monthly_price_usd = 20
+  monthly_token_allowance = 1700000000
+}
+Assert-Truthy $pricing.provider "Provider pricing did not return provider"
 
 Write-Output "Checking Hermes runtime status ..."
 $hermes = Invoke-Json -Method GET -Uri "$BaseUrl/api/admin/hermes/status" -Headers $adminHeaders
@@ -126,6 +138,10 @@ $chat = Invoke-Json -Method POST -Uri "$BaseUrl/api/chat/message" -Headers $empl
 Assert-Truthy $chat.conversation_id "Chat did not return conversation_id"
 Assert-Truthy $chat.content "Chat did not return content"
 
+Write-Output "Requesting one-time WebSocket ticket ..."
+$wsToken = Invoke-Json -Method POST -Uri "$BaseUrl/api/auth/ws-token" -Headers $employeeHeaders
+Assert-Truthy $wsToken.access_token "WebSocket token did not return access token"
+
 Write-Output "Checking admin session details and run events ..."
 $session = Invoke-Json -Method GET -Uri "$BaseUrl/api/admin/sessions/$($chat.conversation_id)" -Headers $adminHeaders
 if ($session.messages.Count -lt 2) {
@@ -136,6 +152,12 @@ if ($session.runs.Count -lt 1) {
 }
 if ($session.runs[0].runtime_type -ne "hermes") {
   throw "Expected Hermes runtime, got $($session.runs[0].runtime_type)"
+}
+if (-not $session.runs[0].pricing_snapshot) {
+  throw "Run does not contain pricing_snapshot"
+}
+if ([int]$session.runs[0].total_tokens -lt 1) {
+  throw "Run total_tokens was not recorded"
 }
 
 Write-Output "Checking KPIs and dashboard observability ..."
@@ -152,9 +174,28 @@ if ($dashboard.profile_usage.Count -lt 1) {
   throw "Dashboard profile_usage is empty"
 }
 
+Write-Output "Checking usage reporting and alerting ..."
+$usage = Invoke-Json -Method GET -Uri "$BaseUrl/api/admin/usage-report" -Headers $adminHeaders
+if ([int]$usage.summary.total_tokens -lt 1) {
+  throw "Usage report total_tokens did not update"
+}
+if ([double]$usage.summary.total_cost -lt 0) {
+  throw "Usage report total_cost is invalid"
+}
+if (-not $usage.pricing -or $usage.pricing.provider -ne $Provider) {
+  throw "Usage report pricing does not reflect active provider pricing"
+}
+
+$alertRun = Invoke-Json -Method POST -Uri "$BaseUrl/api/admin/monitoring/alerts/run" -Headers $adminHeaders
+Assert-Truthy $alertRun.generated "Alert evaluation response is missing generated count"
+$alerts = Invoke-Json -Method GET -Uri "$BaseUrl/api/admin/monitoring/alerts" -Headers $adminHeaders
+Assert-Truthy $alerts.items "Alerts list did not return items"
+
 Write-Output "Smoke journey passed."
 Write-Output "Hermes status: $($hermes.status)"
 Write-Output "Profile: $profileSlug"
 Write-Output "Employee: $employeeEmail"
 Write-Output "Conversation: $($chat.conversation_id)"
 Write-Output "KPIs returned: $($kpis.count)"
+Write-Output "Usage total tokens: $($usage.summary.total_tokens)"
+Write-Output "Alerts count: $($alerts.count)"

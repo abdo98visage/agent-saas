@@ -23,6 +23,7 @@ from app.models.user_api_key import UserApiKey
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.services.api_key_resolver import api_key_resolver
 from app.services.agent_runtime import AgentRuntimeRouter
+from app.services.pricing_service import pricing_service
 
 
 class AgentService:
@@ -266,6 +267,7 @@ class AgentService:
         total_cost: float = 0.0,
         tools_used: Optional[list] = None,
         mcp_servers_used: Optional[list] = None,
+        pricing_snapshot: Optional[dict] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
     ) -> None:
@@ -277,8 +279,29 @@ class AgentService:
         run.total_cost = total_cost
         run.tools_used = tools_used or []
         run.mcp_servers_used = mcp_servers_used or []
+        run.pricing_snapshot = pricing_snapshot or {}
         run.error_code = error_code
         run.error_message = error_message
+
+    def _estimate_message_tokens(self, messages: list[dict[str, Any]]) -> int:
+        total = 0
+        for message in messages:
+            total += self._estimate_tokens(str(message.get("content") or ""))
+        return total
+
+    def _resolve_usage_tokens(
+        self,
+        messages: list[dict[str, Any]],
+        response_text: str,
+        usage: dict[str, Any],
+    ) -> tuple[int, int]:
+        input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+        if input_tokens <= 0:
+            input_tokens = self._estimate_message_tokens(messages)
+        if output_tokens <= 0:
+            output_tokens = self._estimate_tokens(response_text)
+        return input_tokens, output_tokens
 
     async def run_agent(
         self,
@@ -364,20 +387,21 @@ class AgentService:
                 response_text = runtime_result.get("content", "")
                 tools_used = runtime_result.get("tools_used", [])
                 mcp_servers_used = runtime_result.get("mcp_servers_used", [])
-                total_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
+                runtime_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
                 usage = runtime_result.get("usage") or {}
             else:
-                response_text = await runtime.complete(
+                runtime_result = await runtime.complete(
                     messages=messages,
                     model=model_name,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     api_key=user_api_key,
                 )
+                response_text = runtime_result.get("content", "")
                 tools_used = []
                 mcp_servers_used = []
-                total_cost = 0.0
-                usage = {}
+                runtime_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
+                usage = runtime_result.get("usage") or {}
         except Exception as exc:
             latency = int((time.time() - start_time) * 1000)
             await self._finish_run(
@@ -414,27 +438,39 @@ class AgentService:
         await db.flush()
 
         latency = int((time.time() - start_time) * 1000)
+        input_tokens, output_tokens = self._resolve_usage_tokens(messages, response_text, usage)
+        cost_calc = await pricing_service.calculate_cost(
+            db,
+            settings.llm_provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            fallback_cost=runtime_cost,
+        )
         await self._finish_run(
             db,
             run,
             "completed",
             latency,
-            output_tokens=assistant_msg.tokens_used,
-            input_tokens=int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
-            total_cost=total_cost,
+            output_tokens=output_tokens,
+            input_tokens=input_tokens,
+            total_cost=cost_calc.total_cost,
             tools_used=tools_used,
             mcp_servers_used=mcp_servers_used,
+            pricing_snapshot=cost_calc.pricing_snapshot,
         )
 
         return {
             "content": response_text,
             "message_id": str(assistant_msg.id),
-            "tokens_used": assistant_msg.tokens_used,
+            "tokens_used": input_tokens + output_tokens,
+            "input_tokens": input_tokens,
+            "total_tokens": input_tokens + output_tokens,
             "latency_ms": latency,
             "model": model_name,
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
-            "total_cost": total_cost,
+            "total_cost": cost_calc.total_cost,
+            "pricing_snapshot": cost_calc.pricing_snapshot,
         }
 
     async def run_agent_stream(
@@ -519,7 +555,7 @@ class AgentService:
         start_time = time.time()
         tools_used: list = []
         mcp_servers_used: list = []
-        total_cost = 0.0
+        runtime_cost = 0.0
         usage: dict[str, Any] = {}
 
         try:
@@ -539,7 +575,7 @@ class AgentService:
                     if event.get("type") == "done":
                         tools_used = event.get("tools_used", [])
                         mcp_servers_used = event.get("mcp_servers_used", [])
-                        total_cost = float(event.get("total_cost", 0.0) or 0.0)
+                        runtime_cost = float(event.get("total_cost", 0.0) or 0.0)
                         usage = event.get("usage") or {}
                     if chunk:
                         full_response += chunk
@@ -582,32 +618,44 @@ class AgentService:
             session_id=user_msg.session_id,
             role="assistant",
             content=full_response,
-            tokens_used=int(usage.get("output_tokens") or usage.get("completion_tokens") or self._estimate_tokens(full_response)),
+            tokens_used=self._resolve_usage_tokens(messages, full_response, usage)[1],
         )
         db.add(assistant_msg)
         await db.flush()
         latency = int((time.time() - start_time) * 1000)
+        input_tokens, output_tokens = self._resolve_usage_tokens(messages, full_response, usage)
+        cost_calc = await pricing_service.calculate_cost(
+            db,
+            settings.llm_provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            fallback_cost=runtime_cost,
+        )
         await self._finish_run(
             db,
             run,
             "completed",
             latency,
-            output_tokens=assistant_msg.tokens_used,
-            input_tokens=int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
-            total_cost=total_cost,
+            output_tokens=output_tokens,
+            input_tokens=input_tokens,
+            total_cost=cost_calc.total_cost,
             tools_used=tools_used,
             mcp_servers_used=mcp_servers_used,
+            pricing_snapshot=cost_calc.pricing_snapshot,
         )
 
         # Final event
         yield {
             "type": "done",
             "message_id": assistant_msg_id,
-            "tokens_used": assistant_msg.tokens_used,
+            "tokens_used": input_tokens + output_tokens,
+            "input_tokens": input_tokens,
+            "total_tokens": input_tokens + output_tokens,
             "model": model_name,
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
-            "total_cost": total_cost,
+            "total_cost": cost_calc.total_cost,
+            "pricing_snapshot": cost_calc.pricing_snapshot,
             "conversation_id": str(user_msg.session_id),
         }
 
@@ -618,10 +666,10 @@ class AgentService:
         temperature: float,
         max_tokens: int,
         api_key: Optional[str] = None,
-    ) -> str:
+    ) -> dict[str, Any]:
         """Call the configured LLM provider."""
         if settings.is_mock:
-            return self._mock_response(messages)
+            return {"content": self._mock_response(messages), "usage": {}}
 
         if settings.is_minimax:
             return await self._call_minimax(messages, model, temperature, max_tokens, api_key)
@@ -632,7 +680,7 @@ class AgentService:
         if settings.is_ollama:
             return await self._call_ollama(messages, model, temperature)
 
-        return self._mock_response(messages)
+        return {"content": self._mock_response(messages), "usage": {}}
 
     async def _call_llm_stream(
         self,
@@ -676,7 +724,7 @@ class AgentService:
         temperature: float,
         max_tokens: int,
         api_key: Optional[str] = None,
-    ) -> str:
+    ) -> dict[str, Any]:
         """Call MiniMax API."""
         auth_key = api_key or settings.minimax_api_key
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -691,7 +739,11 @@ class AgentService:
                 },
             )
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            payload = response.json()
+            return {
+                "content": payload["choices"][0]["message"]["content"],
+                "usage": payload.get("usage") or {},
+            }
 
     async def _call_minimax_stream(
         self,
@@ -737,7 +789,7 @@ class AgentService:
         temperature: float,
         max_tokens: int,
         api_key: Optional[str] = None,
-    ) -> str:
+    ) -> dict[str, Any]:
         """Call OpenAI-compatible API."""
         auth_key = api_key or settings.openai_api_key
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -752,7 +804,11 @@ class AgentService:
                 },
             )
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            payload = response.json()
+            return {
+                "content": payload["choices"][0]["message"]["content"],
+                "usage": payload.get("usage") or {},
+            }
 
     async def _call_openai_stream(
         self,
@@ -796,7 +852,7 @@ class AgentService:
         messages: list,
         model: str,
         temperature: float,
-    ) -> str:
+    ) -> dict[str, Any]:
         """Call Ollama API."""
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -809,7 +865,11 @@ class AgentService:
                 },
             )
             response.raise_for_status()
-            return response.json()["message"]["content"]
+            payload = response.json()
+            return {
+                "content": payload["message"]["content"],
+                "usage": payload.get("usage") or {},
+            }
 
     async def _call_ollama_stream(
         self,

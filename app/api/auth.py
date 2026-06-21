@@ -1,9 +1,9 @@
-from datetime import timedelta
-from fastapi import APIRouter, HTTPException, Depends, status, Header, Cookie, Response
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, HTTPException, Depends, status, Header, Cookie, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.core.db import get_db
 from app.core.security import (
@@ -18,6 +18,30 @@ from app.schemas.user import UserResponse
 from app.core.config import settings
 
 router = APIRouter()
+_ws_ticket_fallback: dict[str, datetime] = {}
+
+
+def _ws_ticket_key(ticket_id: str) -> str:
+    return f"ws-ticket:{ticket_id}"
+
+
+async def _store_ws_ticket(app, ticket_id: str, ttl_seconds: int) -> None:
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    redis_client = getattr(app.state, "redis", None)
+    if redis_client:
+        await redis_client.set(_ws_ticket_key(ticket_id), "1", ex=ttl_seconds)
+        return
+    _ws_ticket_fallback[ticket_id] = expires_at
+
+
+async def consume_ws_ticket(app, ticket_id: str) -> bool:
+    redis_client = getattr(app.state, "redis", None)
+    if redis_client:
+        value = await redis_client.getdel(_ws_ticket_key(ticket_id))
+        return bool(value)
+
+    expires_at = _ws_ticket_fallback.pop(ticket_id, None)
+    return bool(expires_at and expires_at > datetime.now(timezone.utc))
 
 
 # --- Dependencies ---
@@ -53,6 +77,8 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
+    if int(payload.get("ver", 0)) != int(user.token_version or 0):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
     return user
 
 
@@ -102,7 +128,7 @@ async def login(
     db.add(audit)
     await db.flush()
 
-    token = create_access_token(str(user.id), user.role)
+    token = create_access_token(str(user.id), user.role, extra_claims={"ver": int(user.token_version or 0)})
     _set_session_cookie(response, token)
     return TokenResponse(access_token=token)
 
@@ -144,11 +170,16 @@ async def activate_account(
         raise HTTPException(status_code=404, detail="Invalid invite token")
     if user.is_activated:
         raise HTTPException(status_code=409, detail="Account already activated")
+    if user.invite_token_expires_at and user.invite_token_expires_at < datetime.utcnow():
+        user.invite_token = None
+        user.invite_token_expires_at = None
+        raise HTTPException(status_code=410, detail="Invite token expired. Contact your administrator for a new invite.")
 
     user.hashed_password = get_password_hash(password)
     user.is_activated = True
     user.is_active = True
     user.invite_token = None
+    user.invite_token_expires_at = None
     await db.flush()
 
     # SECURITY: Audit account activation
@@ -156,7 +187,7 @@ async def activate_account(
     audit = AuditLog(user_id=user.id, action="account_activated", details={"email": user.email})
     db.add(audit)
 
-    access_token = create_access_token(str(user.id), user.role)
+    access_token = create_access_token(str(user.id), user.role, extra_claims={"ver": int(user.token_version or 0)})
     _set_session_cookie(response, access_token)
     return TokenResponse(access_token=access_token)
 
@@ -168,21 +199,30 @@ async def me(user: User = Depends(get_current_user)):
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Clear the browser session cookie."""
+    user.token_version = int(user.token_version or 0) + 1
     response.delete_cookie("access_token", path="/")
     return {"message": "Logged out"}
 
 
 @router.post("/ws-token")
-async def create_websocket_token(user: User = Depends(get_current_user)):
+async def create_websocket_token(request: Request, user: User = Depends(get_current_user)):
     """Create a short-lived token intended for WebSocket connection URLs."""
+    ticket_id = str(uuid4())
+    ttl_seconds = 300
+    await _store_ws_ticket(request.app, ticket_id, ttl_seconds)
     token = create_access_token(
         str(user.id),
         user.role,
         expires_delta=timedelta(minutes=5),
+        extra_claims={"ver": int(user.token_version or 0), "purpose": "ws", "jti": ticket_id},
     )
-    return {"access_token": token, "expires_in": 300, "token_type": "bearer"}
+    return {"access_token": token, "expires_in": ttl_seconds, "token_type": "bearer"}
 
 
 @router.get("/assigned-profiles")
