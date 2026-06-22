@@ -183,6 +183,25 @@ export interface UserApiKey {
   spent_today: number;
 }
 
+export interface AdminAgentTestResponse {
+  conversation_id: string | null;
+  message_id: string | null;
+  content: string;
+  tokens_used: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number | null;
+  model: string | null;
+  provider: string | null;
+  runtime_type: string | null;
+  request_url: string | null;
+  profile_name: string | null;
+  profile_id: string | null;
+  total_cost: number | null;
+  pricing_snapshot: Record<string, unknown> | null;
+}
+
 export const adminApi = {
   // Employees
   getEmployees: (params?: Record<string, string>) =>
@@ -291,6 +310,14 @@ export const adminApi = {
 
   getHermesLogs: (limit = 200) =>
     apiClient.get("/admin/hermes/logs", { params: { limit } }),
+
+  testAgentMessage: (data: {
+    message: string;
+    profile_name: string;
+    conversation_id?: string | null;
+    agent_template_name?: string;
+    project_context?: string;
+  }) => apiClient.post<AdminAgentTestResponse>("/admin/agent-test/message", data),
 };
 
 export const authApi = {

@@ -511,6 +511,35 @@ async def websocket_chat(
                 await websocket.send_json({"type": "error", "detail": f"Unknown message type: {msg_type}"})
                 continue
 
+            requested_conversation_id = msg.get("conversation_id") if "conversation_id" in msg else active_conversation_id
+            async with async_session.begin() as db:
+                if requested_conversation_id:
+                    try:
+                        requested_uuid = UUID(requested_conversation_id)
+                    except ValueError:
+                        await websocket.send_json({"type": "error", "detail": "Invalid conversation_id"})
+                        continue
+
+                    result = await db.execute(
+                        select(Session).where(
+                            Session.id == requested_uuid,
+                            Session.user_id == user.id,
+                        )
+                    )
+                    if not result.scalar_one_or_none():
+                        await websocket.send_json({"type": "error", "detail": "Conversation not found"})
+                        continue
+                else:
+                    new_session = Session(
+                        id=uuid4(),
+                        user_id=user.id,
+                        agent_template_name=agent_template_name,
+                    )
+                    db.add(new_session)
+                    await db.flush()
+                    requested_conversation_id = str(new_session.id)
+
+            active_conversation_id = requested_conversation_id
             user_message = msg.get("content", "").strip()
             project_context = msg.get("project_context")
             effective_profile_name = msg.get("profile_name") or profile_name

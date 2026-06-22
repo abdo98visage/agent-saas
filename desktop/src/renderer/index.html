@@ -68,9 +68,15 @@
             overflow-y: auto;
             padding: 10px;
         }
+        .sidebar-section-label {
+            padding: 10px 12px 6px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
         .sidebar-footer {
-            padding: 15px;
-            border-top: 1px solid var(--border);
+            display: none;
         }
         .conversation-item {
             padding: 10px 15px;
@@ -85,6 +91,109 @@
         .conversation-item.active {
             background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), transparent);
             border-right: 3px solid var(--accent);
+        }
+        .sidebar-action-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+        .project-item {
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            margin-bottom: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .project-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+        }
+        .project-title-btn {
+            flex: 1;
+            min-width: 0;
+            background: transparent;
+            color: inherit;
+            border: none;
+            text-align: right;
+            padding: 0;
+        }
+        .project-title-btn .project-name {
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .project-title-btn .project-path {
+            display: block;
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .project-title-btn.active .project-name {
+            color: #c7d2fe;
+        }
+        .project-action-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-primary);
+        }
+        .project-action-btn:hover {
+            background: rgba(99, 102, 241, 0.18);
+            border-color: rgba(99, 102, 241, 0.35);
+        }
+        .project-sessions {
+            padding: 0 8px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .project-session-item,
+        .general-session-item {
+            width: 100%;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: inherit;
+            text-align: right;
+            padding: 9px 12px;
+        }
+        .project-session-item:hover,
+        .general-session-item:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
+        .project-session-item.active,
+        .general-session-item.active {
+            background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), transparent);
+            border-right: 3px solid var(--accent);
+        }
+        .project-session-meta {
+            display: block;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .show-more-btn,
+        .empty-project-btn {
+            width: 100%;
+            border: 1px dashed rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 9px 12px;
+        }
+        .show-more-btn:hover,
+        .empty-project-btn:hover {
+            color: var(--text-primary);
+            border-color: rgba(99, 102, 241, 0.35);
         }
         .main-content {
             flex: 1;
@@ -143,6 +252,12 @@
             padding: 20px;
             background: linear-gradient(0deg, #0d0d0f, transparent);
         }
+        .composer-shell {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 18px;
+            padding: 12px;
+        }
         .chat-input {
             background: #252528;
             border: 1px solid rgba(255, 255, 255, 0.08);
@@ -152,6 +267,38 @@
             min-height: 48px;
             max-height: 120px;
             padding: 14px 18px;
+        }
+        .composer-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .agent-select {
+            max-width: 220px;
+            min-width: 180px;
+        }
+        .btn-mic {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-primary);
+        }
+        .btn-mic:hover {
+            background: rgba(99, 102, 241, 0.14);
+        }
+        .btn-mic.recording {
+            background: rgba(239, 68, 68, 0.16);
+            border-color: rgba(239, 68, 68, 0.42);
+            color: #fecaca;
+        }
+        .composer-status {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            min-height: 18px;
         }
         .chat-input:focus,
         .form-control:focus,
@@ -295,11 +442,20 @@
             </div>
         </div>
         <div class="chat-input-area">
-            <div class="d-flex gap-2">
-                <textarea id="message-input" class="form-control chat-input flex-grow-1" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
-                <button class="btn btn-send" id="btn-send">
-                    <i class="bi bi-send-fill"></i>
-                </button>
+            <div class="composer-shell">
+                <textarea id="message-input" class="form-control chat-input w-100" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
+                <div class="composer-actions">
+                    <button class="btn btn-send" id="btn-send" title="إرسال">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                    <button class="btn btn-mic" id="btn-mic" title="تسجيل صوتي">
+                        <i class="bi bi-mic-fill"></i>
+                    </button>
+                    <select class="form-select agent-select" id="composer-profile-select">
+                        <option value="">Default assigned profile</option>
+                    </select>
+                </div>
+                <div class="composer-status" id="composer-status"></div>
             </div>
         </div>
     </div>
@@ -413,12 +569,19 @@
     </div>
 
     <script>
+        const MAX_VISIBLE_PROJECT_SESSIONS = 5;
+
         const state = {
             settings: {},
             conversations: [],
             currentConversation: null,
             currentMessages: [],
             assignedProfiles: [],
+            projects: [],
+            conversationProjectMap: {},
+            currentProjectId: null,
+            pendingConversationProjectId: null,
+            conversationResetPending: false,
             projectPath: null,
             projectFiles: [],
             selectedProjectFiles: new Set(),
@@ -429,13 +592,18 @@
             heartbeatInterval: null,
             typingElement: null,
             streamingAssistantElement: null,
+            speechRecognition: null,
+            speechRecognitionActive: false,
         };
 
         const els = {
             chatBody: document.getElementById("chat-body"),
             messageInput: document.getElementById("message-input"),
             btnSend: document.getElementById("btn-send"),
+            btnMic: document.getElementById("btn-mic"),
             btnNewChat: document.getElementById("btn-new-chat"),
+            composerProfileSelect: document.getElementById("composer-profile-select"),
+            composerStatus: document.getElementById("composer-status"),
             conversationsList: document.getElementById("conversations-list"),
             chatTitle: document.getElementById("chat-title"),
             profileBadge: document.getElementById("profile-badge"),
@@ -468,15 +636,89 @@
             return Array.isArray(state.settings.offlineQueue) ? state.settings.offlineQueue : [];
         }
 
+        function escapeJsString(text) {
+            return String(text || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        }
+
+        function normalizeProjects(projects) {
+            return (Array.isArray(projects) ? projects : []).map((project) => ({
+                id: project.id || `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: project.name || (project.path ? project.path.split(/[\\/]/).pop() : "Project"),
+                path: project.path || "",
+                selectedFiles: Array.isArray(project.selectedFiles) ? project.selectedFiles : [],
+                createdAt: project.createdAt || new Date().toISOString(),
+                lastOpenedAt: project.lastOpenedAt || project.createdAt || new Date().toISOString(),
+                expanded: project.expanded !== false,
+                showAllSessions: Boolean(project.showAllSessions),
+            })).filter((project) => project.path);
+        }
+
+        function getCurrentProject() {
+            return state.projects.find((project) => project.id === state.currentProjectId) || null;
+        }
+
+        function getConversationProjectId(conversationId) {
+            return state.conversationProjectMap[conversationId] || null;
+        }
+
+        function getProjectSessions(projectId) {
+            return state.conversations
+                .filter((conversation) => getConversationProjectId(conversation.conversation_id) === projectId)
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+
+        function getGeneralSessions() {
+            return state.conversations
+                .filter((conversation) => !getConversationProjectId(conversation.conversation_id))
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+
+        function syncCurrentProjectContext() {
+            const project = getCurrentProject();
+            state.projectPath = project ? project.path : null;
+            state.selectedProjectFiles = new Set(project?.selectedFiles || []);
+            els.projectPath.textContent = state.projectPath || "";
+        }
+
+        function updateComposerStatus(message = "") {
+            els.composerStatus.textContent = message;
+        }
+
+        function markConversationProject(conversationId, projectId) {
+            if (!conversationId) {
+                return;
+            }
+
+            if (projectId) {
+                state.conversationProjectMap[conversationId] = projectId;
+            } else {
+                delete state.conversationProjectMap[conversationId];
+            }
+        }
+
+        function updateProjectSelectionFromConversation(conversationId) {
+            const projectId = conversationId ? getConversationProjectId(conversationId) : null;
+            state.currentProjectId = projectId;
+            syncCurrentProjectContext();
+        }
+
+        async function saveProjectState() {
+            await persistSettings();
+            renderConversations();
+        }
+
         function renderAssignedProfiles() {
             const selectedProfileName = state.settings.profileName || "";
-            els.settingProfile.innerHTML = [`<option value="">Default assigned profile</option>`]
+            const optionsHtml = [`<option value="">Default assigned profile</option>`]
                 .concat(state.assignedProfiles.map((profile) => `
                     <option value="${escapeHtml(profile.name)}" ${selectedProfileName === profile.name ? "selected" : ""}>
                         ${escapeHtml(profile.name)}
                     </option>
                 `))
                 .join("");
+            els.settingProfile.innerHTML = optionsHtml;
+            els.composerProfileSelect.innerHTML = optionsHtml;
+            els.composerProfileSelect.value = selectedProfileName;
 
             if (!state.settings.token) {
                 els.settingProfileStatus.textContent = "Login or activate the app to load assigned profiles.";
@@ -517,6 +759,9 @@
         async function persistSettings() {
             const payload = {
                 ...state.settings,
+                projects: state.projects,
+                conversationProjectMap: state.conversationProjectMap,
+                currentProjectId: state.currentProjectId,
                 projectPath: state.projectPath,
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
             };
@@ -678,17 +923,18 @@
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
             els.settingToken.value = state.settings.token || "";
             els.settingTemplate.value = state.settings.template || "default";
-            state.projectPath = state.settings.projectPath || null;
-            state.selectedProjectFiles = new Set(state.settings.selectedProjectFiles || []);
+            state.projects = normalizeProjects(state.settings.projects);
+            state.conversationProjectMap = state.settings.conversationProjectMap && typeof state.settings.conversationProjectMap === "object"
+                ? state.settings.conversationProjectMap
+                : {};
+            state.currentProjectId = state.settings.currentProjectId || null;
+            syncCurrentProjectContext();
             els.profileBadge.textContent = state.settings.profileName || state.settings.template || "default";
             renderQueueStatus();
             await refreshUpdateStatus();
             await loadAssignedProfiles();
 
-            if (state.projectPath) {
-                els.projectPath.textContent = state.projectPath;
-                await refreshProjectFiles();
-            }
+            await refreshProjectFiles();
         }
 
         async function saveSettings() {
@@ -697,7 +943,10 @@
                 apiUrl: els.settingApiUrl.value.trim(),
                 token: els.settingToken.value.trim(),
                 template: els.settingTemplate.value,
-                profileName: els.settingProfile.value.trim(),
+                profileName: els.composerProfileSelect.value.trim(),
+                projects: state.projects,
+                conversationProjectMap: state.conversationProjectMap,
+                currentProjectId: state.currentProjectId,
                 projectPath: state.projectPath,
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
             });
@@ -711,6 +960,7 @@
                 connectWebSocket();
             }
             await loadConversations();
+            renderAssignedProfiles();
         }
 
         async function loadConversations() {
@@ -763,6 +1013,253 @@
             els.chatTitle.textContent = "محادثة جديدة";
             resetStreamingState();
             renderConversations();
+        }
+
+        function renderConversationButton(conversation, className = "general-session-item") {
+            const activeClass = state.currentConversation === conversation.conversation_id ? "active" : "";
+            return `
+                <button class="${className} ${activeClass}" data-conversation-id="${conversation.conversation_id}" type="button">
+                    <div class="text-truncate">${escapeHtml(conversation.title || "محادثة")}</div>
+                    <span class="project-session-meta">${new Date(conversation.created_at).toLocaleDateString("ar")}</span>
+                </button>
+            `;
+        }
+
+        function renderConversations() {
+            const generalSessions = getGeneralSessions();
+            const projectsHtml = state.projects.length > 0
+                ? state.projects.map((project) => {
+                    const projectSessions = getProjectSessions(project.id);
+                    const visibleSessions = project.showAllSessions
+                        ? projectSessions
+                        : projectSessions.slice(0, MAX_VISIBLE_PROJECT_SESSIONS);
+                    return `
+                        <div class="project-item">
+                            <div class="project-header">
+                                <button class="project-title-btn ${state.currentProjectId === project.id ? "active" : ""}" data-project-id="${project.id}" type="button">
+                                    <div class="project-name text-truncate">${escapeHtml(project.name)}</div>
+                                    <span class="project-path">${escapeHtml(project.path)}</span>
+                                </button>
+                                <button class="project-action-btn" data-project-session="${project.id}" type="button" title="محادثة جديدة داخل المشروع">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                                <button class="project-action-btn" data-project-toggle="${project.id}" type="button" title="${project.expanded ? "إخفاء الجلسات" : "إظهار الجلسات"}">
+                                    <i class="bi ${project.expanded ? "bi-chevron-up" : "bi-chevron-down"}"></i>
+                                </button>
+                                <button class="project-action-btn" data-project-delete="${project.id}" type="button" title="حذف المشروع من القائمة">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            ${project.expanded ? `
+                                <div class="project-sessions">
+                                    ${visibleSessions.map((conversation) => renderConversationButton(conversation, "project-session-item")).join("")}
+                                    ${projectSessions.length === 0 ? `<button class="empty-project-btn" data-project-session="${project.id}" type="button">ابدأ أول جلسة داخل المشروع</button>` : ""}
+                                    ${projectSessions.length > MAX_VISIBLE_PROJECT_SESSIONS ? `
+                                        <button class="show-more-btn" data-project-show-more="${project.id}" type="button">
+                                            ${project.showAllSessions ? "إخفاء بعض الجلسات" : "Show more..."}
+                                        </button>
+                                    ` : ""}
+                                </div>
+                            ` : ""}
+                        </div>
+                    `;
+                }).join("")
+                : `<button class="empty-project-btn" id="btn-add-project-empty" type="button">Projects (مشروع جديد)</button>`;
+
+            els.conversationsList.innerHTML = `
+                <button class="btn btn-sm btn-primary-custom sidebar-action-btn" id="sidebar-new-chat" type="button">
+                    <i class="bi bi-plus-lg"></i> New Chat
+                </button>
+                ${generalSessions.length > 0 ? `
+                    <div class="sidebar-section-label">Chats</div>
+                    ${generalSessions.map((conversation) => renderConversationButton(conversation)).join("")}
+                ` : ""}
+                <div class="sidebar-section-label d-flex justify-content-between align-items-center">
+                    <span>Projects</span>
+                    <button class="project-action-btn" id="btn-add-project" type="button" title="Open directory">
+                        <i class="bi bi-folder2-open"></i>
+                    </button>
+                </div>
+                ${projectsHtml}
+            `;
+
+            document.getElementById("sidebar-new-chat")?.addEventListener("click", () => {
+                newConversation();
+            });
+            document.getElementById("btn-add-project")?.addEventListener("click", () => {
+                void promptAndAddProject();
+            });
+            document.getElementById("btn-add-project-empty")?.addEventListener("click", () => {
+                void promptAndAddProject();
+            });
+            document.querySelectorAll("[data-conversation-id]").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void loadConversation(element.dataset.conversationId);
+                });
+            });
+            document.querySelectorAll("[data-project-id]").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void selectProject(element.dataset.projectId);
+                });
+            });
+            document.querySelectorAll("[data-project-session]").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void startProjectSession(element.dataset.projectSession);
+                });
+            });
+            document.querySelectorAll("[data-project-delete]").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void deleteProject(element.dataset.projectDelete);
+                });
+            });
+            document.querySelectorAll("[data-project-toggle]").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void toggleProjectExpanded(element.dataset.projectToggle);
+                });
+            });
+            document.querySelectorAll("[data-project-show-more]").forEach((element) => {
+                element.addEventListener("click", () => {
+                    void toggleProjectShowMore(element.dataset.projectShowMore);
+                });
+            });
+        }
+
+        async function loadConversation(id) {
+            state.currentConversation = id;
+            state.conversationResetPending = false;
+            state.currentMessages = [];
+            updateProjectSelectionFromConversation(id);
+            const conversation = state.conversations.find((item) => item.conversation_id === id);
+            els.chatTitle.textContent = conversation?.title || getCurrentProject()?.name || "محادثة";
+            renderConversations();
+            els.welcomeScreen.style.display = "none";
+            els.chatBody.innerHTML = "";
+            updateComposerStatus(getCurrentProject() ? `السياق الحالي: ${getCurrentProject().name}` : "محادثة عادية بدون مشروع");
+
+            if (state.projectPath) {
+                await refreshProjectFiles();
+            }
+
+            try {
+                const data = await apiRequest(`/chat/conversations/${id}/messages`);
+                state.currentMessages = data.messages || [];
+                state.currentMessages.forEach((message) => appendMessage(message.role, message.content));
+                scrollBottom();
+            } catch (error) {
+                console.error("Failed to load messages:", error);
+            }
+        }
+
+        function newConversation() {
+            state.currentProjectId = null;
+            syncCurrentProjectContext();
+            state.currentConversation = null;
+            state.conversationResetPending = true;
+            state.currentMessages = [];
+            els.chatBody.innerHTML = "";
+            els.welcomeScreen.style.display = "block";
+            els.chatTitle.textContent = "محادثة جديدة";
+            resetStreamingState();
+            updateComposerStatus("محادثة عادية بدون مشروع");
+            renderConversations();
+            void refreshProjectFiles();
+        }
+
+        async function selectProject(projectId) {
+            state.currentProjectId = projectId;
+            const project = getCurrentProject();
+            if (!project) {
+                return;
+            }
+            project.lastOpenedAt = new Date().toISOString();
+            syncCurrentProjectContext();
+            updateComposerStatus(`السياق الحالي: ${project.name}`);
+            await refreshProjectFiles();
+            await saveProjectState();
+        }
+
+        async function startProjectSession(projectId) {
+            await selectProject(projectId);
+            state.currentConversation = null;
+            state.conversationResetPending = true;
+            state.currentMessages = [];
+            els.chatBody.innerHTML = "";
+            els.welcomeScreen.style.display = "block";
+            els.chatTitle.textContent = getCurrentProject()?.name || "محادثة مشروع";
+            resetStreamingState();
+            renderConversations();
+        }
+
+        async function toggleProjectExpanded(projectId) {
+            const project = state.projects.find((item) => item.id === projectId);
+            if (!project) {
+                return;
+            }
+            project.expanded = !project.expanded;
+            await saveProjectState();
+        }
+
+        async function toggleProjectShowMore(projectId) {
+            const project = state.projects.find((item) => item.id === projectId);
+            if (!project) {
+                return;
+            }
+            project.showAllSessions = !project.showAllSessions;
+            await saveProjectState();
+        }
+
+        async function deleteProject(projectId) {
+            const project = state.projects.find((item) => item.id === projectId);
+            if (!project) {
+                return;
+            }
+            const confirmed = window.confirm(`حذف المشروع ${project.name} من قائمة الديسكتوب؟ لن يتم حذف ملفات المجلد.`);
+            if (!confirmed) {
+                return;
+            }
+
+            state.projects = state.projects.filter((item) => item.id !== projectId);
+            Object.keys(state.conversationProjectMap).forEach((conversationId) => {
+                if (state.conversationProjectMap[conversationId] === projectId) {
+                    delete state.conversationProjectMap[conversationId];
+                }
+            });
+            if (state.currentProjectId === projectId) {
+                state.currentProjectId = null;
+                syncCurrentProjectContext();
+                void refreshProjectFiles();
+            }
+            await saveProjectState();
+        }
+
+        async function promptAndAddProject() {
+            const folderPath = await window.electronAPI.openFolder();
+            if (!folderPath) {
+                return;
+            }
+
+            const existingProject = state.projects.find((project) => project.path === folderPath);
+            if (existingProject) {
+                await selectProject(existingProject.id);
+                return;
+            }
+
+            const project = {
+                id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: folderPath.split(/[\\/]/).pop() || "Project",
+                path: folderPath,
+                selectedFiles: [],
+                createdAt: new Date().toISOString(),
+                lastOpenedAt: new Date().toISOString(),
+                expanded: true,
+                showAllSessions: false,
+            };
+            state.projects.unshift(project);
+            state.currentProjectId = project.id;
+            syncCurrentProjectContext();
+            await saveProjectState();
+            await refreshProjectFiles();
+            updateComposerStatus(`تم فتح المشروع: ${project.name}`);
         }
 
         async function getWebSocketToken() {
@@ -1197,6 +1694,240 @@
             await refreshProjectFiles();
         }
 
+        function persistCurrentProjectSelection() {
+            const project = getCurrentProject();
+            if (!project) {
+                return;
+            }
+            project.selectedFiles = Array.from(state.selectedProjectFiles);
+        }
+
+        function handleWsMessage(data) {
+            switch (data.type) {
+                case "start":
+                    startAssistantStream();
+                    if (data.conversation_id && !state.currentConversation) {
+                        state.currentConversation = data.conversation_id;
+                        state.conversationResetPending = false;
+                        markConversationProject(data.conversation_id, state.pendingConversationProjectId);
+                        updateProjectSelectionFromConversation(data.conversation_id);
+                        state.pendingConversationProjectId = null;
+                        void persistSettings();
+                        void loadConversations();
+                    }
+                    break;
+                case "chunk":
+                case "assistant_chunk": {
+                    startAssistantStream();
+                    const lastMessage = state.currentMessages[state.currentMessages.length - 1];
+                    lastMessage.content += data.content;
+                    const timestamp = `<div class="timestamp">${new Date().toLocaleTimeString("ar")}</div>`;
+                    state.streamingAssistantElement.innerHTML = `${renderMarkdown(lastMessage.content)}${timestamp}`;
+                    scrollBottom();
+                    break;
+                }
+                case "tool_request":
+                    appendSystemMessage(`Hermes requested local tool: ${data.tool}`);
+                    void executeToolRequest(data);
+                    break;
+                case "approval_required":
+                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    break;
+                case "apply_request":
+                    void executeApplyRequest(data);
+                    break;
+                case "done":
+                    resetStreamingState();
+                    if (data.conversation_id) {
+                        if (!(state.conversationResetPending && state.pendingConversationProjectId === null)) {
+                            state.currentConversation = data.conversation_id;
+                            if (state.pendingConversationProjectId) {
+                                markConversationProject(data.conversation_id, state.pendingConversationProjectId);
+                                updateProjectSelectionFromConversation(data.conversation_id);
+                            }
+                        }
+                    }
+                    state.pendingConversationProjectId = null;
+                    void persistSettings();
+                    void loadConversations();
+                    break;
+                case "error":
+                    resetStreamingState();
+                    state.pendingConversationProjectId = null;
+                    appendSystemMessage(`خطأ: ${data.detail}`);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        async function sendWebSocketMessage(text, profileNameOverride = "") {
+            const projectContext = await buildProjectContextForMessage(text);
+            const selectedProfileName = profileNameOverride || state.settings.profileName || undefined;
+            const payload = {
+                type: "user_message",
+                content: text,
+                project_context: projectContext || undefined,
+                profile_name: selectedProfileName,
+                conversation_id: state.conversationResetPending ? null : (state.currentConversation || null),
+                workspace: buildWorkspaceDescriptor(),
+            };
+
+            state.ws.send(JSON.stringify(payload));
+        }
+
+        async function sendMessage() {
+            const text = els.messageInput.value.trim();
+            if (!text || state.isStreaming) {
+                return;
+            }
+
+            els.messageInput.value = "";
+            els.messageInput.style.height = "auto";
+            els.welcomeScreen.style.display = "none";
+            appendMessage("user", text);
+            state.currentMessages.push({ role: "user", content: text });
+            const profileName = state.settings.profileName || "";
+            state.pendingConversationProjectId = state.conversationResetPending
+                ? state.currentProjectId
+                : (state.currentConversation ? getConversationProjectId(state.currentConversation) : state.currentProjectId);
+
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+                await enqueueMessage(text, profileName);
+                appendSystemMessage("تم حفظ الرسالة محلياً وسيتم إرسالها عند عودة الاتصال.");
+                connectWebSocket();
+                return;
+            }
+
+            showTypingIndicator();
+            state.isStreaming = true;
+
+            try {
+                await sendWebSocketMessage(text, profileName);
+            } catch (error) {
+                resetStreamingState();
+                state.pendingConversationProjectId = null;
+                await enqueueMessage(text, profileName);
+                appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
+            }
+        }
+
+        function renderProjectFiles() {
+            const currentProject = getCurrentProject();
+            els.selectedFilesStatus.textContent = currentProject
+                ? `${state.selectedProjectFiles.size} ملف محدد للمشروع ${currentProject.name}`
+                : `${state.selectedProjectFiles.size} ملف محدد كأولوية للسياق`;
+            els.projectFiles.innerHTML = state.projectFiles.map((file) => `
+                <div class="file-item ${state.selectedProjectFiles.has(file.path) ? "selected" : ""}" data-file-path="${file.path}">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="flex-grow-1">
+                            <div class="small fw-semibold">${file.path}</div>
+                            <div class="text-muted" style="font-size:11px">${(file.size / 1024).toFixed(1)} KB</div>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-light btn-open-file" data-file-path="${file.path}" type="button">Open</button>
+                            <button class="btn btn-sm ${state.selectedProjectFiles.has(file.path) ? "btn-primary-custom" : "btn-outline-light"} btn-select-file" data-file-path="${file.path}" type="button">
+                                ${state.selectedProjectFiles.has(file.path) ? "Selected" : "Select"}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="file-snippet">${escapeHtml(file.snippet || "")}</div>
+                </div>
+            `).join("");
+
+            document.querySelectorAll(".btn-open-file").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await openProjectFile(button.dataset.filePath);
+                });
+            });
+
+            document.querySelectorAll(".btn-select-file").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    const filePath = button.dataset.filePath;
+                    if (state.selectedProjectFiles.has(filePath)) {
+                        state.selectedProjectFiles.delete(filePath);
+                    } else {
+                        state.selectedProjectFiles.add(filePath);
+                    }
+                    persistCurrentProjectSelection();
+                    await persistSettings();
+                    renderProjectFiles();
+                });
+            });
+        }
+
+        async function refreshProjectFiles() {
+            if (!state.projectPath) {
+                state.projectFiles = [];
+                renderProjectFiles();
+                return;
+            }
+
+            const result = await window.electronAPI.scanFolder(state.projectPath);
+            if (result.error) {
+                els.projectFiles.innerHTML = `<div class="text-danger">${escapeHtml(result.error)}</div>`;
+                return;
+            }
+
+            state.projectFiles = result.files || [];
+            renderProjectFiles();
+        }
+
+        function getSpeechRecognitionCtor() {
+            return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+        }
+
+        async function toggleMicrophone() {
+            if (state.speechRecognitionActive && state.speechRecognition) {
+                state.speechRecognition.stop();
+                return;
+            }
+
+            const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+            if (!SpeechRecognitionCtor) {
+                updateComposerStatus("التسجيل الصوتي غير مدعوم في هذا الجهاز.");
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach((track) => track.stop());
+            } catch (error) {
+                updateComposerStatus(`فشل الوصول إلى الميكروفون: ${error.message}`);
+                return;
+            }
+
+            const recognition = new SpeechRecognitionCtor();
+            recognition.lang = "ar-SA";
+            recognition.interimResults = true;
+            recognition.continuous = false;
+
+            recognition.onstart = () => {
+                state.speechRecognition = recognition;
+                state.speechRecognitionActive = true;
+                els.btnMic.classList.add("recording");
+                updateComposerStatus("جاري الاستماع...");
+            };
+            recognition.onresult = (event) => {
+                const transcript = Array.from(event.results).map((result) => result[0]?.transcript || "").join(" ").trim();
+                if (transcript) {
+                    els.messageInput.value = `${els.messageInput.value} ${transcript}`.trim();
+                    els.messageInput.dispatchEvent(new Event("input"));
+                    updateComposerStatus("تم إدراج النص الصوتي في المحادثة.");
+                }
+            };
+            recognition.onerror = (event) => {
+                updateComposerStatus(`خطأ في التسجيل الصوتي: ${event.error || "unknown"}`);
+            };
+            recognition.onend = () => {
+                state.speechRecognitionActive = false;
+                state.speechRecognition = null;
+                els.btnMic.classList.remove("recording");
+            };
+
+            recognition.start();
+        }
+
         els.messageInput.addEventListener("input", () => {
             els.messageInput.style.height = "auto";
             els.messageInput.style.height = `${Math.min(els.messageInput.scrollHeight, 120)}px`;
@@ -1204,6 +1935,18 @@
 
         els.btnSend.addEventListener("click", () => {
             void sendMessage();
+        });
+        els.btnMic.addEventListener("click", () => {
+            void toggleMicrophone();
+        });
+        els.composerProfileSelect.addEventListener("change", async () => {
+            state.settings.profileName = els.composerProfileSelect.value.trim();
+            els.settingProfile.value = state.settings.profileName;
+            els.profileBadge.textContent = state.settings.profileName || state.settings.template || "default";
+            await persistSettings();
+        });
+        els.settingProfile.addEventListener("change", () => {
+            els.composerProfileSelect.value = els.settingProfile.value.trim();
         });
 
         els.messageInput.addEventListener("keydown", (event) => {
@@ -1238,15 +1981,7 @@
         });
 
         els.btnOpenFolder.addEventListener("click", async () => {
-            const folderPath = await window.electronAPI.openFolder();
-            if (!folderPath) {
-                return;
-            }
-
-            state.projectPath = folderPath;
-            els.projectPath.textContent = folderPath;
-            await persistSettings();
-            await refreshProjectFiles();
+            await promptAndAddProject();
         });
 
         document.getElementById("btn-activate").addEventListener("click", async () => {

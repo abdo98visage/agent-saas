@@ -29,6 +29,18 @@ from app.services.pricing_service import pricing_service
 class AgentService:
     """Core agent service: profile resolution, per-user API keys, LLM routing, streaming."""
 
+    def _runtime_request_url(self, profile: Optional[Profile]) -> str:
+        runtime = self._runtime_router().for_profile(profile)
+        if runtime.runtime_type == "hermes":
+            return f"{settings.hermes_orchestrator_url.rstrip('/')}/runs" if settings.hermes_orchestrator_url else ""
+        if settings.is_openai:
+            return settings.openai_base_url
+        if settings.is_minimax:
+            return settings.minimax_base_url
+        if settings.is_ollama:
+            return f"{settings.ollama_base_url.rstrip('/')}/api/chat"
+        return ""
+
     async def resolve_user_profile(
         self, db: AsyncSession, user_id: UUID, profile_name: Optional[str] = None
     ) -> Optional[Profile]:
@@ -460,13 +472,18 @@ class AgentService:
         )
 
         return {
+            "conversation_id": str(session_obj.id),
             "content": response_text,
             "message_id": str(assistant_msg.id),
             "tokens_used": input_tokens + output_tokens,
             "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
             "latency_ms": latency,
             "model": model_name,
+            "provider": settings.llm_provider,
+            "runtime_type": runtime.runtime_type,
+            "request_url": self._runtime_request_url(profile),
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
             "total_cost": cost_calc.total_cost,
@@ -650,8 +667,12 @@ class AgentService:
             "message_id": assistant_msg_id,
             "tokens_used": input_tokens + output_tokens,
             "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
             "model": model_name,
+            "provider": settings.llm_provider,
+            "runtime_type": runtime.runtime_type,
+            "request_url": self._runtime_request_url(profile),
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
             "total_cost": cost_calc.total_cost,

@@ -1,6 +1,6 @@
 """add provider pricing and agent run pricing snapshots
 
-Revision ID: add_provider_pricing_and_run_snapshot
+Revision ID: add_provider_pricing_snapshot
 Revises: add_hermes_runtime_layer
 Create Date: 2026-06-21
 """
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "add_provider_pricing_and_run_snapshot"
+revision = "add_provider_pricing_snapshot"
 down_revision = "add_hermes_runtime_layer"
 branch_labels = None
 depends_on = None

@@ -40,6 +40,9 @@ function buildRendererSettings() {
     token: decryptToken(encryptedToken),
     offlineQueue: Array.isArray(rawStore.offlineQueue) ? rawStore.offlineQueue : [],
     selectedProjectFiles: Array.isArray(rawStore.selectedProjectFiles) ? rawStore.selectedProjectFiles : [],
+    projects: Array.isArray(rawStore.projects) ? rawStore.projects : [],
+    conversationProjectMap: rawStore.conversationProjectMap && typeof rawStore.conversationProjectMap === "object" ? rawStore.conversationProjectMap : {},
+    currentProjectId: typeof rawStore.currentProjectId === "string" ? rawStore.currentProjectId : null,
   };
 }
 
@@ -96,7 +99,11 @@ const CSP = [
 ].join("; ");
 
 function setupSecurity() {
-  electronSession.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+  electronSession.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "media" || permission === "audioCapture") {
+      callback(true);
+      return;
+    }
     callback(false);
   });
 

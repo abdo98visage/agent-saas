@@ -1,7 +1,7 @@
 """add invite and telegram binding token expiry fields
 
 Revision ID: add_token_expiry_fields
-Revises: add_provider_pricing_and_run_snapshot
+Revises: add_provider_pricing_snapshot
 Create Date: 2026-06-21
 """
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 
 revision = "add_token_expiry_fields"
-down_revision = "add_provider_pricing_and_run_snapshot"
+down_revision = "add_provider_pricing_snapshot"
 branch_labels = None
 depends_on = None
 

@@ -31,10 +31,12 @@ from app.schemas.admin import (
     ProfileCreate, ProfileUpdate,
     AssignmentCreate,
     AgentTemplateCreate, AgentTemplateUpdate,
-    ApiKeyCreate, ApiKeyUpdate, ProviderPricingUpsert,
+    ApiKeyCreate, ApiKeyUpdate, ProviderPricingUpsert, AdminAgentTestMessage,
 )
+from app.services.agent_service import AgentService
 
 router = APIRouter()
+agent_service = AgentService()
 
 
 def _profile_payload(p: Profile) -> dict:
@@ -403,6 +405,59 @@ async def remove_assignment(
 
 
 # ==================== SESSIONS VIEWER ====================
+
+@router.post("/agent-test/message")
+async def admin_test_agent_message(
+    req: AdminAgentTestMessage,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """Allow admins to test any active agent/profile from the platform itself."""
+    audit = AuditLog(
+        user_id=str(admin.id),
+        action="admin_test_agent_message",
+        details={
+            "profile_name": req.profile_name,
+            "conversation_id": str(req.conversation_id) if req.conversation_id else None,
+            "agent_template_name": req.agent_template_name,
+            "message_length": len(req.message),
+        },
+    )
+    db.add(audit)
+
+    try:
+        result = await agent_service.run_agent(
+            db=db,
+            user_id=str(admin.id),
+            conversation_id=str(req.conversation_id) if req.conversation_id else None,
+            user_message=req.message,
+            agent_template_name=req.agent_template_name,
+            project_context=req.project_context,
+            profile_name=req.profile_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Agent test failed: {str(exc)}")
+
+    return {
+        "conversation_id": result.get("conversation_id"),
+        "message_id": result.get("message_id"),
+        "content": result.get("content", ""),
+        "tokens_used": result.get("tokens_used"),
+        "input_tokens": result.get("input_tokens"),
+        "output_tokens": result.get("output_tokens"),
+        "total_tokens": result.get("total_tokens"),
+        "latency_ms": result.get("latency_ms"),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "runtime_type": result.get("runtime_type"),
+        "request_url": result.get("request_url"),
+        "profile_name": result.get("profile_name"),
+        "profile_id": result.get("profile_id"),
+        "total_cost": result.get("total_cost"),
+        "pricing_snapshot": result.get("pricing_snapshot"),
+    }
 
 @router.get("/sessions")
 async def view_sessions(

@@ -125,3 +125,11 @@ class ProviderPricingUpsert(BaseModel):
     monthly_price_usd: float = Field(..., gt=0, le=1000000)
     monthly_token_allowance: int = Field(..., gt=0, le=1000000000000)
     currency: str = Field("USD", min_length=3, max_length=8)
+
+
+class AdminAgentTestMessage(BaseModel):
+    message: str = Field(..., min_length=1, max_length=20000)
+    profile_name: str = Field(..., min_length=1, max_length=100)
+    conversation_id: Optional[UUID] = None
+    agent_template_name: str = Field("default", min_length=1, max_length=50)
+    project_context: Optional[str] = Field(None, max_length=20000)
