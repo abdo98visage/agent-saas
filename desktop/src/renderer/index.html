@@ -381,6 +381,7 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: nowrap;
             background:
                 linear-gradient(135deg, rgba(88, 118, 244, 0.18), rgba(123, 146, 251, 0.08)),
                 rgba(255, 255, 255, 0.72);
@@ -390,6 +391,14 @@
         .chat-header h5 {
             font-size: 22px;
             font-weight: 800;
+            margin: 0;
+            line-height: 1.1;
+            display: flex;
+            align-items: center;
+        }
+        .chat-header .badge,
+        .chat-header .header-action-btn {
+            align-self: center;
         }
         .chat-body {
             flex: 1;
@@ -1190,20 +1199,16 @@
             <div class="context-panel-title" id="context-panel-title">سياق المشروع</div>
             <div class="context-panel-subtitle" id="context-panel-subtitle">شاهد الملفات والأنشطة المتعلقة بالمحادثة الحالية.</div>
         </div>
-        <div class="context-summary-card">
-            <h6>ملخص السياق</h6>
-            <button class="btn btn-sm btn-outline-secondary w-100 mb-2" id="btn-open-folder-live" type="button">فتح مشروع جديد</button>
-            <div id="context-project-path" class="text-muted small mb-2"></div>
-            <div id="context-selected-files-status" class="small text-muted mb-2"></div>
-            <div class="status-box" id="context-status-live"></div>
-        </div>
         <div class="context-section-card">
             <h6>ملفات المشروع</h6>
             <div class="project-files" id="context-project-files"></div>
         </div>
-        <div class="context-section-card">
-            <h6 id="activity-title">نشاط المحادثة</h6>
-            <div class="context-activity" id="activity-feed"></div>
+        <div class="context-summary-card">
+            <h6>التعديلات والمخرجات</h6>
+            <button class="btn btn-sm btn-outline-secondary w-100 mb-2" id="btn-open-folder-live" type="button">فتح مشروع جديد</button>
+            <div id="context-project-path" class="text-muted small mb-2"></div>
+            <div id="context-selected-files-status" class="small text-muted mb-2"></div>
+            <div class="status-box" id="context-status-live"></div>
         </div>
     </aside>
 
@@ -4010,6 +4015,7 @@
                 projects: state.projects,
                 conversationProjectMap: state.conversationProjectMap,
                 conversationTitleMap: state.settings.conversationTitleMap,
+                projectOutputFilesMap: state.settings.projectOutputFilesMap,
                 currentProjectId: state.currentProjectId,
                 projectPath: state.projectPath,
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
@@ -4222,6 +4228,7 @@
                 projects: state.projects,
                 conversationProjectMap: state.conversationProjectMap,
                 conversationTitleMap: state.settings.conversationTitleMap,
+                projectOutputFilesMap: state.settings.projectOutputFilesMap,
                 currentProjectId: state.currentProjectId,
                 projectPath: state.projectPath,
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
