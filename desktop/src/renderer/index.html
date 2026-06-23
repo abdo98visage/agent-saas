@@ -435,7 +435,8 @@
         .message-copy-btn {
             position: absolute;
             bottom: 10px;
-            inset-inline-start: 10px;
+            left: 10px;
+            right: auto;
             width: 30px;
             height: 30px;
             border-radius: 10px;
@@ -834,33 +835,128 @@
         .context-tree {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
         }
         .context-tree-folder {
             border: 1px solid rgba(88, 118, 244, 0.08);
-            border-radius: 14px;
+            border-radius: 12px;
             background: rgba(247, 249, 252, 0.82);
-            padding: 10px 12px;
+            padding: 8px 10px;
         }
         .context-tree-folder-name {
             font-size: 12px;
             font-weight: 800;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }
         .context-tree-folder-files {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-secondary);
-            line-height: 1.7;
+            line-height: 1.5;
         }
         .file-item {
             border: 1px solid rgba(88, 118, 244, 0.1);
             border-radius: 14px;
-            padding: 10px;
+            padding: 7px 10px;
             background: rgba(247, 249, 252, 0.92);
         }
         .file-item.selected {
             border-color: rgba(88, 118, 244, 0.42);
             background: rgba(88, 118, 244, 0.08);
+        }
+        .project-file-tree {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .project-tree-root {
+            border: 1px solid rgba(88, 118, 244, 0.08);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+        }
+        .project-tree-root-label,
+        .project-tree-folder-toggle {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-primary);
+            padding: 4px 2px;
+            text-align: start;
+            font-weight: 700;
+        }
+        .project-tree-root-label {
+            cursor: default;
+            padding-bottom: 8px;
+        }
+        .project-tree-folder-toggle {
+            cursor: pointer;
+            border-radius: 10px;
+        }
+        .project-tree-folder-toggle:hover {
+            background: rgba(88, 118, 244, 0.06);
+        }
+        .project-tree-chevron {
+            width: 16px;
+            color: var(--text-secondary);
+            flex: 0 0 16px;
+            text-align: center;
+        }
+        .project-tree-children {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding-inline-start: 14px;
+            border-inline-start: 1px solid rgba(88, 118, 244, 0.08);
+            margin-inline-start: 7px;
+        }
+        .project-tree-node {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .file-name {
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+        }
+        .file-meta-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            flex-wrap: nowrap;
+            min-width: 0;
+        }
+        .file-meta-group,
+        .file-action-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+        .file-meta-group {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .file-meta-text {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .file-badges {
+            flex-wrap: nowrap;
+            white-space: nowrap;
+        }
+        .file-action-group .btn {
+            padding: 2px 8px;
+            line-height: 1.2;
         }
         .file-snippet {
             font-size: 11px;
@@ -875,7 +971,7 @@
             display: inline-flex;
             gap: 6px;
             flex-wrap: wrap;
-            margin-top: 6px;
+            margin-top: 0;
         }
         .file-badge {
             display: inline-flex;
@@ -3746,6 +3842,9 @@
             if (typeof state.pendingConversationTitle !== "string") {
                 state.pendingConversationTitle = "";
             }
+            if (!(state.fileTreeExpanded instanceof Set)) {
+                state.fileTreeExpanded = new Set();
+            }
         }
 
         function summarizeConversationTitle(text) {
@@ -3817,6 +3916,21 @@
             return messages[key] || (getLocale() === "en" ? "Processing a local workspace action..." : "جاري تنفيذ إجراء محلي على مساحة العمل...");
         }
 
+        function clearTransientSystemMessage() {
+            if (state.transientSystemMessageElement?.parentNode) {
+                state.transientSystemMessageElement.parentNode.removeChild(state.transientSystemMessageElement);
+            }
+            state.transientSystemMessageElement = null;
+        }
+
+        function showTransientSystemMessage(content) {
+            clearTransientSystemMessage();
+            const element = appendMessage("system", content);
+            element.dataset.transientSystemMessage = "true";
+            state.transientSystemMessageElement = element;
+            return element;
+        }
+
         function ensureContextDirectoryTree() {
             const summaryCard = document.querySelector(".context-summary-card");
             if (!summaryCard) {
@@ -3849,6 +3963,12 @@
                 subtitle.dataset.fixed = "true";
             }
             ensureContextDirectoryTree();
+            if (els.btnOpenFolderLive) {
+                els.btnOpenFolderLive.style.display = "none";
+            }
+            if (els.projectPath) {
+                els.projectPath.style.display = "none";
+            }
             document.getElementById("activity-title")?.closest(".context-section-card")?.remove();
         }
 
@@ -3861,25 +3981,21 @@
                 tree.innerHTML = "";
                 return;
             }
-            const groups = new Map();
-            state.projectFiles.forEach((file) => {
-                const parts = String(file.path || "").split(/[\\/]+/).filter(Boolean);
-                if (!parts.length) {
-                    return;
-                }
-                const folder = parts.length > 1 ? parts[0] : ".";
-                const fileName = parts[parts.length - 1];
-                if (!groups.has(folder)) {
-                    groups.set(folder, []);
-                }
-                groups.get(folder).push(fileName);
-            });
-            const markup = Array.from(groups.entries())
-                .sort((a, b) => a[0].localeCompare(b[0]))
-                .map(([folder, names]) => `
+            const outputFiles = state.projectFiles
+                .filter((file) => file.status === "new" || file.status === "modified")
+                .sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt))
+                .slice(0, 10);
+            if (!outputFiles.length) {
+                tree.innerHTML = `<div class="context-tree-folder"><div class="context-tree-folder-files">${getLocale() === "en" ? "No created or modified files yet." : "لا توجد ملفات جديدة أو معدلة بعد."}</div></div>`;
+                return;
+            }
+            const markup = outputFiles
+                .map((file) => `
                     <div class="context-tree-folder">
-                        <div class="context-tree-folder-name">${escapeHtml(folder)}</div>
-                        <div class="context-tree-folder-files">${escapeHtml(names.slice(0, 6).join(", "))}${names.length > 6 ? " ..." : ""}</div>
+                        <div class="context-tree-folder-name">${escapeHtml(file.path.split(/[\\/]+/).pop() || file.path)}</div>
+                        <div class="context-tree-folder-files">
+                            ${escapeHtml(file.path)} · ${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())} · ${file.status === "new" ? (getLocale() === "en" ? "New" : "جديد") : (getLocale() === "en" ? "Modified" : "معدل")}
+                        </div>
                     </div>
                 `)
                 .join("");
@@ -3935,18 +4051,38 @@
                 renderContextSidebar();
                 return;
             }
-            els.projectFiles.innerHTML = state.projectFiles.slice().sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt)).map((file) => `
+            const buildTree = () => {
+                const root = { folders: new Map(), files: [] };
+                state.projectFiles.forEach((file) => {
+                    const parts = String(file.path || "").split(/[\\/]+/).filter(Boolean);
+                    let cursor = root;
+                    for (let index = 0; index < parts.length; index += 1) {
+                        const part = parts[index];
+                        const isFile = index === parts.length - 1;
+                        if (isFile) {
+                            cursor.files.push(file);
+                            return;
+                        }
+                        if (!cursor.folders.has(part)) {
+                            cursor.folders.set(part, { folders: new Map(), files: [], fullPath: parts.slice(0, index + 1).join("/") });
+                        }
+                        cursor = cursor.folders.get(part);
+                    }
+                });
+                return root;
+            };
+            const renderFileCard = (file) => `
                 <div class="file-item ${state.selectedProjectFiles.has(file.path) ? "selected" : ""}" data-file-path="${escapeHtml(file.path)}">
-                    <div class="d-flex justify-content-between align-items-start gap-2">
-                        <div class="flex-grow-1">
-                            <div class="small fw-semibold">${escapeHtml(file.path)}</div>
-                            <div class="text-muted" style="font-size:11px">${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())}</div>
+                    <div class="file-name">${escapeHtml(file.path.split(/[\\/]+/).pop() || file.path)}</div>
+                    <div class="file-meta-row">
+                        <div class="file-meta-group">
+                            <span class="file-meta-text">${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())}</span>
                             <div class="file-badges">
                                 <span class="file-badge ${file.status === "new" ? "new" : "modified"}">${file.status === "new" ? (getLocale() === "en" ? "New" : "جديد") : (getLocale() === "en" ? "Modified" : "معدل")}</span>
                                 ${state.selectedProjectFiles.has(file.path) ? `<span class="file-badge selected">${getLocale() === "en" ? "Context" : "ضمن السياق"}</span>` : ""}
                             </div>
                         </div>
-                        <div class="d-flex gap-1">
+                        <div class="file-action-group">
                             <button class="btn btn-sm btn-outline-secondary btn-open-file" data-file-path="${escapeHtml(file.path)}" type="button">${getLocale() === "en" ? "Open" : "فتح"}</button>
                             <button class="btn btn-sm ${state.selectedProjectFiles.has(file.path) ? "btn-primary-custom" : "btn-outline-secondary"} btn-select-file" data-file-path="${escapeHtml(file.path)}" type="button">
                                 ${state.selectedProjectFiles.has(file.path) ? (getLocale() === "en" ? "Selected" : "محدد") : (getLocale() === "en" ? "Select" : "تحديد")}
@@ -3954,7 +4090,51 @@
                         </div>
                     </div>
                 </div>
-            `).join("");
+            `;
+            const renderTreeNode = (node, currentPath = "") => {
+                const folders = Array.from(node.folders.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                const files = node.files.slice().sort((a, b) => a.path.localeCompare(b.path));
+                return `
+                    ${folders.map(([folderName, folderNode]) => {
+                        const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+                        const isExpanded = state.fileTreeExpanded.has(folderPath);
+                        return `
+                            <div class="project-tree-node">
+                                <button class="project-tree-folder-toggle" data-folder-toggle="${escapeHtml(folderPath)}" type="button">
+                                    <span class="project-tree-chevron">${isExpanded ? "▾" : "▸"}</span>
+                                    <span>${escapeHtml(folderName)}</span>
+                                </button>
+                                ${isExpanded ? `<div class="project-tree-children">${renderTreeNode(folderNode, folderPath)}</div>` : ""}
+                            </div>
+                        `;
+                    }).join("")}
+                    ${files.map((file) => renderFileCard(file)).join("")}
+                `;
+            };
+            const projectLabel = escapeHtml(currentProject?.name || state.projectPath.split(/[\\/]+/).pop() || "Project");
+            const tree = buildTree();
+            els.projectFiles.innerHTML = `
+                <div class="project-file-tree">
+                    <div class="project-tree-root">
+                        <div class="project-tree-root-label">
+                            <span class="project-tree-chevron">▾</span>
+                            <span>${projectLabel}</span>
+                        </div>
+                        <div class="project-tree-children">${renderTreeNode(tree)}</div>
+                    </div>
+                </div>
+            `;
+            document.querySelectorAll("[data-folder-toggle]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const folderPath = button.dataset.folderToggle;
+                    if (state.fileTreeExpanded.has(folderPath)) {
+                        state.fileTreeExpanded.delete(folderPath);
+                    } else {
+                        state.fileTreeExpanded.add(folderPath);
+                    }
+                    renderProjectFiles();
+                });
+            });
             document.querySelectorAll(".btn-open-file").forEach((button) => {
                 button.addEventListener("click", async () => {
                     await openProjectFile(button.dataset.filePath);
@@ -3991,7 +4171,6 @@
             document.getElementById("welcome-screen")?.querySelector("h5")?.replaceChildren(t("welcomeTitle"));
             document.getElementById("welcome-screen")?.querySelector("p")?.replaceChildren(t("welcomeBody"));
             document.querySelector(".sidebar-header small")?.replaceChildren(locale === "en" ? "Operating system for digital employees" : "نظام التشغيل للموظفين الرقميين");
-            document.getElementById("btn-open-folder-live")?.replaceChildren(locale === "en" ? "Open New Project" : "فتح مشروع جديد");
             if (!state.currentConversation) {
                 els.chatTitle.textContent = t("newChat");
             }
@@ -4096,6 +4275,7 @@
             if (!text || state.isStreaming) {
                 return;
             }
+            clearTransientSystemMessage();
             ensureConversationTitleState();
             const localTitle = summarizeConversationTitle(text);
             state.pendingConversationTitle = localTitle;
@@ -4134,6 +4314,7 @@
         function handleWsMessage(data) {
             switch (data.type) {
                 case "start":
+                    clearTransientSystemMessage();
                     startAssistantStream();
                     if (data.conversation_id && !state.currentConversation) {
                         state.currentConversation = data.conversation_id;
@@ -4148,6 +4329,7 @@
                     break;
                 case "chunk":
                 case "assistant_chunk": {
+                    clearTransientSystemMessage();
                     startAssistantStream();
                     const lastMessage = state.currentMessages[state.currentMessages.length - 1];
                     lastMessage.content += data.content;
@@ -4156,16 +4338,19 @@
                     break;
                 }
                 case "tool_request":
-                    appendSystemMessage(getToolRequestMessage(data.tool));
+                    showTransientSystemMessage(getToolRequestMessage(data.tool));
                     void executeToolRequest(data);
                     break;
                 case "approval_required":
+                    clearTransientSystemMessage();
                     appendSystemMessage(data.summary || data.title || "The agent requested approval for a local change.");
                     break;
                 case "apply_request":
+                    clearTransientSystemMessage();
                     void executeApplyRequest(data);
                     break;
                 case "done":
+                    clearTransientSystemMessage();
                     resetStreamingState();
                     if (data.conversation_id) {
                         if (!(state.conversationResetPending && state.pendingConversationProjectId === null)) {
@@ -4183,6 +4368,7 @@
                     void loadConversations();
                     break;
                 case "error":
+                    clearTransientSystemMessage();
                     resetStreamingState();
                     state.pendingConversationProjectId = null;
                     appendSystemMessage(`خطأ: ${data.detail}`);
