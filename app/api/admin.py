@@ -27,6 +27,7 @@ from app.services.hermes_orchestrator import hermes_orchestrator
 from app.services.hermes_profile_sync import hermes_profile_sync_service
 from app.services.pricing_service import pricing_service
 from app.services.alert_service import alert_service
+from app.services.token_tracker import record_token_usage
 from app.schemas.admin import (
     EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
     ProfileCreate, ProfileUpdate,
@@ -90,6 +91,23 @@ def _profile_payload(p: Profile, skill_map: Optional[dict[str, dict]] = None) ->
     }
 
 
+async def _track_kpi_message(db: AsyncSession, user_id: str) -> None:
+    today = date.today().isoformat()
+    result = await db.execute(select(KPI).where(KPI.user_id == user_id, KPI.date == today))
+    kpi = result.scalar_one_or_none()
+    if kpi:
+        kpi.messages_sent += 1
+        return
+
+    db.add(
+        KPI(
+            user_id=user_id,
+            date=today,
+            messages_sent=1,
+        )
+    )
+
+
 async def _load_skill_definitions(
     db: AsyncSession,
     skill_slugs: list[str],
@@ -126,7 +144,7 @@ async def list_employees(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
-    query = select(User)
+    query = select(User).where(User.role == "employee")
     if department: query = query.where(User.department == department)
     if role: query = query.where(User.role == role)
     if is_active is not None: query = query.where(User.is_active == is_active)
@@ -602,6 +620,18 @@ async def admin_test_agent_message(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent test failed: {str(exc)}")
+
+    await _track_kpi_message(db, str(admin.id))
+    if result.get("tokens_used"):
+        await record_token_usage(
+            db,
+            str(admin.id),
+            result.get("model", ""),
+            result["tokens_used"],
+            float(result.get("total_cost", 0.0) or 0.0),
+            provider=settings.llm_provider,
+            profile_id=result.get("profile_id"),
+        )
 
     return {
         "conversation_id": result.get("conversation_id"),

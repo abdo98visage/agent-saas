@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ export default function AgentTestPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [isPending, startTransition] = useTransition();
+  const selectedProfileRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -32,11 +33,10 @@ export default function AgentTestPage() {
         if (cancelled) {
           return;
         }
-        const activeProfiles = (response.data.profiles || []).filter(
-          (profile: Profile) => profile.is_active
-        );
+        const activeProfiles = (response.data.profiles || []).filter((profile: Profile) => profile.is_active);
         setProfiles(activeProfiles);
-        if (!selectedProfile && activeProfiles.length > 0) {
+        if (!selectedProfileRef.current && activeProfiles.length > 0) {
+          selectedProfileRef.current = activeProfiles[0].name;
           setSelectedProfile(activeProfiles[0].name);
         }
       } catch (error: unknown) {
@@ -51,7 +51,7 @@ export default function AgentTestPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProfile]);
+  }, []);
 
   const selectedProfileObject = profiles.find((profile) => profile.name === selectedProfile) || null;
 
@@ -62,7 +62,10 @@ export default function AgentTestPage() {
 
   const sendMessage = () => {
     const trimmed = message.trim();
-    if (!trimmed || !selectedProfile) {
+    const currentSelectedProfile = selectedProfileRef.current || selectedProfile;
+    const currentSelectedProfileObject = profiles.find((profile) => profile.name === currentSelectedProfile) || null;
+
+    if (!trimmed || !currentSelectedProfile) {
       return;
     }
 
@@ -78,7 +81,7 @@ export default function AgentTestPage() {
       try {
         const response = await adminApi.testAgentMessage({
           message: trimmed,
-          profile_name: selectedProfile,
+          profile_name: currentSelectedProfile,
           conversation_id: conversationId,
           agent_template_name: "default",
           project_context: projectContext.trim() || undefined,
@@ -117,8 +120,8 @@ export default function AgentTestPage() {
               provider: null,
               runtime_type: null,
               request_url: null,
-              profile_name: selectedProfile,
-              profile_id: selectedProfileObject?.id || null,
+              profile_name: currentSelectedProfile,
+              profile_id: currentSelectedProfileObject?.id || null,
               total_cost: null,
               pricing_snapshot: null,
             },
@@ -158,6 +161,7 @@ export default function AgentTestPage() {
                 className="w-full p-2 border rounded-xl text-sm kos-input"
                 value={selectedProfile}
                 onChange={(event) => {
+                  selectedProfileRef.current = event.target.value;
                   setSelectedProfile(event.target.value);
                   setConversationId(null);
                   setEntries([]);

@@ -1,29 +1,27 @@
 """
-Seed script: Create default agent templates, profiles, and admin user.
+Seed script: create default agent templates and the admin user.
 Run: python seed_templates.py
 """
-import sys
+import asyncio
 import os
+import sys
+
+if sys.platform == "win32":
+    from asyncio import WindowsSelectorEventLoopPolicy
+
+    asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import asyncio
-if sys.platform == "win32":
-    from asyncio import WindowsSelectorEventLoopPolicy
-    asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
-
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.core.security import get_password_hash, create_access_token
 from app.core.db import Base
-from app.models.user import User
+from app.core.security import create_access_token, get_password_hash
 from app.models.agent_template import AgentTemplate
-from app.models.profile import Profile
-from app.models.profile_user import ProfileUser
-from app.models.user_api_key import UserApiKey
+from app.models.user import User
 
 
 DEFAULT_TEMPLATES = [
@@ -66,102 +64,9 @@ DEFAULT_TEMPLATES = [
 ]
 
 
-DEFAULT_PROFILES = [
-    {
-        "name": "المحاسب",
-        "slug": "accountant",
-        "soul_md": "أنت روح المحاسب الذكي في FQ-SaaS. تركز على الدقة، النزاهة، والشفافية المالية. مهمتك حماية الأرقام وضمان الامتثال المحاسبي.",
-        "agents_md": """# المحاسب الذكي
-
-أنت محاسب محترف في شركة FQ-SaaS.
-
-## المهام
-- إعداد الفواتير والتقارير المالية
-- حساب الضرائب والرواتب
-- المراجعة والتحليل المالي
-- متابعة المدفوعات والمستحقات
-
-## القواعد
-- استخدم الأرقام بدقة 100%
-- اذكر المراجع المحاسبية
-- لا تقدم نصائح قانونية
-- حافظ على سرية البيانات المالية
-""",
-        "skills": ["finance", "reports", "tax-calculation", "invoicing"],
-        "system_prompt": "You are an expert accountant. Help with financial reports, tax calculations, and accounting tasks with 100% accuracy.",
-    },
-    {
-        "name": "المكتبية",
-        "slug": "office-admin",
-        "soul_md": "أنت روح المساعد المكتبي. تنظم، تخطط، وتضمن سير العمل بسلاسة. تفاصيلك دقيقة وتنسيقك احترافي.",
-        "agents_md": """# المساعد المكتبي الذكي
-
-أنت مساعد مكاتب محترف.
-
-## المهام
-- تنظيم المواعيد والاجتماعات
-- إعداد الوثائق والمراسلات الرسمية
-- إدارة الملفات والسجلات
-- متابعة المهام اليومية
-
-## القواعد
-- كن دقيقاً في التفاصيل
-- استخدم التنسيق الرسمي
-- حافظ على تنظيم الملفات
-""",
-        "skills": ["documents", "scheduling", "communication", "filing"],
-        "system_prompt": "You are an office administrator. Help with scheduling, documents, and office tasks efficiently.",
-    },
-    {
-        "name": "البحث",
-        "slug": "researcher",
-        "soul_md": "أنت روح الباحث. تحب الحقيقة، المصداقية، والعمق في التحليل. كل معلومة تتحقق من مصدرها.",
-        "agents_md": """# الباحث الذكي
-
-أنت باحث محترف.
-
-## المهام
-- جمع البيانات والمعلومات
-- تحليل الأسواق والمنافسين
-- إعداد التقارير البحثية
-- متابعة آخر الأخبار والتطورات
-
-## القواعد
-- اذكر مصادر المعلومات
-- كن موضوعياً ومحايداً
-- استخدم بيانات حديثة وموثوقة
-""",
-        "skills": ["web_search", "data-analysis", "reporting", "market-research"],
-        "system_prompt": "You are a research specialist. Help with market research, data analysis, and reports with reliable sources.",
-    },
-    {
-        "name": "الإداري",
-        "slug": "manager",
-        "soul_md": "أنت روح المدير الاستراتيجي. تركز على النتائج، القيادة، واتخاذ القرارات المدروسة بالبيانات.",
-        "agents_md": """# المدير الذكي
-
-أنت مدير محترف.
-
-## المهام
-- التخطيط الاستراتيجي
-- إدارة الفرق والموظفين
-- اتخاذ القرارات المدروسة
-- متابعة الأداء وتحقيق الأهداف
-
-## القواعد
-- ركز على النتائج
-- استخدم البيانات في قراراتك
-- كُن عادلاً وشفافاً
-""",
-        "skills": ["strategy", "team-management", "decision-making", "performance-review"],
-        "system_prompt": "You are a management professional. Help with strategy, team management, and data-driven decision making.",
-    },
-]
-
-
-async def seed():
+async def seed() -> None:
     print("=" * 50)
-    print("  FQ-SaaS — Seed Script")
+    print("  FQ-SaaS Seed Script")
     print("=" * 50)
     print()
 
@@ -169,11 +74,9 @@ async def seed():
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        # Create tables
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        # 1. Create admin user
         admin_email = "admin@company.com"
         admin_password = "admin123"
 
@@ -192,42 +95,29 @@ async def seed():
             )
             session.add(admin)
             await session.flush()
-            token = create_access_token(str(admin.id), "admin")
-            print(f"  ✓ Admin user created: {admin_email}")
-            print(f"    Password: {admin_password}")
+            _ = create_access_token(str(admin.id), "admin")
+            print(f"  [ok] Admin user created: {admin_email}")
+            print(f"       Password: {admin_password}")
         else:
-            print(f"  ℹ Admin user exists: {admin_email}")
+            print(f"  [skip] Admin user exists: {admin_email}")
 
-        # 2. Create agent templates
         for tmpl in DEFAULT_TEMPLATES:
-            existing = await session.execute(
-                select(AgentTemplate).where(AgentTemplate.name == tmpl["name"])
-            )
-            if not existing.scalar_one_or_none():
-                template = AgentTemplate(**tmpl)
-                session.add(template)
-                print(f"  ✓ Template: {tmpl['name']}")
+            existing = await session.execute(select(AgentTemplate).where(AgentTemplate.name == tmpl["name"]))
+            if existing.scalar_one_or_none():
+                print(f"  [skip] Template exists: {tmpl['name']}")
+                continue
+            session.add(AgentTemplate(**tmpl))
+            print(f"  [ok] Template: {tmpl['name']}")
 
-        # 3. Create profiles
-        for prof in DEFAULT_PROFILES:
-            existing = await session.execute(
-                select(Profile).where(Profile.slug == prof["slug"])
-            )
-            if not existing.scalar_one_or_none():
-                profile = Profile(**prof)
-                session.add(profile)
-                print(f"  ✓ Profile: {prof['name']} ({prof['slug']})")
-            else:
-                print(f"  ℹ Profile exists: {prof['name']}")
-
+        print("  [info] Default profiles seeding is disabled")
         await session.commit()
 
     print()
     print("=" * 50)
-    print("  Seeding complete!")
+    print("  Seeding complete")
     print("=" * 50)
     print()
-    print(f"  Login: http://localhost:3000/login")
+    print("  Login: http://localhost:3000/login")
     print(f"  Email: {admin_email}")
     print(f"  Password: {admin_password}")
     print()

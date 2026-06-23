@@ -28,6 +28,18 @@ def test_update_employee_handler_persists_quota_changes():
     assert "user.max_requests_per_day = req.max_requests_per_day" in source
 
 
+def test_list_employees_excludes_admin_accounts():
+    source = inspect.getsource(admin_api.list_employees)
+    assert 'select(User).where(User.role == "employee")' in source
+
+
+def test_agent_tester_updates_kpis_and_token_usage():
+    source = inspect.getsource(admin_api.admin_test_agent_message)
+
+    assert "_track_kpi_message" in source
+    assert "record_token_usage(" in source
+
+
 def test_list_profiles_returns_full_editable_fields():
     source = inspect.getsource(admin_api.list_profiles)
     assert '"agents_md": p.agents_md' in source
@@ -121,6 +133,20 @@ def test_kpi_page_exposes_monthly_usage_analytics():
         "getUsageReport",
     ]:
         assert token in content
+
+
+def test_sessions_and_audit_use_fixed_riyadh_timezone():
+    with open("frontend/src/app/sessions/page.tsx", encoding="utf-8") as file:
+        sessions_content = file.read()
+    with open("frontend/src/app/audit/page.tsx", encoding="utf-8") as file:
+        audit_content = file.read()
+    with open("frontend/src/lib/time.ts", encoding="utf-8") as file:
+        time_content = file.read()
+
+    assert "formatRiyadhDateTime" in sessions_content
+    assert "formatRiyadhDateKey" in sessions_content
+    assert "formatRiyadhDateTime" in audit_content
+    assert 'Asia/Riyadh' in time_content
 
 
 def test_token_expiry_guards_exist_for_activation_and_telegram_binding():

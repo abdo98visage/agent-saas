@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminApi, type AuditLog } from "@/lib/api/agentService";
+import { formatRiyadhDateTime } from "@/lib/time";
 import { Shield, Search, Filter } from "lucide-react";
 
 export default function AuditPage() {
@@ -124,7 +125,7 @@ export default function AuditPage() {
                     <TableCell className="text-sm">{log.user_id || "—"}</TableCell>
                     <TableCell className="text-sm font-mono text-xs">{log.ip_address || "—"}</TableCell>
                     <TableCell className="text-xs max-w-xs truncate">{JSON.stringify(log.details)}</TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">{formatRiyadhDateTime(log.created_at)}</TableCell>
                   </TableRow>
                 ))}
                 {logs.length === 0 && (

@@ -17,6 +17,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MessageSquare, Eye, Filter } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { formatRiyadhDateKey, formatRiyadhDateTime } from "@/lib/time";
 
 interface Session {
   id: string;
@@ -85,7 +86,7 @@ export default function SessionsPage() {
     setSelectedSession(response.data);
   };
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = formatRiyadhDateKey(new Date());
 
   return (
     <div className="p-8 space-y-6 kos-animate-in">
@@ -138,7 +139,7 @@ export default function SessionsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Today</p>
                 <p className="text-2xl font-bold text-emerald-600">
-                  {sessions.filter((session) => session.created_at.startsWith(today)).length}
+                  {sessions.filter((session) => formatRiyadhDateKey(session.created_at) === today).length}
                 </p>
               </div>
               <MessageSquare className="h-8 w-8 text-emerald-600" />
@@ -168,7 +169,7 @@ export default function SessionsPage() {
                     <TableCell className="font-medium max-w-[200px] truncate">{session.title || "Untitled"}</TableCell>
                     <TableCell className="text-xs font-mono max-w-[150px] truncate">{session.user_id}</TableCell>
                     <TableCell>{session.profile_name || <Badge variant="secondary">default</Badge>}</TableCell>
-                    <TableCell className="text-xs">{new Date(session.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs">{formatRiyadhDateTime(session.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" onClick={() => viewSession(session.id)}>
                         <Eye className="h-4 w-4 text-indigo-600" />
@@ -209,7 +210,7 @@ export default function SessionsPage() {
                     <Badge variant={message.role === "user" ? "default" : "secondary"}>
                       {message.role}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">{new Date(message.created_at).toLocaleString()}</span>
+                    <span className="text-xs text-muted-foreground">{formatRiyadhDateTime(message.created_at)}</span>
                   </div>
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                 </div>
