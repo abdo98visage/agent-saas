@@ -3,6 +3,7 @@ from typing import Any
 import re
 
 from app.models.profile import Profile
+from app.models.skill_definition import SkillDefinition
 from app.services.hermes_orchestrator import HermesOrchestratorClient, HermesOrchestratorUnavailable, hermes_orchestrator
 
 
@@ -11,8 +12,12 @@ def _slugify_skill_name(name: str) -> str:
     return slug or "skill"
 
 
-def build_profile_sync_payload(profile: Profile) -> dict[str, Any]:
+def build_profile_sync_payload(
+    profile: Profile,
+    skill_definitions: list[SkillDefinition] | None = None,
+) -> dict[str, Any]:
     declared_skills = [skill.strip() for skill in (profile.skills or []) if skill and skill.strip()]
+    skill_map = {skill.slug: skill for skill in (skill_definitions or [])}
     files: dict[str, str] = {
         "SOUL.md": profile.soul_md or "",
         "workspace/AGENTS.md": profile.agents_md or "",
@@ -32,15 +37,26 @@ def build_profile_sync_payload(profile: Profile) -> dict[str, Any]:
     }
     for skill in declared_skills:
         skill_slug = _slugify_skill_name(skill)
-        files[f"skills/{skill_slug}/SKILL.md"] = (
-            "---\n"
-            f"name: {skill_slug}\n"
-            f"description: Profile-local skill for {skill}.\n"
-            "---\n\n"
-            f"# {skill}\n\n"
-            f"This profile declares the `{skill}` capability.\n"
-            "Prioritize this domain when the user's request matches it.\n"
-        )
+        definition = skill_map.get(skill_slug)
+        if definition:
+            instructions = definition.instructions_md or f"# {definition.name}\n\nNo additional instructions were configured."
+            files[f"skills/{skill_slug}/SKILL.md"] = (
+                "---\n"
+                f"name: {definition.name}\n"
+                f"description: {definition.description or f'Profile-local skill for {definition.name}.'}\n"
+                "---\n\n"
+                f"{instructions.rstrip()}\n"
+            )
+        else:
+            files[f"skills/{skill_slug}/SKILL.md"] = (
+                "---\n"
+                f"name: {skill}\n"
+                f"description: Profile-local skill for {skill}.\n"
+                "---\n\n"
+                f"# {skill}\n\n"
+                f"This profile declares the `{skill}` capability.\n"
+                "Prioritize this domain when the user's request matches it.\n"
+            )
     return {
         "profile": {
             "id": str(profile.id),
@@ -68,13 +84,17 @@ class HermesProfileSyncService:
     def __init__(self, orchestrator: HermesOrchestratorClient = hermes_orchestrator) -> None:
         self.orchestrator = orchestrator
 
-    async def sync(self, profile: Profile) -> dict[str, Any]:
+    async def sync(
+        self,
+        profile: Profile,
+        skill_definitions: list[SkillDefinition] | None = None,
+    ) -> dict[str, Any]:
         if profile.runtime_type != "hermes":
             profile.hermes_sync_status = "not_applicable"
             profile.hermes_sync_error = None
             return {"status": "not_applicable"}
 
-        payload = build_profile_sync_payload(profile)
+        payload = build_profile_sync_payload(profile, skill_definitions)
         try:
             result = await self.orchestrator.sync_profile(payload)
         except HermesOrchestratorUnavailable as exc:

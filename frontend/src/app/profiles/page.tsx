@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,16 +8,34 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { adminApi, type Profile } from "@/lib/api/agentService";
+import { adminApi, type Profile, type SkillDefinition } from "@/lib/api/agentService";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, Edit, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { getErrorMessage } from "@/lib/api/errors";
 
 const parseCsv = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
+const getSelectedValues = (event: ChangeEvent<HTMLSelectElement>) =>
+  Array.from(event.target.selectedOptions, (option) => option.value);
+const buildSkillOptions = (catalogSkills: SkillDefinition[], selectedSkills: string[]) => {
+  const knownSlugs = new Set(catalogSkills.map((skill) => skill.slug));
+  const legacySkills = selectedSkills
+    .filter((skillSlug) => !knownSlugs.has(skillSlug))
+    .map((skillSlug) => ({
+      id: `legacy-${skillSlug}`,
+      slug: skillSlug,
+      name: `${skillSlug} (legacy)`,
+    }));
+
+  return [
+    ...catalogSkills.map((skill) => ({ id: skill.id, slug: skill.slug, name: skill.name })),
+    ...legacySkills,
+  ];
+};
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -28,7 +46,7 @@ export default function ProfilesPage() {
     slug: "",
     soul_md: "",
     agents_md: "",
-    skills: "",
+    skills: [] as string[],
     system_prompt: "",
     max_tokens_per_day: "",
     max_requests_per_day: "",
@@ -42,7 +60,7 @@ export default function ProfilesPage() {
     name: "",
     soul_md: "",
     agents_md: "",
-    skills: "",
+    skills: [] as string[],
     system_prompt: "",
     is_active: true,
     max_tokens_per_day: "",
@@ -53,10 +71,16 @@ export default function ProfilesPage() {
     allowed_tools: "",
     approval_required_tools: "",
   });
+  const createSkillOptions = buildSkillOptions(skills, formData.skills);
+  const editSkillOptions = buildSkillOptions(skills, editFormData.skills);
 
   const load = async () => {
-    const response = await apiClient.get("/admin/profiles");
-    setProfiles(response.data.profiles || []);
+    const [profilesResponse, skillsResponse] = await Promise.all([
+      apiClient.get("/admin/profiles"),
+      adminApi.getSkills(),
+    ]);
+    setProfiles(profilesResponse.data.profiles || []);
+    setSkills(skillsResponse.data.skills || []);
     setLoading(false);
   };
 
@@ -64,9 +88,13 @@ export default function ProfilesPage() {
     let cancelled = false;
 
     const run = async () => {
-      const response = await apiClient.get("/admin/profiles");
+      const [profilesResponse, skillsResponse] = await Promise.all([
+        apiClient.get("/admin/profiles"),
+        adminApi.getSkills(),
+      ]);
       if (!cancelled) {
-        setProfiles(response.data.profiles || []);
+        setProfiles(profilesResponse.data.profiles || []);
+        setSkills(skillsResponse.data.skills || []);
         setLoading(false);
       }
     };
@@ -83,7 +111,7 @@ export default function ProfilesPage() {
       await apiClient.post("/admin/profiles", {
         ...formData,
         slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, "-"),
-        skills: parseCsv(formData.skills),
+        skills: formData.skills,
         max_tokens_per_day: formData.max_tokens_per_day ? Number.parseInt(formData.max_tokens_per_day, 10) : null,
         max_requests_per_day: formData.max_requests_per_day ? Number.parseInt(formData.max_requests_per_day, 10) : null,
         daily_cost_budget: formData.daily_cost_budget ? Number.parseInt(formData.daily_cost_budget, 10) : null,
@@ -95,7 +123,7 @@ export default function ProfilesPage() {
       toast.success("Profile created");
       setShowDialog(false);
       setFormData({
-        name: "", slug: "", soul_md: "", agents_md: "", skills: "", system_prompt: "",
+        name: "", slug: "", soul_md: "", agents_md: "", skills: [], system_prompt: "",
         max_tokens_per_day: "", max_requests_per_day: "", daily_cost_budget: "",
         allowed_providers: "minimax", allowed_mcp_servers: "", allowed_tools: "", approval_required_tools: "",
       });
@@ -111,7 +139,7 @@ export default function ProfilesPage() {
       name: profile.name,
       soul_md: profile.soul_md || "",
       agents_md: profile.agents_md || "",
-      skills: (profile.skills || []).join(", "),
+      skills: profile.skills || [],
       system_prompt: profile.system_prompt || "",
       is_active: profile.is_active,
       max_tokens_per_day: profile.max_tokens_per_day?.toString() || "",
@@ -133,7 +161,7 @@ export default function ProfilesPage() {
         name: editFormData.name,
         soul_md: editFormData.soul_md,
         agents_md: editFormData.agents_md,
-        skills: parseCsv(editFormData.skills),
+        skills: editFormData.skills,
         system_prompt: editFormData.system_prompt,
         is_active: editFormData.is_active,
         max_tokens_per_day: editFormData.max_tokens_per_day ? Number.parseInt(editFormData.max_tokens_per_day, 10) : null,
@@ -208,7 +236,19 @@ export default function ProfilesPage() {
               </div>
               <div className="space-y-2">
                 <Label>Skills</Label>
-                <Input value={formData.skills} onChange={(event) => setFormData({ ...formData, skills: event.target.value })} className="kos-input" />
+                <select
+                  multiple
+                  value={formData.skills}
+                  onChange={(event) => setFormData({ ...formData, skills: getSelectedValues(event) })}
+                  className="w-full min-h-[160px] rounded-xl border bg-background px-3 py-2 text-sm"
+                >
+                  {createSkillOptions.map((skill) => (
+                    <option key={skill.id} value={skill.slug}>
+                      {skill.name} ({skill.slug})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">Hold Ctrl or Cmd to select multiple skills.</p>
               </div>
               <div className="space-y-2">
                 <Label>AGENTS.md</Label>
@@ -303,9 +343,16 @@ export default function ProfilesPage() {
                     <div>
                       <span className="text-xs text-muted-foreground">Skills:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {(profile.skills || []).map((skill) => (
-                          <Badge key={skill} variant="outline" className="text-xs">
-                            {skill}
+                        {(profile.skill_details || []).map((skill) => (
+                          <Badge key={skill.slug} variant="outline" className="text-xs">
+                            {skill.name}
+                          </Badge>
+                        ))}
+                        {(profile.skills || [])
+                          .filter((skillSlug) => !(profile.skill_details || []).some((skill) => skill.slug === skillSlug))
+                          .map((skillSlug) => (
+                          <Badge key={skillSlug} variant="outline" className="text-xs">
+                            {skillSlug}
                           </Badge>
                         ))}
                       </div>
@@ -365,7 +412,19 @@ export default function ProfilesPage() {
             </div>
             <div className="space-y-2">
               <Label>Skills</Label>
-              <Input value={editFormData.skills} onChange={(event) => setEditFormData({ ...editFormData, skills: event.target.value })} className="kos-input" />
+              <select
+                multiple
+                value={editFormData.skills}
+                onChange={(event) => setEditFormData({ ...editFormData, skills: getSelectedValues(event) })}
+                className="w-full min-h-[160px] rounded-xl border bg-background px-3 py-2 text-sm"
+              >
+                {editSkillOptions.map((skill) => (
+                  <option key={skill.id} value={skill.slug}>
+                    {skill.name} ({skill.slug})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">Hold Ctrl or Cmd to select multiple skills.</p>
             </div>
             <div className="space-y-2">
               <Label>AGENTS.md</Label>

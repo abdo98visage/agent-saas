@@ -6,6 +6,7 @@ from app.api import admin as admin_api
 from app import hermes_orchestrator_app
 from app import local_hermes_runtime_app
 from app.models.profile import Profile
+from app.models.skill_definition import SkillDefinition
 from app.schemas.admin import ApiKeyCreate, ProfileCreate
 from app.services.hermes_profile_sync import build_profile_sync_payload
 from app.services.hermes_orchestrator import HermesOrchestratorClient
@@ -48,6 +49,28 @@ def test_profile_sync_payload_generates_hermes_files():
     assert payload["profile"]["version"] == 3
 
 
+def test_profile_sync_payload_uses_real_skill_definition_content():
+    profile = Profile(
+        name="Marketing",
+        slug="marketing",
+        skills=["copywriting"],
+    )
+    skill = SkillDefinition(
+        name="Copywriting",
+        slug="copywriting",
+        description="Write persuasive launch copy",
+        instructions_md="# Copywriting\nAlways lead with value and a CTA.",
+    )
+
+    payload = build_profile_sync_payload(profile, [skill])
+    skill_md = payload["files"]["skills/copywriting/SKILL.md"]
+
+    assert "name: Copywriting" in skill_md
+    assert "description: Write persuasive launch copy" in skill_md
+    assert "# Copywriting" in skill_md
+    assert "Always lead with value and a CTA." in skill_md
+
+
 async def test_unconfigured_hermes_orchestrator_status_is_safe():
     client = HermesOrchestratorClient(base_url="")
     status = await client.status()
@@ -81,6 +104,29 @@ async def test_orchestrator_sync_profile_writes_expected_files(monkeypatch):
         assert (tmp_path / "marketing" / "SOUL.md").read_text(encoding="utf-8") == "soul"
         assert (tmp_path / "marketing" / "skills" / "platform-profile" / "SKILL.md").exists()
         assert (tmp_path / "marketing" / "profile.json").exists()
+
+
+async def test_orchestrator_sync_profile_removes_stale_skill_artifacts(monkeypatch):
+    with TemporaryDirectory() as temp_dir:
+        tmp_path = Path(temp_dir)
+        workspace = tmp_path / "marketing"
+        stale_skill = workspace / "skills" / "legacy-skill" / "SKILL.md"
+        stale_skill.parent.mkdir(parents=True, exist_ok=True)
+        stale_skill.write_text("old", encoding="utf-8")
+
+        monkeypatch.setattr(hermes_orchestrator_app, "HERMES_WORKSPACE_ROOT", tmp_path)
+        monkeypatch.setattr(hermes_orchestrator_app, "ORCHESTRATOR_REQUIRE_SECRET", False)
+
+        payload = {
+            "profile": {"slug": "marketing", "version": 2},
+            "files": {
+                "skills/new-skill/SKILL.md": "# new skill",
+            },
+        }
+        await hermes_orchestrator_app.sync_profile(payload)
+
+        assert not stale_skill.exists()
+        assert (workspace / "skills" / "new-skill" / "SKILL.md").read_text(encoding="utf-8") == "# new skill"
 
 
 async def test_orchestrator_requires_secret_when_enabled(monkeypatch):

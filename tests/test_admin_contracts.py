@@ -3,7 +3,7 @@
 import inspect
 
 from app.api import admin as admin_api
-from app.schemas.admin import EmployeeUpdate, ProfileUpdate
+from app.schemas.admin import EmployeeUpdate, ProfileUpdate, SkillCreate
 
 
 def test_employee_update_schema_accepts_quota_fields():
@@ -15,6 +15,11 @@ def test_employee_update_schema_accepts_quota_fields():
 def test_profile_update_schema_accepts_agents_md():
     payload = ProfileUpdate(agents_md="# Updated profile")
     assert payload.agents_md == "# Updated profile"
+
+
+def test_skill_create_schema_accepts_markdown_instructions():
+    payload = SkillCreate(name="Copywriting", slug="copywriting", instructions_md="# Skill")
+    assert payload.instructions_md == "# Skill"
 
 
 def test_update_employee_handler_persists_quota_changes():
@@ -41,8 +46,21 @@ def test_profile_page_exposes_hermes_limits_and_tools():
         "allowed_mcp_servers",
         "allowed_tools",
         "approval_required_tools",
+        'adminApi.getSkills()',
+        "selectedOptions",
+        "Hold Ctrl or Cmd to select multiple skills.",
     ]:
         assert token in content
+
+
+def test_skills_page_and_sidebar_exist():
+    with open("frontend/src/app/skills/page.tsx", encoding="utf-8") as file:
+        skills_page = file.read()
+    with open("frontend/src/components/layout/sidebar.tsx", encoding="utf-8") as file:
+        sidebar = file.read()
+
+    assert "Create reusable Hermes skills and attach them to profiles." in skills_page
+    assert 'href: "/skills"' in sidebar
 
 
 def test_api_keys_page_uses_owner_dropdowns():

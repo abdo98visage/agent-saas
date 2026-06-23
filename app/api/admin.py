@@ -20,6 +20,7 @@ from app.models.message import Message
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.models.provider_pricing import ProviderPricing
 from app.models.alert_event import AlertEvent
+from app.models.skill_definition import SkillDefinition
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.services.hermes_orchestrator import hermes_orchestrator
@@ -29,6 +30,7 @@ from app.services.alert_service import alert_service
 from app.schemas.admin import (
     EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
     ProfileCreate, ProfileUpdate,
+    SkillCreate, SkillUpdate,
     AssignmentCreate,
     AgentTemplateCreate, AgentTemplateUpdate,
     ApiKeyCreate, ApiKeyUpdate, ProviderPricingUpsert, AdminAgentTestMessage,
@@ -39,10 +41,31 @@ router = APIRouter()
 agent_service = AgentService()
 
 
-def _profile_payload(p: Profile) -> dict:
+def _skill_payload(skill: SkillDefinition) -> dict:
+    return {
+        "id": str(skill.id),
+        "name": skill.name,
+        "slug": skill.slug,
+        "description": skill.description,
+        "instructions_md": skill.instructions_md,
+        "is_active": skill.is_active,
+        "created_at": str(skill.created_at),
+        "updated_at": str(skill.updated_at),
+    }
+
+
+def _profile_payload(p: Profile, skill_map: Optional[dict[str, dict]] = None) -> dict:
+    resolved_skills = []
+    for skill_slug in p.skills or []:
+        resolved_skills.append(
+            skill_map.get(skill_slug, {"slug": skill_slug, "name": skill_slug, "description": ""})
+            if skill_map else
+            {"slug": skill_slug, "name": skill_slug, "description": ""}
+        )
     return {
         "id": str(p.id), "name": p.name, "slug": p.slug,
         "soul_md": p.soul_md, "skills": p.skills,
+        "skill_details": resolved_skills,
         "is_active": p.is_active,
         "agents_md": p.agents_md,
         "agents_md_preview": p.agents_md[:200] if p.agents_md else "",
@@ -65,6 +88,31 @@ def _profile_payload(p: Profile) -> dict:
         "memory_settings": p.memory_settings,
         "created_at": str(p.created_at),
     }
+
+
+async def _load_skill_definitions(
+    db: AsyncSession,
+    skill_slugs: list[str],
+    *,
+    require_active: bool = False,
+) -> list[SkillDefinition]:
+    if not skill_slugs:
+        return []
+    query = select(SkillDefinition).where(SkillDefinition.slug.in_(skill_slugs))
+    if require_active:
+        query = query.where(SkillDefinition.is_active == True)
+    result = await db.execute(query)
+    skills = result.scalars().all()
+    return sorted(skills, key=lambda skill: skill_slugs.index(skill.slug))
+
+
+async def _ensure_valid_skill_slugs(db: AsyncSession, skill_slugs: list[str]) -> list[SkillDefinition]:
+    definitions = await _load_skill_definitions(db, skill_slugs)
+    found = {skill.slug for skill in definitions}
+    missing = [slug for slug in skill_slugs if slug not in found]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Unknown skills: {', '.join(missing)}")
+    return definitions
 
 
 # ==================== EMPLOYEES ====================
@@ -190,6 +238,112 @@ async def update_quotas(
     return {"message": "Quotas updated"}
 
 
+# ==================== SKILLS ====================
+
+@router.get("/skills")
+async def list_skills(
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    query = select(SkillDefinition).order_by(SkillDefinition.name)
+    if not include_inactive:
+        query = query.where(SkillDefinition.is_active == True)
+    result = await db.execute(query)
+    skills = result.scalars().all()
+    return {"skills": [_skill_payload(skill) for skill in skills], "count": len(skills)}
+
+
+@router.post("/skills", status_code=201)
+async def create_skill(
+    req: SkillCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    existing = await db.execute(
+        select(SkillDefinition).where(
+            (SkillDefinition.slug == req.slug) | (SkillDefinition.name == req.name)
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Skill name or slug already exists")
+
+    skill = SkillDefinition(
+        name=req.name,
+        slug=req.slug,
+        description=req.description,
+        instructions_md=req.instructions_md,
+        is_active=req.is_active,
+    )
+    db.add(skill)
+    await db.flush()
+    db.add(AuditLog(user_id=str(admin.id), action="add_skill", details={"name": skill.name, "slug": skill.slug}))
+    return _skill_payload(skill)
+
+
+@router.put("/skills/{skill_id}")
+async def update_skill(
+    skill_id: UUID,
+    req: SkillUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(SkillDefinition).where(SkillDefinition.id == skill_id))
+    skill = result.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    next_slug = req.slug if req.slug is not None else skill.slug
+    next_name = req.name if req.name is not None else skill.name
+    duplicate = await db.execute(
+        select(SkillDefinition).where(
+            SkillDefinition.id != skill_id,
+            ((SkillDefinition.slug == next_slug) | (SkillDefinition.name == next_name))
+        )
+    )
+    if duplicate.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Skill name or slug already exists")
+
+    if req.name is not None:
+        skill.name = req.name
+    if req.slug is not None:
+        old_slug = skill.slug
+        skill.slug = req.slug
+        profile_result = await db.execute(select(Profile).where(Profile.skills.contains([old_slug])))
+        for profile in profile_result.scalars().all():
+            profile.skills = [req.slug if slug == old_slug else slug for slug in (profile.skills or [])]
+    if req.description is not None:
+        skill.description = req.description
+    if req.instructions_md is not None:
+        skill.instructions_md = req.instructions_md
+    if req.is_active is not None:
+        skill.is_active = req.is_active
+
+    db.add(AuditLog(user_id=str(admin.id), action="update_skill", details={"skill_id": str(skill_id), "slug": skill.slug}))
+    return _skill_payload(skill)
+
+
+@router.delete("/skills/{skill_id}")
+async def delete_skill(
+    skill_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(SkillDefinition).where(SkillDefinition.id == skill_id))
+    skill = result.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    profile_result = await db.execute(select(Profile).where(Profile.skills.contains([skill.slug])))
+    attached_profiles = profile_result.scalars().all()
+    if attached_profiles:
+        raise HTTPException(status_code=400, detail="Skill is assigned to one or more profiles")
+
+    db.add(AuditLog(user_id=str(admin.id), action="delete_skill", details={"skill_id": str(skill_id), "slug": skill.slug}))
+    await db.delete(skill)
+    return {"message": "Skill deleted"}
+
+
 # ==================== PROFILES ====================
 
 @router.get("/profiles")
@@ -200,8 +354,10 @@ async def list_profiles(
     # Contract marker for UI regression tests: "agents_md": p.agents_md and "system_prompt": p.system_prompt
     result = await db.execute(select(Profile).order_by(Profile.name))
     profiles = result.scalars().all()
+    skill_result = await db.execute(select(SkillDefinition))
+    skill_map = {skill.slug: _skill_payload(skill) for skill in skill_result.scalars().all()}
     return {
-        "profiles": [_profile_payload(p) for p in profiles],
+        "profiles": [_profile_payload(p, skill_map) for p in profiles],
     }
 
 
@@ -210,6 +366,7 @@ async def create_profile(
     req: ProfileCreate, db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
+    skill_definitions = await _ensure_valid_skill_slugs(db, req.skills)
     result = await db.execute(select(Profile).where(Profile.slug == req.slug))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Profile slug already exists")
@@ -232,7 +389,7 @@ async def create_profile(
     )
     db.add(profile)
     await db.flush()
-    sync_result = await hermes_profile_sync_service.sync(profile)
+    sync_result = await hermes_profile_sync_service.sync(profile, skill_definitions)
     audit = AuditLog(user_id=str(admin.id), action="add_profile",
                      details={"name": req.name, "slug": req.slug, "sync": sync_result})
     db.add(audit)
@@ -254,10 +411,13 @@ async def update_profile(
     result = await db.execute(select(Profile).where(Profile.id == profile_id))
     profile = result.scalar_one_or_none()
     if not profile: raise HTTPException(status_code=404, detail="Profile not found")
+    skill_definitions = None
     if req.name is not None: profile.name = req.name
     if req.soul_md is not None: profile.soul_md = req.soul_md
     if req.agents_md is not None: profile.agents_md = req.agents_md
-    if req.skills is not None: profile.skills = req.skills
+    if req.skills is not None:
+        skill_definitions = await _ensure_valid_skill_slugs(db, req.skills)
+        profile.skills = req.skills
     if req.system_prompt is not None: profile.system_prompt = req.system_prompt
     if req.is_active is not None: profile.is_active = req.is_active
     if req.runtime_type is not None: profile.runtime_type = req.runtime_type
@@ -271,7 +431,9 @@ async def update_profile(
     if req.approval_required_tools is not None: profile.approval_required_tools = req.approval_required_tools
     if req.memory_settings is not None: profile.memory_settings = req.memory_settings
     profile.version = (profile.version or 1) + 1
-    sync_result = await hermes_profile_sync_service.sync(profile)
+    if skill_definitions is None:
+        skill_definitions = await _load_skill_definitions(db, profile.skills or [])
+    sync_result = await hermes_profile_sync_service.sync(profile, skill_definitions)
     audit = AuditLog(user_id=str(admin.id), action="update_profile",
                      details={"profile_id": str(profile_id), "sync": sync_result})
     db.add(audit)
@@ -323,7 +485,8 @@ async def sync_profile(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    sync_result = await hermes_profile_sync_service.sync(profile)
+    skill_definitions = await _load_skill_definitions(db, profile.skills or [])
+    sync_result = await hermes_profile_sync_service.sync(profile, skill_definitions)
     audit = AuditLog(user_id=str(admin.id), action="sync_profile",
                      details={"profile_id": str(profile_id), "sync": sync_result})
     db.add(audit)

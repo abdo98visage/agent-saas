@@ -75,6 +75,24 @@ class ProfileUpdate(BaseModel):
     memory_settings: Optional[dict] = None
 
 
+# --- Skills ---
+
+class SkillCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    slug: str = Field(..., min_length=1, max_length=100, pattern="^[a-z0-9-]+$")
+    description: str = Field("", max_length=300)
+    instructions_md: str = Field("", max_length=100000)
+    is_active: bool = True
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    slug: Optional[str] = Field(None, min_length=1, max_length=100, pattern="^[a-z0-9-]+$")
+    description: Optional[str] = Field(None, max_length=300)
+    instructions_md: Optional[str] = Field(None, max_length=100000)
+    is_active: Optional[bool] = None
+
+
 # --- Assignments ---
 
 class AssignmentCreate(BaseModel):

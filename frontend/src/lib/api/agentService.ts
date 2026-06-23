@@ -127,6 +127,7 @@ export interface Profile {
   slug: string;
   soul_md: string | null;
   skills: string[];
+  skill_details?: SkillDefinition[];
   is_active: boolean;
   agents_md?: string;
   agents_md_preview: string;
@@ -148,6 +149,17 @@ export interface Profile {
   approval_required_tools?: string[];
   memory_settings?: Record<string, unknown>;
   created_at: string;
+}
+
+export interface SkillDefinition {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  instructions_md: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProfileAssignment {
@@ -234,6 +246,19 @@ export const adminApi = {
   // Profiles
   getProfiles: () =>
     apiClient.get("/admin/profiles"),
+
+  // Skills
+  getSkills: (params?: { include_inactive?: boolean }) =>
+    apiClient.get("/admin/skills", { params }),
+
+  createSkill: (data: Partial<SkillDefinition>) =>
+    apiClient.post("/admin/skills", data),
+
+  updateSkill: (skillId: string, data: Partial<SkillDefinition>) =>
+    apiClient.put(`/admin/skills/${skillId}`, data),
+
+  deleteSkill: (skillId: string) =>
+    apiClient.delete(`/admin/skills/${skillId}`),
 
   createProfile: (data: Partial<Profile>) =>
     apiClient.post("/admin/profiles", data),

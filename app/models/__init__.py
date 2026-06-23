@@ -12,9 +12,11 @@ from app.models.agent_run import AgentRun, AgentRunEvent
 from app.models.user_activity import UserActivity
 from app.models.provider_pricing import ProviderPricing
 from app.models.alert_event import AlertEvent
+from app.models.skill_definition import SkillDefinition
 
 __all__ = [
     "User", "Session", "Message", "AgentTemplate",
     "TelegramBinding", "AuditLog", "KPI", "UserActivity",
     "Profile", "ProfileUser", "UserApiKey", "AgentRun", "AgentRunEvent", "ProviderPricing", "AlertEvent",
+    "SkillDefinition",
 ]

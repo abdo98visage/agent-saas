@@ -133,6 +133,21 @@ def _resolve_profile_path(base: Path, relative_path: str) -> Path:
     return target
 
 
+def _reset_managed_profile_artifacts(workspace: Path) -> None:
+    managed_paths = [
+        workspace / "SOUL.md",
+        workspace / "system_prompt.md",
+        workspace / "profile.json",
+        workspace / "workspace" / "AGENTS.md",
+        workspace / "skills",
+    ]
+    for path in managed_paths:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink()
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "healthy"}
@@ -256,6 +271,7 @@ async def sync_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: st
         raise HTTPException(status_code=400, detail="profile.slug is required")
     workspace = HERMES_WORKSPACE_ROOT / slug
     workspace.mkdir(parents=True, exist_ok=True)
+    _reset_managed_profile_artifacts(workspace)
     for filename, content in (payload.get("files") or {}).items():
         target = _resolve_profile_path(workspace, filename)
         target.parent.mkdir(parents=True, exist_ok=True)
