@@ -3,10 +3,18 @@ const Store = require("electron-store");
 const fs = require("fs");
 const path = require("path");
 
-const store = new Store();
 const pendingWrites = new Map();
 
 let mainWindow;
+
+function stripBom(value) {
+  return typeof value === "string" ? value.replace(/^\uFEFF/, "") : value;
+}
+
+const store = new Store({
+  deserialize: (value) => JSON.parse(stripBom(value)),
+  serialize: (value) => JSON.stringify(value, null, 2),
+});
 
 function encryptToken(token) {
   if (!token) {
@@ -55,7 +63,7 @@ function readDesktopConfig() {
   for (const configPath of candidates) {
     try {
       if (fs.existsSync(configPath)) {
-        return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        return JSON.parse(stripBom(fs.readFileSync(configPath, "utf-8")));
       }
     } catch (error) {
       console.warn("Failed to read desktop config:", error.message);
