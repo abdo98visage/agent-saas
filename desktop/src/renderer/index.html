@@ -373,16 +373,23 @@
             flex: 1;
             display: flex;
             flex-direction: column;
+            min-width: 0;
         }
         .chat-header {
-            padding: 18px 22px;
-            border-bottom: 1px solid var(--border);
+            padding: 18px 28px;
+            border-bottom: 1px solid rgba(88, 118, 244, 0.14);
             display: flex;
             align-items: center;
-            gap: 10px;
-            background: rgba(255, 255, 255, 0.76);
-            backdrop-filter: blur(14px);
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+            gap: 12px;
+            background:
+                linear-gradient(135deg, rgba(88, 118, 244, 0.18), rgba(123, 146, 251, 0.08)),
+                rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(16px);
+            box-shadow: 0 10px 24px rgba(88, 118, 244, 0.08);
+        }
+        .chat-header h5 {
+            font-size: 22px;
+            font-weight: 800;
         }
         .chat-body {
             flex: 1;
@@ -394,11 +401,12 @@
         }
         .message {
             max-width: 70%;
-            padding: 14px 18px;
+            padding: 14px 18px 12px;
             border-radius: 18px;
             line-height: 1.5;
             word-wrap: break-word;
             box-shadow: var(--shadow-card);
+            position: relative;
         }
         .message.user {
             align-self: flex-end;
@@ -424,16 +432,47 @@
             color: rgba(102, 112, 133, 0.78);
             margin-top: 6px;
         }
+        .message-copy-btn {
+            position: absolute;
+            top: 10px;
+            inset-inline-end: 10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            border: 1px solid rgba(88, 118, 244, 0.14);
+            background: rgba(255, 255, 255, 0.76);
+            color: var(--text-secondary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.16s ease, color 0.16s ease, background 0.16s ease;
+        }
+        .message:hover .message-copy-btn {
+            opacity: 1;
+        }
+        .message-copy-btn:hover {
+            color: var(--accent);
+            background: rgba(255, 255, 255, 0.96);
+        }
+        .message-copy-btn svg {
+            width: 15px;
+            height: 15px;
+        }
         .chat-input-area {
-            padding: 20px 22px 24px;
+            padding: 24px 32px 30px;
             background: linear-gradient(0deg, rgba(255, 255, 255, 0.85), transparent);
+            display: flex;
+            justify-content: center;
         }
         .composer-shell {
             border: 1px solid rgba(88, 118, 244, 0.08);
             background: rgba(255, 255, 255, 0.94);
             border-radius: 24px;
-            padding: 14px;
+            padding: 16px 18px;
             box-shadow: var(--shadow-soft);
+            width: min(980px, calc(100% - 180px));
+            margin-inline: auto;
         }
         .chat-input {
             background: var(--bg-tertiary);
@@ -441,9 +480,10 @@
             color: var(--text-primary);
             border-radius: 18px;
             resize: none;
-            min-height: 70px;
-            max-height: 220px;
+            min-height: 84px;
+            max-height: 248px;
             padding: 14px 18px;
+            line-height: 1.7;
         }
         .composer-toolbar {
             display: flex;
@@ -457,16 +497,26 @@
             align-items: center;
             gap: 12px;
             flex-shrink: 0;
+            flex-wrap: wrap;
         }
         .agent-select {
-            max-width: 230px;
-            min-width: 200px;
+            max-width: 220px;
+            min-width: 180px;
             height: 42px;
             font-size: 13px;
             padding-inline-start: 14px;
-            padding-inline-end: 34px;
-            background-position: 12px center;
-            order: 1;
+            padding-inline-end: 32px;
+            background-position: 10px center;
+            order: 4;
+        }
+        .composer-select {
+            max-width: 180px;
+            min-width: 150px;
+            height: 42px;
+            font-size: 13px;
+            padding-inline-start: 12px;
+            padding-inline-end: 32px;
+            background-position: 10px center;
         }
         .btn-mic {
             width: 42px;
@@ -519,26 +569,184 @@
         }
         .btn-send {
             border-radius: 12px;
-            width: 42px;
+            min-width: 96px;
             height: 42px;
             display: flex;
             align-items: center;
             justify-content: center;
-            order: 3;
+            gap: 8px;
+            padding: 0 16px;
+            font-size: 13px;
+            font-weight: 700;
+            order: 1;
         }
+        .btn-mic { order: 2; }
         .btn-primary-custom:hover,
         .btn-send:hover {
             color: white;
             box-shadow: 0 14px 26px rgba(88, 118, 244, 0.28);
         }
-        .settings-panel {
+        .context-panel {
             background: rgba(255, 255, 255, 0.92);
             border-left: 1px solid rgba(88, 118, 244, 0.08);
-            width: 390px;
-            padding: 18px;
+            width: 360px;
+            padding: 18px 16px;
             overflow-y: auto;
             flex-shrink: 0;
             box-shadow: -10px 0 30px rgba(15, 23, 42, 0.06);
+        }
+        .context-panel-header {
+            padding: 8px 10px 14px;
+            border-bottom: 1px solid rgba(88, 118, 244, 0.1);
+            margin-bottom: 14px;
+        }
+        .context-panel-title {
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .context-panel-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .context-summary-card,
+        .context-section-card {
+            border: 1px solid rgba(88, 118, 244, 0.08);
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.94);
+            padding: 14px;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 12px;
+        }
+        .context-section-card h6,
+        .context-summary-card h6 {
+            margin: 0 0 10px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .settings-panel {
+            position: fixed;
+            top: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(860px, calc(100vw - 40px));
+            max-height: calc(100vh - 56px);
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(88, 118, 244, 0.14);
+            border-radius: 28px;
+            box-shadow: 0 28px 60px rgba(15, 23, 42, 0.18);
+            padding: 22px;
+            z-index: 4000;
+        }
+        .settings-panel::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.28);
+            backdrop-filter: blur(8px);
+            z-index: -1;
+        }
+        .context-activity {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .activity-item {
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(247, 249, 252, 0.88);
+            border: 1px solid rgba(88, 118, 244, 0.08);
+        }
+        .activity-role {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+        .activity-empty {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 12px;
+            text-align: center;
+            background: rgba(247, 249, 252, 0.72);
+            border-radius: 14px;
+            border: 1px dashed rgba(88, 118, 244, 0.16);
+        }
+        .settings-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.28);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 4000;
+            padding: 24px;
+        }
+        .settings-modal-overlay.open {
+            display: flex;
+        }
+        .settings-modal-window {
+            width: min(860px, 100%);
+            max-height: calc(100vh - 56px);
+            overflow-y: auto;
+            border-radius: 28px;
+            background: rgba(255, 255, 255, 0.97);
+            box-shadow: 0 28px 60px rgba(15, 23, 42, 0.18);
+            border: 1px solid rgba(88, 118, 244, 0.14);
+            padding: 22px;
+        }
+        .settings-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .settings-modal-header h5 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 800;
+        }
+        .settings-category {
+            border: 1px solid rgba(88, 118, 244, 0.1);
+            border-radius: 20px;
+            background: rgba(248, 250, 252, 0.94);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .settings-category-toggle {
+            width: 100%;
+            background: transparent;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 16px;
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+        .settings-category-body {
+            padding: 0 16px 16px;
+        }
+        .settings-category.collapsed .settings-category-body {
+            display: none;
+        }
+        .settings-category-copy {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .settings-category .settings-grid {
+            margin-top: 12px;
+        }
+        #profile-badge,
+        #btn-language-toggle {
+            display: none !important;
         }
         .form-control,
         .form-select {
@@ -593,24 +801,11 @@
             color: var(--text-secondary);
             margin-top: 8px;
         }
-        .settings-panel > h6:first-of-type,
-        .settings-panel > hr:first-of-type {
-            display: none;
-        }
-        .settings-panel h6 {
-            margin: 0 0 10px;
-            font-size: 14px;
-            color: var(--text-primary);
-        }
-        .settings-panel hr {
-            border-color: rgba(15, 23, 42, 0.08);
-            margin: 16px 0;
-        }
-        .settings-panel .input-group {
+        .settings-modal-window .input-group {
             gap: 8px;
         }
-        .settings-panel .input-group > .form-control,
-        .settings-panel .input-group > .btn {
+        .settings-modal-window .input-group > .form-control,
+        .settings-modal-window .input-group > .btn {
             border-radius: 12px !important;
         }
         .btn-outline-secondary {
@@ -624,7 +819,7 @@
             background: var(--accent-soft);
         }
         .project-files {
-            max-height: 240px;
+            max-height: 320px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
@@ -647,6 +842,32 @@
             white-space: pre-wrap;
             max-height: 72px;
             overflow: hidden;
+        }
+        .file-badges {
+            display: inline-flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+        .file-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        .file-badge.new {
+            background: rgba(16, 185, 129, 0.14);
+            color: #0f8a63;
+        }
+        .file-badge.modified {
+            background: rgba(245, 158, 11, 0.14);
+            color: #946200;
+        }
+        .file-badge.selected {
+            background: rgba(88, 118, 244, 0.14);
+            color: var(--accent);
         }
         .typing-indicator span {
             display: inline-block;
@@ -713,6 +934,10 @@
             border-left: none;
             border-right: 1px solid rgba(88, 118, 244, 0.08);
         }
+        html[dir="ltr"] .context-panel {
+            border-left: none;
+            border-right: 1px solid rgba(88, 118, 244, 0.08);
+        }
         html[dir="ltr"] .message.user {
             align-self: flex-end;
         }
@@ -742,8 +967,19 @@
             .sidebar {
                 width: 290px;
             }
-            .settings-panel {
-                width: 340px;
+            .context-panel {
+                width: 320px;
+            }
+            .composer-shell {
+                width: calc(100% - 60px);
+            }
+        }
+        @media (max-width: 980px) {
+            .context-panel {
+                display: none;
+            }
+            .composer-shell {
+                width: calc(100% - 16px);
             }
         }
     </style>
@@ -794,6 +1030,7 @@
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <path d="M4 12L20 4L13 20L11 13L4 12Z" fill="currentColor"></path>
                             </svg>
+                            <span id="btn-send-label">إرسال</span>
                         </button>
                         <button class="btn btn-mic" id="btn-mic" title="تسجيل صوتي">
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -801,6 +1038,16 @@
                                 <path d="M19 11C19 14.53 16.39 17.43 13 17.92V21H11V17.92C7.61 17.43 5 14.53 5 11H7C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11H19Z" fill="currentColor"></path>
                             </svg>
                         </button>
+                        <select class="form-select composer-select" id="composer-command-select">
+                            <option value="queue">queue</option>
+                            <option value="goal">goal</option>
+                            <option value="plan">plan</option>
+                        </select>
+                        <select class="form-select composer-select" id="composer-approval-select">
+                            <option value="ask_for_approval">ask for approval</option>
+                            <option value="approve_for_me">approve for me</option>
+                            <option value="full_access">full access</option>
+                        </select>
                         <select class="form-select agent-select" id="composer-profile-select">
                             <option value="">الملف الافتراضي المخصص</option>
                         </select>
@@ -809,6 +1056,28 @@
             </div>
         </div>
     </div>
+
+    <aside class="context-panel" id="context-panel">
+        <div class="context-panel-header">
+            <div class="context-panel-title" id="context-panel-title">سياق المشروع</div>
+            <div class="context-panel-subtitle" id="context-panel-subtitle">شاهد الملفات والأنشطة المتعلقة بالمحادثة الحالية.</div>
+        </div>
+        <div class="context-summary-card">
+            <h6>ملخص السياق</h6>
+            <button class="btn btn-sm btn-outline-secondary w-100 mb-2" id="btn-open-folder-live" type="button">فتح مشروع جديد</button>
+            <div id="context-project-path" class="text-muted small mb-2"></div>
+            <div id="context-selected-files-status" class="small text-muted mb-2"></div>
+            <div class="status-box" id="context-status-live"></div>
+        </div>
+        <div class="context-section-card">
+            <h6>ملفات المشروع</h6>
+            <div class="project-files" id="context-project-files"></div>
+        </div>
+        <div class="context-section-card">
+            <h6 id="activity-title">نشاط المحادثة</h6>
+            <div class="context-activity" id="activity-feed"></div>
+        </div>
+    </aside>
 
     <div class="settings-panel" id="settings-panel" style="display:none;">
         <div class="settings-header">
@@ -838,6 +1107,11 @@
         </div>
         <div class="mb-3">
             <label class="form-label">بروفايل Hermes</label>
+            <label class="form-label">اللغة</label>
+            <select class="form-select form-select-sm mb-3" id="setting-language">
+                <option value="ar">العربية</option>
+                <option value="en">English</option>
+            </select>
             <select class="form-select form-select-sm" id="setting-profile">
                 <option value="">الملف الافتراضي المخصص</option>
             </select>
@@ -964,6 +1238,8 @@
             btnNewChat: document.getElementById("btn-new-chat"),
             btnLanguageToggle: document.getElementById("btn-language-toggle"),
             btnSettings: document.getElementById("btn-settings"),
+            composerCommandSelect: document.getElementById("composer-command-select"),
+            composerApprovalSelect: document.getElementById("composer-approval-select"),
             composerProfileSelect: document.getElementById("composer-profile-select"),
             composerStatus: document.getElementById("composer-status"),
             conversationsList: document.getElementById("conversations-list"),
@@ -972,19 +1248,23 @@
             queueBadge: document.getElementById("queue-badge"),
             welcomeScreen: document.getElementById("welcome-screen"),
             settingsPanel: document.getElementById("settings-panel"),
+            contextPanel: document.getElementById("context-panel"),
             btnCloseSettings: document.getElementById("btn-close-settings"),
             btnCloseSettingsFooter: document.getElementById("btn-close-settings-footer"),
             settingApiUrl: document.getElementById("setting-api-url"),
             settingToken: document.getElementById("setting-token"),
             settingTemplate: document.getElementById("setting-template"),
+            settingLanguage: document.getElementById("setting-language"),
             settingProfile: document.getElementById("setting-profile"),
             settingProfileStatus: document.getElementById("setting-profile-status"),
             btnOpenFolder: document.getElementById("btn-open-folder"),
+            btnOpenFolderLive: document.getElementById("btn-open-folder-live"),
             btnSaveSettings: document.getElementById("btn-save-settings"),
-            projectPath: document.getElementById("project-path"),
-            projectFiles: document.getElementById("project-files"),
-            contextStatus: document.getElementById("context-status"),
-            selectedFilesStatus: document.getElementById("selected-files-status"),
+            projectPath: document.getElementById("context-project-path"),
+            projectFiles: document.getElementById("context-project-files"),
+            contextStatus: document.getElementById("context-status-live"),
+            selectedFilesStatus: document.getElementById("context-selected-files-status"),
+            activityFeed: document.getElementById("activity-feed"),
             queueStatus: document.getElementById("queue-status"),
             btnClearQueue: document.getElementById("btn-clear-queue"),
             updateStatus: document.getElementById("update-status"),
@@ -1005,11 +1285,17 @@
             state.settings.projectsCollapsed = Boolean(state.settings.projectsCollapsed);
             state.settings.showAllChats = Boolean(state.settings.showAllChats);
             state.settings.locale = state.settings.locale === "en" ? "en" : "ar";
+            state.settings.commandMode = state.settings.commandMode || "queue";
+            state.settings.approvalMode = state.settings.approvalMode || "ask_for_approval";
+            state.settings.settingsCategories = state.settings.settingsCategories && typeof state.settings.settingsCategories === "object"
+                ? state.settings.settingsCategories
+                : {};
         }
 
         const translations = {
             ar: {
                 newChat: "محادثة جديدة",
+                sectionNew: "+ جديد",
                 chats: "المحادثات",
                 projects: "المشاريع",
                 addProject: "مشروع جديد",
@@ -1029,12 +1315,22 @@
                 send: "إرسال",
                 mic: "تسجيل صوتي",
                 contextPrefix: "السياق الحالي:",
+                projectContext: "سياق المشروع",
+                activityFeed: "نشاط المحادثة",
+                noActivity: "لا يوجد نشاط حديث بعد.",
+                filesCount: "ملفات مختارة للسياق",
                 regularChat: "محادثة عادية",
                 noProject: "بدون مشروع",
                 queueSuffix: "قيد الانتظار",
+                sendLabel: "إرسال",
+                userRole: "أنت",
+                assistantRole: "الوكيل",
+                systemRole: "النظام",
+                copy: "نسخ",
             },
             en: {
                 newChat: "New Chat",
+                sectionNew: "+ New",
                 chats: "Chats",
                 projects: "Projects",
                 addProject: "New Project",
@@ -1054,9 +1350,18 @@
                 send: "Send",
                 mic: "Voice input",
                 contextPrefix: "Current context:",
+                projectContext: "Project context",
+                activityFeed: "Conversation activity",
+                noActivity: "No recent activity yet.",
+                filesCount: "files selected for context",
                 regularChat: "Regular chat",
                 noProject: "No project",
                 queueSuffix: "queued",
+                sendLabel: "Send",
+                userRole: "You",
+                assistantRole: "Agent",
+                systemRole: "System",
+                copy: "Copy",
             },
         };
 
@@ -1435,6 +1740,8 @@
                 renderConversations();
             } catch (error) {
                 console.error("Failed to load conversations:", error);
+                state.conversations = [];
+                renderConversations();
             }
         }
 
@@ -1633,10 +1940,10 @@
             document.getElementById("sidebar-new-chat")?.addEventListener("click", () => {
                 newConversation();
             });
-            document.getElementById("toggle-chats-section")?.addEventListener("click", () => {
+            document.getElementById("toggle-chats-section")?.addEventListener("click", (event) => {
                 void toggleChatsCollapsed();
             });
-            document.getElementById("toggle-projects-section")?.addEventListener("click", () => {
+            document.getElementById("toggle-projects-section")?.addEventListener("click", (event) => {
                 void toggleProjectsCollapsed();
             });
             document.getElementById("btn-toggle-all-chats")?.addEventListener("click", () => {
@@ -2681,19 +2988,14 @@
                         </div>
                     `;
                 }).join("")
-                : `<button class="empty-project-btn" id="btn-add-project-empty" type="button">${t("projects")} (${t("addProject")})</button>`;
+                : `<button class="empty-project-btn" id="btn-add-project-empty" type="button">${t("sectionNew")}</button>`;
 
             els.conversationsList.innerHTML = `
                 <div class="section-toggle-row">
                     <button class="section-toggle-btn" id="toggle-chats-section" type="button">
-                        <span>${t("chats")}</span>
+                        <span style="display:inline-flex;align-items:center;gap:8px;"><span>💬</span><span>${t("chats")}</span></span>
+                        <span data-sidebar-action="new-chat" style="margin-inline-start:auto;color:var(--accent);font-weight:800;padding:2px 8px;border-radius:999px;background:rgba(88,118,244,0.08);">${t("sectionNew")}</span>
                         <span class="collapse-arrow">${renderChevron(!state.settings.chatsCollapsed)}</span>
-                    </button>
-                    <button class="section-add-btn" id="sidebar-new-chat" type="button" title="${t("newChat")}">
-                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                        </svg>
-                        <span>${t("newChat")}</span>
                     </button>
                 </div>
                 ${generalSessions.length > 0 && !state.settings.chatsCollapsed ? `
@@ -2709,33 +3011,30 @@
                 <div class="section-divider"></div>
                 <div class="section-toggle-row">
                     <button class="section-toggle-btn" id="toggle-projects-section" type="button">
-                        <span>${t("projects")}</span>
+                        <span style="display:inline-flex;align-items:center;gap:8px;"><span>📁</span><span>${t("projects")}</span></span>
+                        <span data-sidebar-action="new-project" style="margin-inline-start:auto;color:var(--accent);font-weight:800;padding:2px 8px;border-radius:999px;background:rgba(88,118,244,0.08);">${t("sectionNew")}</span>
                         <span class="collapse-arrow">${renderChevron(!state.settings.projectsCollapsed)}</span>
-                    </button>
-                    <button class="section-add-btn" id="btn-add-project" type="button" title="${t("openDirectory")}">
-                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M3 7.5C3 6.12 4.12 5 5.5 5H9L11 7H18.5C19.88 7 21 8.12 21 9.5V16.5C21 17.88 19.88 19 18.5 19H5.5C4.12 19 3 17.88 3 16.5V7.5Z" fill="currentColor"></path>
-                        </svg>
-                        <span>${t("openDirectory")}</span>
                     </button>
                 </div>
                 ${state.settings.projectsCollapsed ? "" : `<div class="sidebar-group">${projectsHtml}</div>`}
             `;
 
-            document.getElementById("sidebar-new-chat")?.addEventListener("click", () => {
-                newConversation();
-            });
             document.getElementById("toggle-chats-section")?.addEventListener("click", () => {
+                if (event.target?.closest?.('[data-sidebar-action="new-chat"]')) {
+                    newConversation();
+                    return;
+                }
                 void toggleChatsCollapsed();
             });
             document.getElementById("toggle-projects-section")?.addEventListener("click", () => {
+                if (event.target?.closest?.('[data-sidebar-action="new-project"]')) {
+                    void promptAndAddProject();
+                    return;
+                }
                 void toggleProjectsCollapsed();
             });
             document.getElementById("btn-toggle-all-chats")?.addEventListener("click", () => {
                 void toggleShowAllChats();
-            });
-            document.getElementById("btn-add-project")?.addEventListener("click", () => {
-                void promptAndAddProject();
             });
             document.getElementById("btn-add-project-empty")?.addEventListener("click", () => {
                 void promptAndAddProject();
@@ -2889,6 +3188,18 @@
                 event.preventDefault();
                 toggleSettingsPanel();
             }
+            if (event.key === "Escape" && getSettingsPanelOpen()) {
+                toggleSettingsPanel(false);
+            }
+        });
+        document.addEventListener("mousedown", (event) => {
+            if (!getSettingsPanelOpen()) {
+                return;
+            }
+            if (els.settingsPanel.contains(event.target) || els.btnSettings.contains(event.target)) {
+                return;
+            }
+            toggleSettingsPanel(false);
         });
         document.addEventListener("mouseup", handleProjectSwipeGesture);
 
@@ -2977,6 +3288,443 @@
             } catch (error) {
                 statusEl.innerHTML = `<span class="text-danger">خطأ: ${escapeHtml(error.message)}</span>`;
             }
+        });
+
+        function getRoleLabel(role) {
+            if (role === "user") {
+                return t("userRole");
+            }
+            if (role === "assistant") {
+                return t("assistantRole");
+            }
+            return t("systemRole");
+        }
+
+        async function copyTextToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (error) {
+                const textarea = document.createElement("textarea");
+                textarea.value = text;
+                textarea.style.position = "fixed";
+                textarea.style.opacity = "0";
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+            }
+        }
+
+        function setMessageElementContent(element, role, content) {
+            const body = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);
+            const copyButton = role === "system" ? "" : `
+                <button class="message-copy-btn" type="button" title="${t("copy")}">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M9 9H19V19H9V9Z" stroke="currentColor" stroke-width="1.8"></path>
+                        <path d="M5 15H4V5H14V6" stroke="currentColor" stroke-width="1.8"></path>
+                    </svg>
+                </button>
+            `;
+            element.innerHTML = `${copyButton}<div class="message-body">${body}</div><div class="timestamp">${new Date().toLocaleTimeString(getLocale())}</div>`;
+            const copyTrigger = element.querySelector(".message-copy-btn");
+            copyTrigger?.addEventListener("click", async (event) => {
+                event.stopPropagation();
+                await copyTextToClipboard(content);
+            });
+        }
+
+        function renderActivityFeed() {
+            if (!els.activityFeed) {
+                return;
+            }
+            const items = state.currentMessages.slice(-6).reverse();
+            if (!items.length) {
+                els.activityFeed.innerHTML = `<div class="activity-empty">${t("noActivity")}</div>`;
+                return;
+            }
+            els.activityFeed.innerHTML = items.map((item) => `
+                <div class="activity-item">
+                    <div class="activity-role">${escapeHtml(getRoleLabel(item.role))}</div>
+                    <div>${escapeHtml(String(item.content || "").slice(0, 180))}</div>
+                </div>
+            `).join("");
+        }
+
+        function renderContextSidebar() {
+            const currentProject = getCurrentProject();
+            document.getElementById("context-panel-title")?.replaceChildren(currentProject ? `${t("projectContext")} - ${currentProject.name}` : t("projectContext"));
+            document.getElementById("context-panel-subtitle")?.replaceChildren(
+                currentProject
+                    ? (getLocale() === "en" ? "Selected project files and recent activity are shown here." : "تظهر هنا ملفات المشروع المختارة وآخر الأنشطة.")
+                    : (getLocale() === "en" ? "Open a project to inspect files, or stay in chat mode and follow activity." : "افتح مشروعاً لعرض ملفاته، أو ابق في وضع المحادثة وتابع النشاط.")
+            );
+            els.projectPath.textContent = currentProject?.path || (getLocale() === "en" ? "No project selected" : "لا يوجد مشروع محدد");
+            els.selectedFilesStatus.textContent = currentProject
+                ? `${state.selectedProjectFiles.size} ${t("filesCount")}`
+                : `${t("regularChat")} - ${t("noProject")}`;
+            renderActivityFeed();
+        }
+
+        function buildSettingsCategory(title, key, nodes) {
+            const section = document.createElement("section");
+            section.className = "settings-category";
+            if (state.settings.settingsCategories?.[key]) {
+                section.classList.add("collapsed");
+            }
+            const toggle = document.createElement("button");
+            toggle.className = "settings-category-toggle";
+            toggle.type = "button";
+            toggle.innerHTML = `<span>${escapeHtml(title)}</span><span class="collapse-arrow">${section.classList.contains("collapsed") ? "›" : "⌄"}</span>`;
+            const body = document.createElement("div");
+            body.className = "settings-category-body";
+            nodes.filter(Boolean).forEach((node) => body.appendChild(node));
+            toggle.addEventListener("click", async () => {
+                section.classList.toggle("collapsed");
+                toggle.querySelector(".collapse-arrow").textContent = section.classList.contains("collapsed") ? "›" : "⌄";
+                state.settings.settingsCategories[key] = section.classList.contains("collapsed");
+                await persistSettings();
+            });
+            section.append(toggle, body);
+            return section;
+        }
+
+        function buildSettingsPanelLayout() {
+            if (!els.settingsPanel || els.settingsPanel.dataset.decorated === "true") {
+                return;
+            }
+            const languageGroup = document.createElement("div");
+            languageGroup.className = "mb-3";
+            if (els.settingLanguage?.previousElementSibling) {
+                languageGroup.appendChild(els.settingLanguage.previousElementSibling);
+            }
+            if (els.settingLanguage) {
+                languageGroup.appendChild(els.settingLanguage);
+            }
+            const generalNodes = [
+                els.settingApiUrl?.closest(".mb-3"),
+                els.settingToken?.closest(".mb-3"),
+                els.settingTemplate?.closest(".mb-3"),
+                languageGroup,
+                els.settingProfile?.closest(".mb-3"),
+            ];
+            const telegramCodeGroup = document.getElementById("tg-bind-code")?.closest(".input-group");
+            const telegramNodes = [
+                telegramCodeGroup?.previousElementSibling,
+                telegramCodeGroup,
+                document.getElementById("btn-tg-bind")?.closest(".input-group"),
+                document.getElementById("tg-bind-status"),
+            ];
+            const workspaceNodes = [
+                els.currentFilePath,
+                els.fileEditor,
+                els.btnPrepareWrite?.parentElement,
+                els.writePreviewStatus,
+            ];
+            const systemNodes = [
+                els.queueStatus?.previousElementSibling,
+                els.queueStatus,
+                els.btnClearQueue,
+                els.updateStatus?.previousElementSibling,
+                els.updateStatus,
+                els.btnCheckUpdates,
+                els.btnCloseSettingsFooter,
+                els.btnSaveSettings,
+            ];
+
+            const modalHeader = document.createElement("div");
+            modalHeader.className = "settings-modal-header";
+            const headerText = document.createElement("div");
+            headerText.innerHTML = `<h5>${getLocale() === "en" ? "Settings" : "الإعدادات"}</h5><div class="settings-inline-note">${getLocale() === "en" ? "Grouped controls with collapsible categories." : "إعدادات مرتبة ضمن أقسام قابلة للطي."}</div>`;
+            modalHeader.append(headerText, els.btnCloseSettings);
+
+            const container = document.createElement("div");
+            container.append(
+                buildSettingsCategory(getLocale() === "en" ? "General" : "عام", "general", generalNodes),
+                buildSettingsCategory(getLocale() === "en" ? "Telegram" : "ربط التلجرام", "telegram", telegramNodes),
+                buildSettingsCategory(getLocale() === "en" ? "Files and changes" : "الملفات والتعديلات", "workspace", workspaceNodes),
+                buildSettingsCategory(getLocale() === "en" ? "System and execution" : "النظام والتنفيذ", "system", systemNodes),
+            );
+
+            els.settingsPanel.innerHTML = "";
+            els.settingsPanel.append(modalHeader, container);
+            els.settingsPanel.dataset.decorated = "true";
+        }
+
+        function getSettingsPanelOpen() {
+            return els.settingsPanel.style.display !== "none";
+        }
+
+        function toggleSettingsPanel(forceState) {
+            const shouldOpen = typeof forceState === "boolean" ? forceState : !getSettingsPanelOpen();
+            els.settingsPanel.style.display = shouldOpen ? "block" : "none";
+        }
+
+        function applyLocale() {
+            const locale = getLocale();
+            document.documentElement.lang = locale;
+            document.documentElement.dir = locale === "en" ? "ltr" : "rtl";
+            if (els.settingLanguage) {
+                els.settingLanguage.value = locale;
+            }
+            els.btnSend.title = t("send");
+            els.btnMic.title = t("mic");
+            document.getElementById("btn-send-label")?.replaceChildren(t("sendLabel"));
+            els.messageInput.placeholder = t("messagePlaceholder");
+            document.getElementById("welcome-screen")?.querySelector("h5")?.replaceChildren(t("welcomeTitle"));
+            document.getElementById("welcome-screen")?.querySelector("p")?.replaceChildren(t("welcomeBody"));
+            document.querySelector(".sidebar-header small")?.replaceChildren(locale === "en" ? "Operating system for digital employees" : "نظام التشغيل للموظفين الرقميين");
+            document.getElementById("btn-open-folder-live")?.replaceChildren(locale === "en" ? "Open New Project" : "فتح مشروع جديد");
+            document.getElementById("activity-title")?.replaceChildren(t("activityFeed"));
+            if (!state.currentConversation) {
+                els.chatTitle.textContent = t("newChat");
+            }
+            els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderContextSidebar();
+        }
+
+        async function loadSettings() {
+            state.settings = await window.electronAPI.getSettings();
+            ensureUiSettings();
+            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
+            els.settingToken.value = state.settings.token || "";
+            els.settingTemplate.value = state.settings.template || "default";
+            els.settingLanguage && (els.settingLanguage.value = state.settings.locale || "ar");
+            els.composerCommandSelect && (els.composerCommandSelect.value = state.settings.commandMode || "queue");
+            els.composerApprovalSelect && (els.composerApprovalSelect.value = state.settings.approvalMode || "ask_for_approval");
+            state.projects = normalizeProjects(state.settings.projects);
+            state.conversationProjectMap = state.settings.conversationProjectMap && typeof state.settings.conversationProjectMap === "object"
+                ? state.settings.conversationProjectMap
+                : {};
+            state.currentProjectId = state.settings.currentProjectId || null;
+            syncCurrentProjectContext();
+            buildSettingsPanelLayout();
+            applyLocale();
+            updateComposerStatus(getCurrentProject() ? `${t("contextPrefix")} ${getCurrentProject().name}` : `${t("contextPrefix")} ${t("regularChat")} - ${t("noProject")}`);
+            renderConversations();
+            renderQueueStatus();
+            await refreshUpdateStatus();
+            await loadAssignedProfiles();
+            await refreshProjectFiles();
+        }
+
+        async function saveSettings() {
+            ensureUiSettings();
+            state.settings.locale = els.settingLanguage?.value === "en" ? "en" : "ar";
+            state.settings.commandMode = els.composerCommandSelect?.value || "queue";
+            state.settings.approvalMode = els.composerApprovalSelect?.value || "ask_for_approval";
+            state.settings = await window.electronAPI.setSettings({
+                ...state.settings,
+                apiUrl: els.settingApiUrl.value.trim(),
+                token: els.settingToken.value.trim(),
+                template: els.settingTemplate.value,
+                profileName: els.composerProfileSelect.value.trim(),
+                locale: state.settings.locale,
+                commandMode: state.settings.commandMode,
+                approvalMode: state.settings.approvalMode,
+                projects: state.projects,
+                conversationProjectMap: state.conversationProjectMap,
+                currentProjectId: state.currentProjectId,
+                projectPath: state.projectPath,
+                selectedProjectFiles: Array.from(state.selectedProjectFiles),
+                settingsCategories: state.settings.settingsCategories,
+            });
+            applyLocale();
+            if (state.ws) {
+                state.ws.close();
+                state.ws = null;
+            }
+            if (state.settings.token) {
+                connectWebSocket();
+            }
+            await loadConversations();
+            renderAssignedProfiles();
+            toggleSettingsPanel(false);
+        }
+
+        function appendMessage(role, content) {
+            const div = document.createElement("div");
+            div.className = `message ${role}`;
+            setMessageElementContent(div, role, content);
+            els.chatBody.appendChild(div);
+            scrollBottom();
+            renderActivityFeed();
+            return div;
+        }
+
+        function renderProjectFiles() {
+            const currentProject = getCurrentProject();
+            els.selectedFilesStatus.textContent = currentProject
+                ? `${state.selectedProjectFiles.size} ${t("filesCount")}`
+                : `${t("regularChat")} - ${t("noProject")}`;
+            if (!state.projectFiles.length) {
+                els.projectFiles.innerHTML = `<div class="activity-empty">${currentProject ? (getLocale() === "en" ? "No files were loaded for this project." : "لم يتم تحميل ملفات لهذا المشروع بعد.") : t("noActivity")}</div>`;
+                renderContextSidebar();
+                return;
+            }
+            els.projectFiles.innerHTML = state.projectFiles.slice().sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt)).map((file) => `
+                <div class="file-item ${state.selectedProjectFiles.has(file.path) ? "selected" : ""}" data-file-path="${file.path}">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="flex-grow-1">
+                            <div class="small fw-semibold">${escapeHtml(file.path)}</div>
+                            <div class="text-muted" style="font-size:11px">${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())}</div>
+                            <div class="file-badges">
+                                <span class="file-badge ${file.status === "new" ? "new" : "modified"}">${file.status === "new" ? (getLocale() === "en" ? "New" : "جديد") : (getLocale() === "en" ? "Modified" : "معدل")}</span>
+                                ${state.selectedProjectFiles.has(file.path) ? `<span class="file-badge selected">${getLocale() === "en" ? "Context" : "ضمن السياق"}</span>` : ""}
+                            </div>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-secondary btn-open-file" data-file-path="${file.path}" type="button">${getLocale() === "en" ? "Open" : "فتح"}</button>
+                            <button class="btn btn-sm ${state.selectedProjectFiles.has(file.path) ? "btn-primary-custom" : "btn-outline-secondary"} btn-select-file" data-file-path="${file.path}" type="button">
+                                ${state.selectedProjectFiles.has(file.path) ? (getLocale() === "en" ? "Selected" : "محدد") : (getLocale() === "en" ? "Select" : "تحديد")}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="file-snippet">${escapeHtml(file.snippet || "")}</div>
+                </div>
+            `).join("");
+            document.querySelectorAll(".btn-open-file").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await openProjectFile(button.dataset.filePath);
+                });
+            });
+            document.querySelectorAll(".btn-select-file").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    const filePath = button.dataset.filePath;
+                    if (state.selectedProjectFiles.has(filePath)) {
+                        state.selectedProjectFiles.delete(filePath);
+                    } else {
+                        state.selectedProjectFiles.add(filePath);
+                    }
+                    persistCurrentProjectSelection();
+                    await persistSettings();
+                    renderProjectFiles();
+                });
+            });
+            renderContextSidebar();
+        }
+
+        async function refreshProjectFiles() {
+            if (!state.projectPath) {
+                state.projectFiles = [];
+                renderProjectFiles();
+                return;
+            }
+            const result = await window.electronAPI.scanFolder(state.projectPath);
+            if (result.error) {
+                els.projectFiles.innerHTML = `<div class="text-danger">${escapeHtml(result.error)}</div>`;
+                renderContextSidebar();
+                return;
+            }
+            state.projectFiles = result.files || [];
+            renderProjectFiles();
+        }
+
+        function buildWorkspaceDescriptor() {
+            return {
+                root_name: state.projectPath ? state.projectPath.split(/[\\/]/).pop() : "",
+                selected_files: Array.from(state.selectedProjectFiles),
+                command_mode: els.composerCommandSelect?.value || state.settings.commandMode || "queue",
+                approval_mode: els.composerApprovalSelect?.value || state.settings.approvalMode || "ask_for_approval",
+            };
+        }
+
+        async function sendWebSocketMessage(text, profileNameOverride = "") {
+            const projectContext = await buildProjectContextForMessage(text);
+            const selectedProfileName = profileNameOverride || state.settings.profileName || undefined;
+            const payload = {
+                type: "user_message",
+                content: text,
+                project_context: projectContext || undefined,
+                profile_name: selectedProfileName,
+                command_mode: els.composerCommandSelect?.value || state.settings.commandMode || "queue",
+                approval_mode: els.composerApprovalSelect?.value || state.settings.approvalMode || "ask_for_approval",
+                conversation_id: state.conversationResetPending ? null : (state.currentConversation || null),
+                workspace: buildWorkspaceDescriptor(),
+            };
+            state.ws.send(JSON.stringify(payload));
+        }
+
+        function handleWsMessage(data) {
+            switch (data.type) {
+                case "start":
+                    startAssistantStream();
+                    if (data.conversation_id && !state.currentConversation) {
+                        state.currentConversation = data.conversation_id;
+                        state.conversationResetPending = false;
+                        markConversationProject(data.conversation_id, state.pendingConversationProjectId);
+                        updateProjectSelectionFromConversation(data.conversation_id);
+                        state.pendingConversationProjectId = null;
+                        void persistSettings();
+                        void loadConversations();
+                    }
+                    break;
+                case "chunk":
+                case "assistant_chunk": {
+                    startAssistantStream();
+                    const lastMessage = state.currentMessages[state.currentMessages.length - 1];
+                    lastMessage.content += data.content;
+                    setMessageElementContent(state.streamingAssistantElement, "assistant", lastMessage.content);
+                    scrollBottom();
+                    renderActivityFeed();
+                    break;
+                }
+                case "tool_request":
+                    appendSystemMessage(`Hermes requested local tool: ${data.tool}`);
+                    void executeToolRequest(data);
+                    break;
+                case "approval_required":
+                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    break;
+                case "apply_request":
+                    void executeApplyRequest(data);
+                    break;
+                case "done":
+                    resetStreamingState();
+                    if (data.conversation_id) {
+                        if (!(state.conversationResetPending && state.pendingConversationProjectId === null)) {
+                            state.currentConversation = data.conversation_id;
+                            if (state.pendingConversationProjectId) {
+                                markConversationProject(data.conversation_id, state.pendingConversationProjectId);
+                                updateProjectSelectionFromConversation(data.conversation_id);
+                            }
+                        }
+                    }
+                    state.pendingConversationProjectId = null;
+                    void persistSettings();
+                    void loadConversations();
+                    renderActivityFeed();
+                    break;
+                case "error":
+                    resetStreamingState();
+                    state.pendingConversationProjectId = null;
+                    appendSystemMessage(`Ø®Ø·Ø£: ${data.detail}`);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        els.messageInput.addEventListener("input", () => {
+            els.messageInput.style.height = "auto";
+            els.messageInput.style.height = `${Math.min(els.messageInput.scrollHeight, 248)}px`;
+        });
+        els.btnOpenFolderLive?.addEventListener("click", async () => {
+            await promptAndAddProject();
+        });
+        els.composerCommandSelect?.addEventListener("change", async () => {
+            state.settings.commandMode = els.composerCommandSelect.value;
+            await persistSettings();
+        });
+        els.composerApprovalSelect?.addEventListener("change", async () => {
+            state.settings.approvalMode = els.composerApprovalSelect.value;
+            await persistSettings();
+        });
+        els.settingLanguage?.addEventListener("change", async () => {
+            state.settings.locale = els.settingLanguage.value === "en" ? "en" : "ar";
+            applyLocale();
+            renderConversations();
+            renderProjectFiles();
+            await persistSettings();
         });
 
         (async () => {

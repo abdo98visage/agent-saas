@@ -255,10 +255,16 @@ function scanWorkspace(rootPath) {
 
       const stat = fs.statSync(fullPath);
       const content = fs.readFileSync(fullPath, "utf-8");
+      const createdAt = stat.birthtime instanceof Date ? stat.birthtime : stat.mtime;
+      const status = Math.abs(stat.mtimeMs - stat.birthtimeMs) < 60_000
+        ? "new"
+        : "modified";
       files.push({
         path: relativePath,
         size: stat.size,
+        createdAt: createdAt.toISOString(),
         modifiedAt: stat.mtime.toISOString(),
+        status,
         snippet: sanitizeSnippet(content),
       });
     }
