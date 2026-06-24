@@ -380,13 +380,30 @@
             border-bottom: 1px solid rgba(88, 118, 244, 0.14);
             display: flex;
             align-items: center;
-            gap: 12px;
-            flex-wrap: nowrap;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: wrap;
             background:
                 linear-gradient(135deg, rgba(88, 118, 244, 0.18), rgba(123, 146, 251, 0.08)),
                 rgba(255, 255, 255, 0.72);
             backdrop-filter: blur(16px);
             box-shadow: 0 10px 24px rgba(88, 118, 244, 0.08);
+        }
+        .chat-header-main,
+        .chat-header-side {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+        .chat-header-main {
+            flex: 1 1 320px;
+        }
+        .chat-header-title-block {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
         .chat-header h5 {
             font-size: 22px;
@@ -395,10 +412,50 @@
             line-height: 1.1;
             display: flex;
             align-items: center;
+            min-width: 0;
+        }
+        .chat-header-title-text {
+            display: block;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-header-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         .chat-header .badge,
         .chat-header .header-action-btn {
             align-self: center;
+        }
+        .employee-chip {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 10px 14px;
+            border-radius: 16px;
+            border: 1px solid rgba(88, 118, 244, 0.14);
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow-card);
+            min-width: 0;
+            max-width: min(360px, 48vw);
+        }
+        .employee-name {
+            font-size: 14px;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .employee-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .chat-body {
             flex: 1;
@@ -760,7 +817,6 @@
         .settings-category .settings-grid {
             margin-top: 12px;
         }
-        #profile-badge,
         #btn-language-toggle {
             display: none !important;
         }
@@ -1063,6 +1119,9 @@
         html[dir="ltr"] .chat-header {
             flex-direction: row;
         }
+        html[dir="ltr"] .chat-header-side {
+            justify-content: flex-end;
+        }
         html[dir="ltr"] .sidebar {
             border-left: none;
             border-right: 1px solid rgba(88, 118, 244, 0.08);
@@ -1140,15 +1199,27 @@
 
     <div class="main-content">
         <div class="chat-header">
+            <div class="chat-header-main">
+                <div class="chat-header-title-block">
             <h5 id="chat-title" class="mb-0">محادثة جديدة</h5>
-            <span class="badge bg-secondary ms-auto" id="profile-badge">default</span>
-            <span class="badge queued-badge" id="queue-badge">0 queued</span>
+            <div class="chat-header-meta">
+                <span class="badge queued-badge" id="queue-badge">0 queued</span>
+            </div>
+                </div>
+            </div>
+            <div class="chat-header-side">
+                <div class="employee-chip" id="employee-chip" title="Employee identity">
+                    <span class="employee-name" id="employee-name">Unknown employee</span>
+                    <span class="employee-meta" id="employee-meta">Desktop employee account</span>
+                </div>
+                <span class="badge bg-secondary" id="profile-badge">default</span>
             <button class="header-action-btn lang-toggle" id="btn-language-toggle" title="تبديل اللغة">AR</button>
             <button class="header-action-btn" id="btn-settings" title="الإعدادات">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M4 7H14M18 7H20M10 17H20M4 17H6M8 7C8 8.1 7.1 9 6 9C4.9 9 4 8.1 4 7C4 5.9 4.9 5 6 5C7.1 5 8 5.9 8 7ZM20 17C20 18.1 19.1 19 18 19C16.9 19 16 18.1 16 17C16 15.9 16.9 15 18 15C19.1 15 20 15.9 20 17Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
                 </svg>
             </button>
+            </div>
         </div>
         <div class="chat-body" id="chat-body">
             <div class="text-center text-muted mt-5" id="welcome-screen">
@@ -1341,6 +1412,7 @@
             conversations: [],
             currentConversation: null,
             currentMessages: [],
+            currentUser: null,
             assignedProfiles: [],
             projects: [],
             conversationProjectMap: {},
@@ -1380,6 +1452,8 @@
             chatTitle: document.getElementById("chat-title"),
             profileBadge: document.getElementById("profile-badge"),
             queueBadge: document.getElementById("queue-badge"),
+            employeeName: document.getElementById("employee-name"),
+            employeeMeta: document.getElementById("employee-meta"),
             welcomeScreen: document.getElementById("welcome-screen"),
             settingsPanel: document.getElementById("settings-panel"),
             contextPanel: document.getElementById("context-panel"),
@@ -1532,6 +1606,7 @@
                 els.chatTitle.textContent = t("newChat");
             }
             els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderHeaderIdentity();
         }
 
         function escapeJsString(text) {
@@ -1582,6 +1657,32 @@
             els.composerStatus.textContent = message;
         }
 
+        function renderHeaderIdentity() {
+            const locale = getLocale();
+            const selectedProfile = state.settings.profileName || state.settings.template || "default";
+            const fallbackName = locale === "en" ? "Unknown employee" : "موظف غير معروف";
+            const fallbackMeta = locale === "en" ? "Open the desktop with an employee account" : "افتح الدسكتوب بحساب موظف";
+            const employeeName = String(state.currentUser?.full_name || "").trim()
+                || String(state.currentUser?.email || "").trim().split("@")[0]
+                || fallbackName;
+            const metaParts = [];
+
+            if (state.currentUser?.email) {
+                metaParts.push(state.currentUser.email);
+            }
+            metaParts.push(`Hermes: ${selectedProfile}`);
+
+            if (els.employeeName) {
+                els.employeeName.textContent = employeeName;
+            }
+            if (els.employeeMeta) {
+                els.employeeMeta.textContent = metaParts.join(" • ") || fallbackMeta;
+            }
+            if (els.profileBadge) {
+                els.profileBadge.textContent = selectedProfile;
+            }
+        }
+
         function markConversationProject(conversationId, projectId) {
             if (!conversationId) {
                 return;
@@ -1620,14 +1721,33 @@
 
             if (!state.settings.token) {
                 els.settingProfileStatus.textContent = "Login or activate the app to load assigned profiles.";
+                renderHeaderIdentity();
                 return;
             }
             if (state.assignedProfiles.length === 0) {
                 els.settingProfileStatus.textContent = "No assigned profiles were returned by the platform.";
+                renderHeaderIdentity();
                 return;
             }
             els.settingProfileStatus.textContent = `${state.assignedProfiles.length} assigned profile(s) available.`;
-            els.profileBadge.textContent = selectedProfileName || state.settings.template || "default";
+            renderHeaderIdentity();
+        }
+
+        async function loadCurrentUser() {
+            if (!state.settings.token) {
+                state.currentUser = null;
+                renderHeaderIdentity();
+                return;
+            }
+
+            try {
+                state.currentUser = await apiRequest("/auth/me");
+            } catch (error) {
+                console.error("Failed to load current user:", error);
+                state.currentUser = null;
+            }
+
+            renderHeaderIdentity();
         }
 
         async function loadAssignedProfiles() {
@@ -1753,6 +1873,7 @@
 
         async function handleAuthFailure(message = "") {
             state.authRequired = true;
+            state.currentUser = null;
             resetStreamingState();
             if (state.heartbeatInterval) {
                 clearInterval(state.heartbeatInterval);
@@ -1773,6 +1894,7 @@
                 ...state.settings,
                 token: "",
             });
+            renderHeaderIdentity();
         }
 
         function renderQueueStatus() {
@@ -1859,6 +1981,7 @@
             updateComposerStatus(getCurrentProject() ? `${t("contextPrefix")} ${getCurrentProject().name}` : `${t("contextPrefix")} ${t("regularChat")} - ${t("noProject")}`);
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadCurrentUser();
             await loadAssignedProfiles();
 
             await refreshProjectFiles();
@@ -1888,6 +2011,7 @@
             if (state.settings.token) {
                 connectWebSocket();
             }
+            await loadCurrentUser();
             await loadConversations();
             renderAssignedProfiles();
         }
@@ -3714,6 +3838,7 @@
                 els.chatTitle.textContent = t("newChat");
             }
             els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderHeaderIdentity();
             renderContextSidebar();
         }
 
@@ -3738,6 +3863,7 @@
             renderConversations();
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadCurrentUser();
             await loadAssignedProfiles();
             await refreshProjectFiles();
         }
@@ -3771,6 +3897,7 @@
             if (state.settings.token) {
                 connectWebSocket();
             }
+            await loadCurrentUser();
             await loadConversations();
             renderAssignedProfiles();
             toggleSettingsPanel(false);
@@ -4283,6 +4410,7 @@
                 els.chatTitle.textContent = t("newChat");
             }
             els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderHeaderIdentity();
             renderContextSidebar();
         }
 
@@ -4309,6 +4437,7 @@
             renderConversations();
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadCurrentUser();
             await loadAssignedProfiles();
             await refreshProjectFiles();
         }
@@ -4347,6 +4476,7 @@
             if (state.settings.token) {
                 connectWebSocket();
             }
+            await loadCurrentUser();
             await loadConversations();
             renderAssignedProfiles();
             toggleSettingsPanel(false);
