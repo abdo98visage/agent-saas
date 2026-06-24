@@ -91,29 +91,29 @@ export default function SessionsPage() {
   return (
     <div className="p-8 space-y-6 kos-animate-in">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Sessions</h1>
-        <p className="text-muted-foreground mt-1">Inspect conversation history by user, profile, and date.</p>
+        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">الجلسات</h1>
+        <p className="text-muted-foreground mt-1">استعرض سجل المحادثات حسب المستخدم والبروفايل والتاريخ.</p>
       </div>
 
       <Card className="kos-card">
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #3B82F6, #2563EB)" }} />
         <CardContent className="pt-6 grid gap-4 md:grid-cols-4">
           <div className="space-y-2">
-            <Label>User</Label>
+            <Label>المستخدم</Label>
             <Input value={filterUserId} onChange={(event) => setFilterUserId(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2">
-            <Label>Profile</Label>
+            <Label>البروفايل</Label>
             <Input value={filterProfile} onChange={(event) => setFilterProfile(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2">
-            <Label>From Date</Label>
+            <Label>من تاريخ</Label>
             <Input type="date" value={filterDateFrom} onChange={(event) => setFilterDateFrom(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2 flex items-end">
             <Button className="w-full kos-gradient-btn text-white" onClick={load}>
               <Filter className="mr-2 h-4 w-4" />
-              Apply Filters
+              تطبيق الفلاتر
             </Button>
           </div>
         </CardContent>
@@ -125,7 +125,7 @@ export default function SessionsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Sessions</p>
+                <p className="text-sm text-muted-foreground">إجمالي الجلسات</p>
                 <p className="text-2xl font-bold">{sessions.length}</p>
               </div>
               <MessageSquare className="h-8 w-8 text-indigo-600" />
@@ -137,7 +137,7 @@ export default function SessionsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Today</p>
+                <p className="text-sm text-muted-foreground">اليوم</p>
                 <p className="text-2xl font-bold text-emerald-600">
                   {sessions.filter((session) => formatRiyadhDateKey(session.created_at) === today).length}
                 </p>
@@ -156,11 +156,11 @@ export default function SessionsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Profile</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>العنوان</TableHead>
+                  <TableHead>المستخدم</TableHead>
+                  <TableHead>البروفايل</TableHead>
+                  <TableHead>تاريخ الإنشاء</TableHead>
+                  <TableHead className="text-right">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

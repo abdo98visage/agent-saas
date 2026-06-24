@@ -207,14 +207,14 @@ export default function ProfilesPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Hermes Profiles</h1>
-          <p className="text-muted-foreground mt-1">Manage AGENTS.md, soul, skills, and system prompts per role.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">بروفايلات Hermes</h1>
+          <p className="text-muted-foreground mt-1">إدارة AGENTS.md وملف soul والمهارات وتعليمات النظام لكل دور.</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              Add Profile
+              إضافة بروفايل
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">

@@ -114,14 +114,14 @@ export default function SkillsPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Skills</h1>
-          <p className="text-muted-foreground mt-1">Create reusable Hermes skills and attach them to profiles.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">المهارات</h1>
+          <p className="text-muted-foreground mt-1">أنشئ مهارات Hermes قابلة لإعادة الاستخدام واربطها بالبروفايلات.</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              Add Skill
+              إضافة مهارة
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
@@ -164,7 +164,7 @@ export default function SkillsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Skills</p>
+                <p className="text-sm text-muted-foreground">إجمالي المهارات</p>
                 <p className="text-2xl font-bold">{skills.length}</p>
               </div>
               <Wrench className="h-8 w-8 text-indigo-600" />
@@ -173,13 +173,13 @@ export default function SkillsPage() {
         </Card>
         <Card className="kos-card">
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Active</p>
+            <p className="text-sm text-muted-foreground">نشط</p>
             <p className="text-2xl font-bold text-emerald-600">{skills.filter((skill) => skill.is_active).length}</p>
           </CardContent>
         </Card>
         <Card className="kos-card">
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Inactive</p>
+            <p className="text-sm text-muted-foreground">غير نشط</p>
             <p className="text-2xl font-bold text-amber-600">{skills.filter((skill) => !skill.is_active).length}</p>
           </CardContent>
         </Card>

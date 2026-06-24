@@ -4,9 +4,13 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { adminApi, type AgentTemplate, type AgentTool } from "@/lib/api/agentService";
+import { getErrorMessage } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n";
 import { BookOpen } from "lucide-react";
+import { toast } from "sonner";
 
 export default function TemplatesPage() {
+  const { t } = useI18n();
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -14,10 +18,17 @@ export default function TemplatesPage() {
     let cancelled = false;
 
     const run = async () => {
-      const response = await adminApi.getTemplates();
-      if (!cancelled) {
-        setTemplates(response.data.templates || []);
-        setLoading(false);
+      try {
+        const response = await adminApi.getTemplates();
+        if (!cancelled) {
+          setTemplates(response.data.templates || []);
+          setLoading(false);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          toast.error(getErrorMessage(error, "Failed to load templates"));
+          setLoading(false);
+        }
       }
     };
 
@@ -31,8 +42,8 @@ export default function TemplatesPage() {
   return (
     <div className="p-8 space-y-6 kos-animate-in">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Agent Templates</h1>
-        <p className="text-muted-foreground mt-1">Reusable model and tool presets for future agents.</p>
+        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Agent Templates")}</h1>
+        <p className="text-muted-foreground mt-1">{t("Reusable model and tool presets for future agents.")}</p>
       </div>
 
       <Card className="kos-card">

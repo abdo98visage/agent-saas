@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import apiClient from "@/lib/api/client";
+import { authApi } from "@/lib/api/agentService";
 import { useI18n } from "@/lib/i18n";
 import {
   LayoutDashboard,
@@ -45,7 +45,7 @@ function SidebarContent() {
 
   const handleLogout = async () => {
     try {
-      await apiClient.post("/auth/logout");
+      await authApi.logout();
     } finally {
       window.location.href = "/login";
     }

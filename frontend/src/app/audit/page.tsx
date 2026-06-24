@@ -12,10 +12,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminApi, type AuditLog } from "@/lib/api/agentService";
+import { getErrorMessage } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n";
 import { formatRiyadhDateTime } from "@/lib/time";
 import { Shield, Search, Filter } from "lucide-react";
+import { toast } from "sonner";
 
 export default function AuditPage() {
+  const { t } = useI18n();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,10 +27,17 @@ export default function AuditPage() {
     let cancelled = false;
 
     const run = async () => {
-      const response = await adminApi.getAuditLog({ limit: "200" });
-      if (!cancelled) {
-        setLogs(response.data.audit_log || []);
-        setLoading(false);
+      try {
+        const response = await adminApi.getAuditLog({ limit: "200" });
+        if (!cancelled) {
+          setLogs(response.data.audit_log || []);
+          setLoading(false);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          toast.error(getErrorMessage(error, "Failed to load audit log"));
+          setLoading(false);
+        }
       }
     };
 
@@ -48,8 +59,8 @@ export default function AuditPage() {
   return (
     <div className="p-8 space-y-6 kos-animate-in">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Audit Log</h1>
-        <p className="text-muted-foreground mt-1">Track privileged actions and changes across the platform.</p>
+        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Audit Log")}</h1>
+        <p className="text-muted-foreground mt-1">{t("Track privileged actions and changes across the platform.")}</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -58,7 +69,7 @@ export default function AuditPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total</p>
+                <p className="text-sm text-muted-foreground">{t("Total")}</p>
                 <p className="text-2xl font-bold">{logs.length}</p>
               </div>
               <Shield className="h-8 w-8 text-indigo-600" />
@@ -70,7 +81,7 @@ export default function AuditPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Adds</p>
+                <p className="text-sm text-muted-foreground">{t("Adds")}</p>
                 <p className="text-2xl font-bold text-emerald-600">{logs.filter((log) => log.action.includes("add")).length}</p>
               </div>
               <Filter className="h-8 w-8 text-emerald-600" />
@@ -82,7 +93,7 @@ export default function AuditPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Updates</p>
+                <p className="text-sm text-muted-foreground">{t("Updates")}</p>
                 <p className="text-2xl font-bold text-blue-600">{logs.filter((log) => log.action.includes("update")).length}</p>
               </div>
               <Search className="h-8 w-8 text-blue-600" />
@@ -94,7 +105,7 @@ export default function AuditPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Disables</p>
+                <p className="text-sm text-muted-foreground">{t("Disables")}</p>
                 <p className="text-2xl font-bold text-red-600">{logs.filter((log) => log.action.includes("disable")).length}</p>
               </div>
               <Shield className="h-8 w-8 text-red-600" />
@@ -111,11 +122,11 @@ export default function AuditPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Action</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>IP</TableHead>
-                  <TableHead>Details</TableHead>
-                  <TableHead className="text-right">Created</TableHead>
+                  <TableHead>{t("Action")}</TableHead>
+                  <TableHead>{t("User")}</TableHead>
+                  <TableHead>{t("IP")}</TableHead>
+                  <TableHead>{t("Details")}</TableHead>
+                  <TableHead className="text-right">{t("Created")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -16,6 +16,7 @@ import {
   type UsageProfileRow,
   type UsageSummary,
 } from "@/lib/api/agentService";
+import { useI18n } from "@/lib/i18n";
 import { DollarSign, Sparkles, UserRound, Bot, BarChart3, CalendarDays } from "lucide-react";
 
 interface UsageReport {
@@ -46,6 +47,7 @@ function currentMonthValue() {
 }
 
 export default function KPIsPage() {
+  const { t } = useI18n();
   const [kpis, setKpis] = useState<KPI[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -110,27 +112,26 @@ export default function KPIsPage() {
 
   const summary = usageReport?.summary || emptySummary;
   const pricing = usageReport?.pricing || null;
-  const avgCostPerRun = summary.runs > 0 ? summary.total_cost / summary.runs : 0;
   const avgTokensPerRun = summary.runs > 0 ? summary.total_tokens / summary.runs : 0;
   const totalKpiTokens = kpis.reduce((sum, kpi) => sum + (kpi.tokens_used || 0), 0);
 
   return (
     <div className="p-8 space-y-6 kos-animate-in">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Usage Analytics</h1>
-        <p className="text-muted-foreground mt-1">Track monthly token and cost consumption by employee and by agent.</p>
+        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Usage Analytics")}</h1>
+        <p className="text-muted-foreground mt-1">{t("Track monthly token and cost consumption by employee and by agent.")}</p>
       </div>
 
       <Card className="kos-card">
         <CardContent className="pt-6 grid gap-4 md:grid-cols-4">
           <div className="space-y-2">
-            <Label>Month</Label>
+            <Label>{t("Month")}</Label>
             <Input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2">
-            <Label>Employee</Label>
+            <Label>{t("Employee")}</Label>
             <select className="w-full p-2 border rounded-xl text-sm kos-input" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
-              <option value="">All employees</option>
+              <option value="">{t("All employees")}</option>
               {employees.map((employee) => (
                 <option key={employee.id} value={employee.id}>
                   {employee.full_name || employee.email}
@@ -139,9 +140,9 @@ export default function KPIsPage() {
             </select>
           </div>
           <div className="space-y-2">
-            <Label>Agent / Profile</Label>
+            <Label>{t("Agent / Profile")}</Label>
             <select className="w-full p-2 border rounded-xl text-sm kos-input" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}>
-              <option value="">All agents</option>
+              <option value="">{t("All agents")}</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {profile.name}
@@ -151,7 +152,7 @@ export default function KPIsPage() {
           </div>
           <div className="flex items-end">
             <button onClick={() => void load()} className="kos-gradient-btn text-white px-6 py-2 rounded-xl font-medium w-full">
-              Apply Filters
+              {t("Apply Filters")}
             </button>
           </div>
         </CardContent>
@@ -161,7 +162,7 @@ export default function KPIsPage() {
         <Card className="kos-card">
           <div className="card-gradient-top" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Monthly Cost</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("Monthly Cost")}</CardTitle>
             <DollarSign className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
@@ -171,7 +172,7 @@ export default function KPIsPage() {
         <Card className="kos-card">
           <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #F59E0B, #D97706)" }} />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Tokens</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("Total Tokens")}</CardTitle>
             <Sparkles className="h-4 w-4 text-amber-600" />
           </CardHeader>
           <CardContent>
@@ -181,23 +182,23 @@ export default function KPIsPage() {
         <Card className="kos-card">
           <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #3B82F6, #2563EB)" }} />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Runs</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("Runs")}</CardTitle>
             <BarChart3 className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.runs.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">{avgTokensPerRun.toFixed(0)} avg tokens/run</p>
+            <p className="text-xs text-muted-foreground mt-1">{avgTokensPerRun.toFixed(0)} {t("avg tokens/run")}</p>
           </CardContent>
         </Card>
         <Card className="kos-card">
           <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #8B5CF6, #7C3AED)" }} />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Pricing</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("Active Pricing")}</CardTitle>
             <CalendarDays className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-bold">{pricing ? `$${pricing.monthly_price_usd} / ${pricing.monthly_token_allowance.toLocaleString()} tok` : "Not set"}</div>
-            <p className="text-xs text-muted-foreground mt-1">{pricing ? `${pricing.usd_per_1m_tokens.toFixed(4)} USD / 1M tok` : `${totalKpiTokens.toLocaleString()} KPI tokens tracked`}</p>
+            <div className="text-lg font-bold">{pricing ? `$${pricing.monthly_price_usd} / ${pricing.monthly_token_allowance.toLocaleString()} tok` : t("Not set")}</div>
+            <p className="text-xs text-muted-foreground mt-1">{pricing ? `${pricing.usd_per_1m_tokens.toFixed(4)} USD / 1M tok` : `${totalKpiTokens.toLocaleString()} ${t("KPI tokens tracked")}`}</p>
           </CardContent>
         </Card>
       </div>
@@ -205,7 +206,7 @@ export default function KPIsPage() {
       <Card className="kos-card">
         <div className="card-gradient-top" />
         <CardHeader>
-          <CardTitle>Employee Consumption This Month</CardTitle>
+          <CardTitle>{t("Employee Consumption This Month")}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -215,12 +216,12 @@ export default function KPIsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-2 px-3 font-medium">Employee</th>
-                    <th className="text-left py-2 px-3 font-medium">Runs</th>
-                    <th className="text-left py-2 px-3 font-medium">Input Tokens</th>
-                    <th className="text-left py-2 px-3 font-medium">Output Tokens</th>
-                    <th className="text-left py-2 px-3 font-medium">Total Tokens</th>
-                    <th className="text-left py-2 px-3 font-medium">Cost</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Employee")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Runs")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Input Tokens")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Output Tokens")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Total Tokens")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Cost")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -247,7 +248,7 @@ export default function KPIsPage() {
       <Card className="kos-card">
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #0F766E, #0EA5A4)" }} />
         <CardHeader>
-          <CardTitle>Agent Consumption This Month</CardTitle>
+          <CardTitle>{t("Agent Consumption This Month")}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -257,12 +258,12 @@ export default function KPIsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-2 px-3 font-medium">Agent</th>
-                    <th className="text-left py-2 px-3 font-medium">Runs</th>
-                    <th className="text-left py-2 px-3 font-medium">Input Tokens</th>
-                    <th className="text-left py-2 px-3 font-medium">Output Tokens</th>
-                    <th className="text-left py-2 px-3 font-medium">Total Tokens</th>
-                    <th className="text-left py-2 px-3 font-medium">Cost</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Agent")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Runs")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Input Tokens")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Output Tokens")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Total Tokens")}</th>
+                    <th className="text-left py-2 px-3 font-medium">{t("Cost")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -270,7 +271,7 @@ export default function KPIsPage() {
                     <tr key={row.profile_id || "unassigned"} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                       <td className="py-2 px-3">
                         <div className="font-medium">{row.profile_name}</div>
-                        <div className="text-xs text-muted-foreground">{row.profile_slug || "unassigned"}</div>
+                        <div className="text-xs text-muted-foreground">{row.profile_slug || t("unassigned")}</div>
                       </td>
                       <td className="py-2 px-3">{row.runs}</td>
                       <td className="py-2 px-3">{row.input_tokens.toLocaleString()}</td>
@@ -291,7 +292,7 @@ export default function KPIsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserRound className="h-4 w-4 text-indigo-600" />
-            Employee x Agent Matrix
+            {t("Employee x Agent Matrix")}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -313,10 +314,10 @@ export default function KPIsPage() {
                       </Badge>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div>Runs: <span className="font-semibold">{row.runs}</span></div>
-                      <div>Total tokens: <span className="font-semibold">{row.total_tokens.toLocaleString()}</span></div>
-                      <div>Input: <span className="font-semibold">{row.input_tokens.toLocaleString()}</span></div>
-                      <div>Output: <span className="font-semibold">{row.output_tokens.toLocaleString()}</span></div>
+                      <div>{t("Runs")}: <span className="font-semibold">{row.runs}</span></div>
+                      <div>{t("Total Tokens")}: <span className="font-semibold">{row.total_tokens.toLocaleString()}</span></div>
+                      <div>{t("Input")}: <span className="font-semibold">{row.input_tokens.toLocaleString()}</span></div>
+                      <div>{t("Output")}: <span className="font-semibold">{row.output_tokens.toLocaleString()}</span></div>
                     </div>
                     <div className="text-emerald-700 font-semibold">${row.total_cost.toFixed(4)}</div>
                   </CardContent>

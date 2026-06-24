@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import apiClient from "@/lib/api/client";
 import { getErrorMessage } from "@/lib/api/errors";
 import { adminApi, type ProviderPricing } from "@/lib/api/agentService";
+import { useI18n } from "@/lib/i18n";
 
 interface ApiKey {
   id: string;
@@ -40,6 +41,7 @@ interface ProfileOption {
 }
 
 export default function ApiKeysPage() {
+  const { t } = useI18n();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [profiles, setProfiles] = useState<ProfileOption[]>([]);
@@ -92,26 +94,33 @@ export default function ApiKeysPage() {
     let cancelled = false;
 
     const run = async () => {
-      const [keysResponse, employeesResponse, profilesResponse, pricingResponse] = await Promise.all([
-        apiClient.get("/admin/api-keys"),
-        apiClient.get("/admin/employees"),
-        apiClient.get("/admin/profiles"),
-        adminApi.getProviderPricing({ provider: "minimax" }),
-      ]);
-      if (!cancelled) {
-        setKeys(keysResponse.data.api_keys || []);
-        setEmployees(employeesResponse.data.employees || []);
-        setProfiles(profilesResponse.data.profiles || []);
-        const activePricing = (pricingResponse.data.pricing || []).find((item: ProviderPricing) => item.is_active) || null;
-        setPricing(activePricing);
-        if (activePricing) {
-          setPricingForm({
-            monthly_price_usd: activePricing.monthly_price_usd,
-            monthly_token_allowance: activePricing.monthly_token_allowance,
-            currency: activePricing.currency,
-          });
+      try {
+        const [keysResponse, employeesResponse, profilesResponse, pricingResponse] = await Promise.all([
+          apiClient.get("/admin/api-keys"),
+          apiClient.get("/admin/employees"),
+          apiClient.get("/admin/profiles"),
+          adminApi.getProviderPricing({ provider: "minimax" }),
+        ]);
+        if (!cancelled) {
+          setKeys(keysResponse.data.api_keys || []);
+          setEmployees(employeesResponse.data.employees || []);
+          setProfiles(profilesResponse.data.profiles || []);
+          const activePricing = (pricingResponse.data.pricing || []).find((item: ProviderPricing) => item.is_active) || null;
+          setPricing(activePricing);
+          if (activePricing) {
+            setPricingForm({
+              monthly_price_usd: activePricing.monthly_price_usd,
+              monthly_token_allowance: activePricing.monthly_token_allowance,
+              currency: activePricing.currency,
+            });
+          }
+          setLoading(false);
         }
-        setLoading(false);
+      } catch (error: unknown) {
+        if (!cancelled) {
+          toast.error(getErrorMessage(error, "Failed to load API keys"));
+          setLoading(false);
+        }
       }
     };
 
@@ -193,14 +202,14 @@ export default function ApiKeysPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">API Keys</h1>
-          <p className="text-muted-foreground mt-1">Manage profile, employee override, and platform provider credentials.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("API Keys")}</h1>
+          <p className="text-muted-foreground mt-1">{t("Manage profile, employee override, and platform provider credentials.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              Add Key
+              {t("Add Key")}
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -299,7 +308,7 @@ export default function ApiKeysPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Keys</p>
+                <p className="text-sm text-muted-foreground">{t("Keys")}</p>
                 <p className="text-2xl font-bold">{keys.length}</p>
               </div>
               <Key className="h-8 w-8 text-indigo-600" />
@@ -311,7 +320,7 @@ export default function ApiKeysPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Budget</p>
+                <p className="text-sm text-muted-foreground">{t("Total Budget")}</p>
                 <p className="text-2xl font-bold text-amber-600">{totalBudget.toLocaleString()}</p>
               </div>
               <CreditCard className="h-8 w-8 text-amber-600" />
@@ -323,7 +332,7 @@ export default function ApiKeysPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Spent Today</p>
+                <p className="text-sm text-muted-foreground">{t("Spent Today")}</p>
                 <p className="text-2xl font-bold text-emerald-600">{totalSpent.toLocaleString()}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-emerald-600" />
@@ -335,11 +344,11 @@ export default function ApiKeysPage() {
       <Card className="kos-card">
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #0F766E, #0EA5A4)" }} />
         <CardHeader>
-          <CardTitle>MiniMax Monthly Pricing Model</CardTitle>
+          <CardTitle>{t("MiniMax Monthly Pricing Model")}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-4">
           <div className="space-y-2">
-            <Label>Monthly Price (USD)</Label>
+            <Label>{t("Monthly Price (USD)")}</Label>
             <Input
               type="number"
               step="0.01"
@@ -349,7 +358,7 @@ export default function ApiKeysPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>Monthly Token Allowance</Label>
+            <Label>{t("Monthly Token Allowance")}</Label>
             <Input
               type="number"
               value={pricingForm.monthly_token_allowance}
@@ -358,7 +367,7 @@ export default function ApiKeysPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>Currency</Label>
+            <Label>{t("Currency")}</Label>
             <Input
               value={pricingForm.currency}
               onChange={(event) => setPricingForm({ ...pricingForm, currency: event.target.value.toUpperCase() })}
@@ -367,11 +376,11 @@ export default function ApiKeysPage() {
           </div>
           <div className="flex items-end">
             <Button className="w-full kos-gradient-btn text-white" onClick={() => void handlePricingSave()}>
-              Save Pricing
+              {t("Save Pricing")}
             </Button>
           </div>
           <div className="md:col-span-4 text-sm text-muted-foreground">
-            Current rate: {pricing ? `${pricing.usd_per_1m_tokens.toFixed(4)} USD per 1M tokens` : "No active pricing configured yet."}
+            {t("Current rate:")} {pricing ? `${pricing.usd_per_1m_tokens.toFixed(4)} USD per 1M tokens` : t("No active pricing configured yet.")}
           </div>
         </CardContent>
       </Card>

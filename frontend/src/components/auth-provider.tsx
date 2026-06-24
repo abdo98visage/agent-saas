@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import apiClient from "@/lib/api/client";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -9,8 +9,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    // Skip auth check on login page
-    if (pathname === "/login") return;
+    if (pathname === "/login") {
+      return;
+    }
 
     let cancelled = false;
 

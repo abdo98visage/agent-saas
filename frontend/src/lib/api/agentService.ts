@@ -349,6 +349,9 @@ export const authApi = {
   login: (email: string, password: string) =>
     apiClient.post("/auth/login", { email, password }),
 
+  logout: () =>
+    apiClient.post("/auth/logout"),
+
   register: (data: { email: string; password: string; full_name?: string; department?: string }) =>
     apiClient.post("/auth/register", data),
 

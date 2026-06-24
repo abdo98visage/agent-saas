@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { adminApi, type AdminAgentTestResponse, type Profile } from "@/lib/api/agentService";
 import { getErrorMessage } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n";
 import { toast } from "sonner";
 import { Bot, Send, FlaskConical, Clock3, Coins, Cable, DatabaseZap } from "lucide-react";
 
@@ -15,6 +16,7 @@ type ChatEntry =
   | { id: string; role: "assistant"; content: string; meta: AdminAgentTestResponse };
 
 export default function AgentTestPage() {
+  const { t } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [message, setMessage] = useState("اعطني ردا قصيرا يثبت انك تعمل فعليا واذكر بإيجاز مهمتك.");
@@ -135,13 +137,13 @@ export default function AgentTestPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Agent Tester</h1>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Agent Tester")}</h1>
           <p className="text-muted-foreground mt-1">
-            اختبر أي agent من داخل المنصة نفسها وتحقق من الرد الفعلي وبيانات التنفيذ.
+            {t("Test any agent from inside the platform and verify the real response and execution details.")}
           </p>
         </div>
         <Button variant="outline" onClick={resetConversation}>
-          New Test Chat
+          {t("New Test Chat")}
         </Button>
       </div>
 
@@ -151,12 +153,12 @@ export default function AgentTestPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FlaskConical className="h-5 w-5 text-indigo-600" />
-              Test Controls
+              {t("Test Controls")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Agent / Profile</Label>
+              <Label>{t("Agent / Profile")}</Label>
               <select
                 className="w-full p-2 border rounded-xl text-sm kos-input"
                 value={selectedProfile}
@@ -184,19 +186,19 @@ export default function AgentTestPage() {
                     {selectedProfileObject.hermes_sync_status || "pending"}
                   </Badge>
                   <Badge variant="outline">
-                    providers: {(selectedProfileObject.allowed_providers || []).join(", ") || "any"}
+                    {t("providers:")} {(selectedProfileObject.allowed_providers || []).join(", ") || "any"}
                   </Badge>
                 </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label>Optional Project Context</Label>
+              <Label>{t("Optional Project Context")}</Label>
               <textarea
                 className="w-full min-h-[120px] p-3 border rounded-xl text-sm bg-gray-50"
                 value={projectContext}
                 onChange={(event) => setProjectContext(event.target.value)}
-                placeholder="Optional context sent with this test message."
+                placeholder={t("Optional context sent with this test message.")}
               />
             </div>
 
@@ -206,18 +208,18 @@ export default function AgentTestPage() {
                 className="w-full min-h-[160px] p-3 border rounded-xl text-sm bg-gray-50"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="Write the admin test message here."
+                placeholder={t("Write the admin test message here.")}
               />
             </div>
 
             <Button className="w-full kos-gradient-btn text-white" onClick={sendMessage} disabled={isPending || !selectedProfile || !message.trim()}>
               <Send className="mr-2 h-4 w-4" />
-              {isPending ? "Testing agent..." : "Send Test Message"}
+              {isPending ? t("Testing agent...") : t("Send Test Message")}
             </Button>
 
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
-              <div className="font-medium">Current conversation</div>
-              <div className="text-muted-foreground break-all">{conversationId || "No active conversation yet."}</div>
+              <div className="font-medium">{t("Current conversation")}</div>
+              <div className="text-muted-foreground break-all">{conversationId || t("No active conversation yet.")}</div>
             </div>
           </CardContent>
         </Card>
@@ -226,7 +228,7 @@ export default function AgentTestPage() {
           {entries.length === 0 ? (
             <Card className="kos-card">
               <CardContent className="py-16 text-center text-muted-foreground">
-                اختر agent ثم أرسل رسالة اختبار. كل رد سيعرض المحتوى الحقيقي مع الـ model والـ URL والتوكنز والتكلفة.
+                {t("Choose an agent, then send a test message. Each reply will show the real content along with the model, URL, tokens, and cost.")}
               </CardContent>
             </Card>
           ) : (

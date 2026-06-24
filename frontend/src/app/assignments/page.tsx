@@ -99,14 +99,14 @@ export default function AssignmentsPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Profile Assignments</h1>
-          <p className="text-muted-foreground mt-1">Mount employees to Hermes profiles and control priority order.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">تعيينات البروفايلات</h1>
+          <p className="text-muted-foreground mt-1">اربط الموظفين ببروفايلات Hermes وتحكم بترتيب الأولوية.</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              Create Assignment
+              إنشاء تعيين
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -167,7 +167,7 @@ export default function AssignmentsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Assignments</p>
+                <p className="text-sm text-muted-foreground">التعيينات</p>
                 <p className="text-2xl font-bold">{assignments.length}</p>
               </div>
               <Link2 className="h-8 w-8 text-indigo-600" />
@@ -179,7 +179,7 @@ export default function AssignmentsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Employees</p>
+                <p className="text-sm text-muted-foreground">الموظفون</p>
                 <p className="text-2xl font-bold text-emerald-600">{users.length}</p>
               </div>
               <User className="h-8 w-8 text-emerald-600" />
@@ -191,7 +191,7 @@ export default function AssignmentsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Profiles</p>
+                <p className="text-sm text-muted-foreground">البروفايلات</p>
                 <p className="text-2xl font-bold text-purple-600">{profiles.length}</p>
               </div>
               <Bot className="h-8 w-8 text-purple-600" />

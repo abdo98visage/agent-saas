@@ -22,54 +22,6 @@ function translateValue(language: Language, value: string) {
   return reverseTranslations[value] || value;
 }
 
-function translateTextContent(language: Language, value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return value;
-  }
-
-  const translated = translateValue(language, trimmed);
-  if (translated === trimmed) {
-    return value;
-  }
-
-  const prefixLength = value.indexOf(trimmed);
-  const suffixLength = value.length - prefixLength - trimmed.length;
-  return `${value.slice(0, prefixLength)}${translated}${value.slice(value.length - suffixLength)}`;
-}
-
-function translateDom(language: Language) {
-  const root = document.body;
-  if (!root) {
-    return;
-  }
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let currentNode = walker.nextNode();
-
-  while (currentNode) {
-    const textNode = currentNode as Text;
-    const parentElement = textNode.parentElement;
-    if (parentElement && !["SCRIPT", "STYLE", "TEXTAREA", "PRE", "CODE"].includes(parentElement.tagName)) {
-      textNode.textContent = translateTextContent(language, textNode.textContent || "");
-    }
-    currentNode = walker.nextNode();
-  }
-
-  const elements = root.querySelectorAll<HTMLElement>("[placeholder],[title],[aria-label]");
-  elements.forEach((element) => {
-    if (element.getAttribute("placeholder")) {
-      element.setAttribute("placeholder", translateValue(language, element.getAttribute("placeholder") || ""));
-    }
-    if (element.getAttribute("title")) {
-      element.setAttribute("title", translateValue(language, element.getAttribute("title") || ""));
-    }
-    if (element.getAttribute("aria-label")) {
-      element.setAttribute("aria-label", translateValue(language, element.getAttribute("aria-label") || ""));
-    }
-  });
-}
-
 const translations: Record<string, string> = {
   "Admin dashboard": "لوحة التحكم",
   "Workspace connected": "مساحة العمل متصلة",
@@ -78,7 +30,7 @@ const translations: Record<string, string> = {
   "English": "English",
   "Dashboard": "لوحة التحكم",
   "Employees": "الموظفون",
-  "Profiles": "الملفات",
+  "Profiles": "البروفايلات",
   "Skills": "المهارات",
   "Assignments": "التعيينات",
   "Sessions": "الجلسات",
@@ -169,6 +121,10 @@ const translations: Record<string, string> = {
   "Inactive": "غير نشط",
   "pending": "قيد الانتظار",
   "synced": "متزامن",
+  "low": "منخفض",
+  "medium": "متوسط",
+  "high": "مرتفع",
+  "critical": "حرج",
   "Skills:": "المهارات:",
   "View": "عرض",
   "Edit": "تعديل",
@@ -239,6 +195,8 @@ const translations: Record<string, string> = {
   "All employees": "كل الموظفين",
   "Agent / Profile": "الوكيل / الملف",
   "All agents": "كل الوكلاء",
+  "avg tokens/run": "متوسط توكنز/تشغيل",
+  "KPI tokens tracked": "توكنز KPI متتبعة",
   "Monthly Cost": "التكلفة الشهرية",
   "Total Tokens": "إجمالي التوكنز",
   "Runs": "التشغيلات",
@@ -303,6 +261,9 @@ const translations: Record<string, string> = {
   "Send Test Message": "إرسال رسالة اختبار",
   "Current conversation": "المحادثة الحالية",
   "No active conversation yet.": "لا توجد محادثة نشطة بعد.",
+  "Test any agent from inside the platform and verify the real response and execution details.": "اختبر أي agent من داخل المنصة نفسها وتحقق من الرد الفعلي وبيانات التنفيذ.",
+  "providers:": "المزوّدون:",
+  "Choose an agent, then send a test message. Each reply will show the real content along with the model, URL, tokens, and cost.": "اختر agent ثم أرسل رسالة اختبار. كل رد سيعرض المحتوى الحقيقي مع الـ model والـ URL والتوكنز والتكلفة.",
   "Admin message": "رسالة المدير",
   "Agent response": "رد الوكيل",
   "Model": "النموذج",
@@ -338,6 +299,11 @@ const translations: Record<string, string> = {
   "requested": "تم الطلب",
   "failed": "فشل",
   "running": "يعمل",
+  "unknown": "غير معروف",
+  "available": "متاح",
+  "healthy": "سليم",
+  "degraded": "متراجع",
+  "stopped": "متوقف",
   "Track privileged actions and changes across the platform.": "متابعة الإجراءات الحساسة والتغييرات عبر المنصة.",
   "Total": "الإجمالي",
   "Adds": "الإضافات",
@@ -363,50 +329,54 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setCurrentLanguage] = useState<Language>("ar");
+  const [hasLoadedStoredLanguage, setHasLoadedStoredLanguage] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored !== "ar" && stored !== "en") {
-      return;
-    }
-    if (stored === language) {
-      return;
+    let stored: string | null = null;
+
+    try {
+      stored = window.localStorage?.getItem(STORAGE_KEY) || null;
+    } catch {
+      stored = null;
     }
 
     const timer = window.setTimeout(() => {
-      setCurrentLanguage(stored);
+      setCurrentLanguage(stored === "en" ? "en" : "ar");
+      setHasLoadedStoredLanguage(true);
     }, 0);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [language]);
+  }, []);
 
   useEffect(() => {
+    if (!hasLoadedStoredLanguage) {
+      return;
+    }
+
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
-    translateDom(language);
-
-    const observer = new MutationObserver(() => {
-      translateDom(language);
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["placeholder", "title", "aria-label"],
-    });
+    const nativeConfirm = window.confirm.bind(window);
+    window.confirm = (message?: string) => nativeConfirm(translateValue(language, String(message ?? "")));
 
     return () => {
-      observer.disconnect();
+      window.confirm = nativeConfirm;
     };
-  }, [language]);
+  }, [hasLoadedStoredLanguage, language]);
 
   const setLanguage = (nextLanguage: Language) => {
+    document.documentElement.lang = nextLanguage;
+    document.documentElement.dir = nextLanguage === "ar" ? "rtl" : "ltr";
     setCurrentLanguage(nextLanguage);
-    window.localStorage.setItem(STORAGE_KEY, nextLanguage);
+
+    try {
+      window.localStorage?.setItem(STORAGE_KEY, nextLanguage);
+    } catch {
+      // Ignore storage failures in restricted browser environments.
+    }
+
+    window.location.reload();
   };
 
   const t = (text: string) => {
