@@ -140,12 +140,15 @@ def test_sessions_and_audit_use_fixed_riyadh_timezone():
         sessions_content = file.read()
     with open("frontend/src/app/audit/page.tsx", encoding="utf-8") as file:
         audit_content = file.read()
+    with open("frontend/src/app/page.tsx", encoding="utf-8") as file:
+        dashboard_content = file.read()
     with open("frontend/src/lib/time.ts", encoding="utf-8") as file:
         time_content = file.read()
 
     assert "formatRiyadhDateTime" in sessions_content
     assert "formatRiyadhDateKey" in sessions_content
     assert "formatRiyadhDateTime" in audit_content
+    assert "formatRiyadhDateTime" in dashboard_content
     assert 'Asia/Riyadh' in time_content
 
 

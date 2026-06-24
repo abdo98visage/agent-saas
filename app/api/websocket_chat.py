@@ -28,6 +28,7 @@ from app.services.agent_service import AgentService
 from app.services.hermes_orchestrator import hermes_orchestrator
 from app.services.pricing_service import pricing_service
 from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
+from app.services.presence_service import presence_service
 
 router = APIRouter()
 agent_service = AgentService()
@@ -443,10 +444,11 @@ async def websocket_chat(
         return
 
     # Log connection + update online status
+    await presence_service.connect(user.id)
     await update_last_seen(user.id)
     await log_user_activity(user.id, "ws_connected", details={"agent_template": agent_template_name})
 
-    # 2. Resolve or create conversation
+    # 2. Resolve existing conversation if one was provided.
     active_conversation_id = conversation_id
 
     async with async_session.begin() as db:
@@ -470,16 +472,6 @@ async def websocket_chat(
                     conversation_id = None
             except ValueError:
                 conversation_id = None
-
-        if not conversation_id:
-            new_session = Session(
-                id=uuid4(),
-                user_id=user.id,
-                agent_template_name=agent_template_name,
-            )
-            db.add(new_session)
-            await db.flush()
-            active_conversation_id = str(new_session.id)
 
     # 3. Main message loop
     try:
@@ -723,3 +715,6 @@ async def websocket_chat(
             await websocket.send_json({"type": "error", "detail": str(e)})
         except Exception:
             pass
+    finally:
+        await presence_service.disconnect(user.id)
+        await log_user_activity(user.id, "ws_disconnected", details={"agent_template": agent_template_name})

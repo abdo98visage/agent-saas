@@ -173,6 +173,10 @@ body {
   position: sticky;
   top: 0;
 }
+html[dir="rtl"] .kos-sidebar {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
 .kos-sidebar-item {
   display: flex;
   align-items: center;

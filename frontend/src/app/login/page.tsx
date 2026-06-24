@@ -10,12 +10,14 @@ import { authApi } from "@/lib/api/agentService";
 import { toast } from "sonner";
 import { Zap, Mail, Lock } from "lucide-react";
 import { getErrorMessage } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { t } = useI18n();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -23,10 +25,10 @@ export default function LoginPage() {
 
     try {
       await authApi.login(email, password);
-      toast.success("Signed in");
+      toast.success(t("Signed in"));
       router.push("/");
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to sign in"));
+      toast.error(getErrorMessage(error, t("Failed to sign in")));
     } finally {
       setLoading(false);
     }
@@ -40,21 +42,21 @@ export default function LoginPage() {
             <span className="text-3xl font-bold">K</span>
           </div>
           <h1 className="text-3xl font-bold kos-gradient-text mb-1">KarzounOS</h1>
-          <p className="text-sm text-muted-foreground">Admin access</p>
+          <p className="text-sm text-muted-foreground">{t("Admin access")}</p>
         </div>
 
         <Card className="kos-card kos-animate-in border-0 shadow-xl">
           <div className="card-gradient-top" />
           <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl text-center font-bold">Sign In</CardTitle>
-            <CardDescription className="text-center">Use your admin credentials to open the dashboard.</CardDescription>
+            <CardTitle className="text-xl text-center font-bold">{t("Sign In")}</CardTitle>
+            <CardDescription className="text-center">{t("Use your admin credentials to open the dashboard.")}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email" className="flex items-center gap-2">
                   <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                  Email
+                  {t("Email")}
                 </Label>
                 <Input
                   id="email"
@@ -69,7 +71,7 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <Label htmlFor="password" className="flex items-center gap-2">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                  Password
+                  {t("Password")}
                 </Label>
                 <Input
                   id="password"
@@ -84,10 +86,10 @@ export default function LoginPage() {
                 {loading ? (
                   <span className="flex items-center gap-2">
                     <Zap className="h-4 w-4 animate-spin" />
-                    Signing in...
+                    {t("Signing in...")}
                   </span>
                 ) : (
-                  "Sign In"
+                  t("Sign In")
                 )}
               </Button>
             </form>

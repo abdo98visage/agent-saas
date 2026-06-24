@@ -102,6 +102,14 @@ class TestWebSocketModule:
         assert 'msg.get("profile_name") or profile_name' in source
         assert 'profile_name=effective_profile_name' in source
 
+    def test_websocket_does_not_create_empty_session_on_connect(self):
+        """Test WebSocket waits for the first user message before creating a session."""
+        from app.api.websocket_chat import websocket_chat
+        import inspect
+        source = inspect.getsource(websocket_chat)
+        prefix = source.split("# 3. Main message loop", 1)[0]
+        assert "new_session = Session(" not in prefix
+
 
 class TestAuthProfileAssignment:
     """Test assigned profile API contract."""

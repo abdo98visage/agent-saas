@@ -28,6 +28,7 @@ from app.services.hermes_profile_sync import hermes_profile_sync_service
 from app.services.pricing_service import pricing_service
 from app.services.alert_service import alert_service
 from app.services.token_tracker import record_token_usage
+from app.services.presence_service import presence_service
 from app.schemas.admin import (
     EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
     ProfileCreate, ProfileUpdate,
@@ -1428,21 +1429,18 @@ async def get_online_users(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
-    """Get users who are currently online (last_seen within 2 minutes)."""
-    from datetime import timedelta
-    from sqlalchemy import and_
-    
-    cutoff = datetime.utcnow() - timedelta(minutes=2)
-    
+    """Get employees with an active desktop websocket connection."""
+    active_user_ids = await presence_service.get_active_user_ids()
+    if not active_user_ids:
+        return {"online_count": 0, "online_users": []}
+
     result = await db.execute(
         select(User)
         .where(
-            and_(
-                User.is_active == True,
-                User.is_activated == True,
-                User.role == "employee",
-                User.last_seen_at >= cutoff,
-            )
+            User.id.in_(active_user_ids),
+            User.is_active == True,
+            User.is_activated == True,
+            User.role == "employee",
         )
     )
     online_users = result.scalars().all()
@@ -1515,8 +1513,6 @@ async def get_dashboard_stats(
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     week_ago = (date.today() - timedelta(days=7)).isoformat()
-    cutoff_online = datetime.utcnow() - timedelta(minutes=2)
-    
     # Total employees
     total_employees = await db.execute(
         select(func.count(User.id)).where(User.role == "employee")
@@ -1533,16 +1529,20 @@ async def get_dashboard_stats(
     )
     active_employees = active_employees.scalar() or 0
     
-    # Online now
-    online_now = await db.execute(
-        select(func.count(User.id)).where(
-            User.role == "employee",
-            User.is_active == True,
-            User.is_activated == True,
-            User.last_seen_at >= cutoff_online,
+    # Online now (real-time desktop websocket presence)
+    active_user_ids = await presence_service.get_active_user_ids()
+    if active_user_ids:
+        online_now_query = await db.execute(
+            select(func.count(User.id)).where(
+                User.id.in_(active_user_ids),
+                User.role == "employee",
+                User.is_active == True,
+                User.is_activated == True,
+            )
         )
-    )
-    online_now = online_now.scalar() or 0
+        online_now = online_now_query.scalar() or 0
+    else:
+        online_now = 0
     
     # Messages today
     kpi_today = await db.execute(

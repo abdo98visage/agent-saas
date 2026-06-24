@@ -1,0 +1,442 @@
+"use client";
+
+import { createContext, useContext, useEffect, useState } from "react";
+
+type Language = "ar" | "en";
+
+interface I18nContextValue {
+  language: Language;
+  dir: "rtl" | "ltr";
+  setLanguage: (language: Language) => void;
+  t: (text: string) => string;
+}
+
+const STORAGE_KEY = "admin-language";
+let reverseTranslations: Record<string, string> = {};
+
+function translateValue(language: Language, value: string) {
+  if (language === "ar") {
+    return translations[value] || value;
+  }
+
+  return reverseTranslations[value] || value;
+}
+
+function translateTextContent(language: Language, value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+
+  const translated = translateValue(language, trimmed);
+  if (translated === trimmed) {
+    return value;
+  }
+
+  const prefixLength = value.indexOf(trimmed);
+  const suffixLength = value.length - prefixLength - trimmed.length;
+  return `${value.slice(0, prefixLength)}${translated}${value.slice(value.length - suffixLength)}`;
+}
+
+function translateDom(language: Language) {
+  const root = document.body;
+  if (!root) {
+    return;
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let currentNode = walker.nextNode();
+
+  while (currentNode) {
+    const textNode = currentNode as Text;
+    const parentElement = textNode.parentElement;
+    if (parentElement && !["SCRIPT", "STYLE", "TEXTAREA", "PRE", "CODE"].includes(parentElement.tagName)) {
+      textNode.textContent = translateTextContent(language, textNode.textContent || "");
+    }
+    currentNode = walker.nextNode();
+  }
+
+  const elements = root.querySelectorAll<HTMLElement>("[placeholder],[title],[aria-label]");
+  elements.forEach((element) => {
+    if (element.getAttribute("placeholder")) {
+      element.setAttribute("placeholder", translateValue(language, element.getAttribute("placeholder") || ""));
+    }
+    if (element.getAttribute("title")) {
+      element.setAttribute("title", translateValue(language, element.getAttribute("title") || ""));
+    }
+    if (element.getAttribute("aria-label")) {
+      element.setAttribute("aria-label", translateValue(language, element.getAttribute("aria-label") || ""));
+    }
+  });
+}
+
+const translations: Record<string, string> = {
+  "Admin dashboard": "لوحة التحكم",
+  "Workspace connected": "مساحة العمل متصلة",
+  "Sign Out": "تسجيل الخروج",
+  "Arabic": "العربية",
+  "English": "English",
+  "Dashboard": "لوحة التحكم",
+  "Employees": "الموظفون",
+  "Profiles": "الملفات",
+  "Skills": "المهارات",
+  "Assignments": "التعيينات",
+  "Sessions": "الجلسات",
+  "KPIs": "مؤشرات الأداء",
+  "API Keys": "مفاتيح API",
+  "Agent Tester": "مختبر الوكيل",
+  "Hermes Runtime": "تشغيل Hermes",
+  "Audit Log": "سجل التدقيق",
+  "Templates": "القوالب",
+  "Signed in": "تم تسجيل الدخول",
+  "Failed to sign in": "فشل تسجيل الدخول",
+  "Admin access": "وصول المدير",
+  "Sign In": "تسجيل الدخول",
+  "Use your admin credentials to open the dashboard.": "استخدم بيانات المدير لفتح لوحة التحكم.",
+  "Email": "البريد الإلكتروني",
+  "Password": "كلمة المرور",
+  "Signing in...": "جارٍ تسجيل الدخول...",
+  "Loading...": "جارٍ التحميل...",
+  "Connected": "متصل",
+  "Disconnected": "غير متصل",
+  "Sent message": "أرسل رسالة",
+  "Logged in": "سجّل الدخول",
+  "Activated account": "فعّل الحساب",
+  "Operational status for employees, sessions, and usage.": "الحالة التشغيلية للموظفين والجلسات والاستخدام.",
+  "online": "متصل",
+  "active": "نشط",
+  "Online Now": "المتصلون الآن",
+  "Messages Today": "رسائل اليوم",
+  "Tokens Today": "توكنز اليوم",
+  "Desktop app currently connected": "تطبيق الديسكتوب متصل حالياً",
+  "Messages, last 7 days": "الرسائل خلال آخر 7 أيام",
+  "Tokens, last 7 days": "التوكنز خلال آخر 7 أيام",
+  "Activity counts": "إحصاءات النشاط",
+  "Top users today": "أكثر المستخدمين نشاطاً اليوم",
+  "messages": "رسائل",
+  "tokens": "توكنز",
+  "No activity yet.": "لا يوجد نشاط بعد.",
+  "Online users": "المستخدمون المتصلون",
+  "Nobody online right now.": "لا يوجد أحد متصل الآن.",
+  "Active Alerts": "التنبيهات النشطة",
+  "No active alerts.": "لا توجد تنبيهات نشطة.",
+  "Recent activity": "آخر النشاطات",
+  "No recent activity.": "لا يوجد نشاط حديث.",
+  "Manage employee accounts, roles, and daily usage limits.": "إدارة حسابات الموظفين والأدوار وحدود الاستخدام اليومية.",
+  "Add Employee": "إضافة موظف",
+  "Create Employee": "إنشاء موظف",
+  "Full Name": "الاسم الكامل",
+  "Department": "القسم",
+  "Daily Token Limit": "حد التوكنز اليومي",
+  "Daily Request Limit": "حد الطلبات اليومي",
+  "Total Employees": "إجمالي الموظفين",
+  "Active": "نشط",
+  "Disabled": "معطل",
+  "Name": "الاسم",
+  "Role": "الدور",
+  "Status": "الحالة",
+  "Limits": "الحدود",
+  "Actions": "الإجراءات",
+  "employee": "موظف",
+  "admin": "مدير",
+  "tok": "توكن",
+  "req": "طلب",
+  "No employees found.": "لم يتم العثور على موظفين.",
+  "Edit Employee": "تعديل الموظف",
+  "Save Changes": "حفظ التغييرات",
+  "Disable this employee?": "هل تريد تعطيل هذا الموظف؟",
+  "Employee created": "تم إنشاء الموظف",
+  "Failed to create employee": "فشل إنشاء الموظف",
+  "Employee updated": "تم تحديث الموظف",
+  "Failed to update employee": "فشل تحديث الموظف",
+  "Employee disabled": "تم تعطيل الموظف",
+  "Failed to disable employee": "فشل تعطيل الموظف",
+  "Hermes Profiles": "ملفات Hermes",
+  "Manage AGENTS.md, soul, skills, and system prompts per role.": "إدارة AGENTS.md وSOUL والمهارات وتعليمات النظام لكل دور.",
+  "Add Profile": "إضافة ملف",
+  "Create Profile": "إنشاء ملف",
+  "Slug": "المعرّف",
+  "SOUL.md": "ملف SOUL.md",
+  "Hold Ctrl or Cmd to select multiple skills.": "اضغط Ctrl أو Cmd لاختيار عدة مهارات.",
+  "System Prompt": "تعليمات النظام",
+  "Daily Tokens": "التوكنز اليومية",
+  "Daily Requests": "الطلبات اليومية",
+  "Cost Budget": "ميزانية التكلفة",
+  "Allowed Providers": "المزوّدون المسموحون",
+  "MCP Servers": "خوادم MCP",
+  "Allowed Tools": "الأدوات المسموحة",
+  "Approval Tools": "أدوات تحتاج موافقة",
+  "Inactive": "غير نشط",
+  "pending": "قيد الانتظار",
+  "synced": "متزامن",
+  "Skills:": "المهارات:",
+  "View": "عرض",
+  "Edit": "تعديل",
+  "Sync": "مزامنة",
+  "No profiles created yet.": "لا توجد ملفات حتى الآن.",
+  "No AGENTS.md content.": "لا يوجد محتوى AGENTS.md.",
+  "Delete this profile?": "هل تريد حذف هذا الملف؟",
+  "Profile created": "تم إنشاء الملف",
+  "Failed to create profile": "فشل إنشاء الملف",
+  "Profile updated": "تم تحديث الملف",
+  "Failed to update profile": "فشل تحديث الملف",
+  "Profile deleted": "تم حذف الملف",
+  "Failed to delete profile": "فشل حذف الملف",
+  "Profile sync requested": "تم طلب مزامنة الملف",
+  "Failed to sync profile": "فشل مزامنة الملف",
+  "Edit Profile": "تعديل الملف",
+  "Create reusable Hermes skills and attach them to profiles.": "إنشاء مهارات Hermes قابلة لإعادة الاستخدام وربطها بالملفات.",
+  "Add Skill": "إضافة مهارة",
+  "Create Skill": "إنشاء مهارة",
+  "Description": "الوصف",
+  "Instructions (SKILL.md body)": "التعليمات (محتوى SKILL.md)",
+  "Total Skills": "إجمالي المهارات",
+  "No description": "لا يوجد وصف",
+  "No instructions yet.": "لا توجد تعليمات بعد.",
+  "Delete": "حذف",
+  "No skills defined yet.": "لا توجد مهارات معرفة بعد.",
+  "Delete this skill?": "هل تريد حذف هذه المهارة؟",
+  "Skill created": "تم إنشاء المهارة",
+  "Failed to create skill": "فشل إنشاء المهارة",
+  "Skill updated": "تم تحديث المهارة",
+  "Failed to update skill": "فشل تحديث المهارة",
+  "Skill deleted": "تم حذف المهارة",
+  "Failed to delete skill": "فشل حذف المهارة",
+  "Edit Skill": "تعديل المهارة",
+  "Profile Assignments": "تعيينات الملفات",
+  "Mount employees to Hermes profiles and control priority order.": "ربط الموظفين بملفات Hermes والتحكم بترتيب الأولوية.",
+  "Create Assignment": "إنشاء تعيين",
+  "Assign Profile": "تعيين ملف",
+  "Employee": "الموظف",
+  "Select employee...": "اختر موظفاً...",
+  "Profile": "الملف",
+  "Select profile...": "اختر ملفاً...",
+  "Priority": "الأولوية",
+  "Save Assignment": "حفظ التعيين",
+  "Assignment removed": "تمت إزالة التعيين",
+  "Failed to remove assignment": "فشلت إزالة التعيين",
+  "Assignment created": "تم إنشاء التعيين",
+  "Failed to create assignment": "فشل إنشاء التعيين",
+  "Delete this assignment?": "هل تريد حذف هذا التعيين؟",
+  "key ready": "المفتاح جاهز",
+  "no profile key": "لا يوجد مفتاح للملف",
+  "No assignments yet.": "لا توجد تعيينات بعد.",
+  "Inspect conversation history by user, profile, and date.": "استعراض سجل المحادثات حسب المستخدم والملف والتاريخ.",
+  "User": "المستخدم",
+  "From Date": "من تاريخ",
+  "Apply Filters": "تطبيق الفلاتر",
+  "Total Sessions": "إجمالي الجلسات",
+  "Today": "اليوم",
+  "Title": "العنوان",
+  "Created": "تاريخ الإنشاء",
+  "Untitled": "بدون عنوان",
+  "default": "افتراضي",
+  "No sessions found.": "لم يتم العثور على جلسات.",
+  "Session Detail": "تفاصيل الجلسة",
+  "Usage Analytics": "تحليلات الاستخدام",
+  "Track monthly token and cost consumption by employee and by agent.": "متابعة استهلاك التوكنز والتكلفة شهرياً حسب الموظف والوكيل.",
+  "Month": "الشهر",
+  "All employees": "كل الموظفين",
+  "Agent / Profile": "الوكيل / الملف",
+  "All agents": "كل الوكلاء",
+  "Monthly Cost": "التكلفة الشهرية",
+  "Total Tokens": "إجمالي التوكنز",
+  "Runs": "التشغيلات",
+  "Active Pricing": "التسعير النشط",
+  "Not set": "غير مضبوط",
+  "Employee Consumption This Month": "استهلاك الموظفين هذا الشهر",
+  "Input Tokens": "توكنز الإدخال",
+  "Output Tokens": "توكنز الإخراج",
+  "Cost": "التكلفة",
+  "Agent Consumption This Month": "استهلاك الوكلاء هذا الشهر",
+  "Agent": "الوكيل",
+  "unassigned": "غير معيّن",
+  "Employee x Agent Matrix": "مصفوفة الموظف × الوكيل",
+  "Input": "إدخال",
+  "Output": "إخراج",
+  "No monthly usage rows yet.": "لا توجد سجلات استخدام شهرية بعد.",
+  "Manage profile, employee override, and platform provider credentials.": "إدارة مفاتيح الملفات ومفاتيح التجاوز للموظفين وبيانات مزوّد المنصة.",
+  "Add Key": "إضافة مفتاح",
+  "Create API Key": "إنشاء مفتاح API",
+  "Owner Type": "نوع المالك",
+  "Profile key": "مفتاح ملف",
+  "Employee override key": "مفتاح تجاوز للموظف",
+  "Platform fallback key": "مفتاح احتياطي للمنصة",
+  "Select employee": "اختر موظفاً",
+  "Select profile": "اختر ملفاً",
+  "Provider": "المزوّد",
+  "API Key": "مفتاح API",
+  "Daily Budget": "الميزانية اليومية",
+  "Create Key": "إنشاء المفتاح",
+  "Keys": "المفاتيح",
+  "Total Budget": "إجمالي الميزانية",
+  "Spent Today": "المستهلك اليوم",
+  "MiniMax Monthly Pricing Model": "نموذج تسعير MiniMax الشهري",
+  "Monthly Price (USD)": "السعر الشهري (USD)",
+  "Monthly Token Allowance": "حصة التوكنز الشهرية",
+  "Currency": "العملة",
+  "Save Pricing": "حفظ التسعير",
+  "Current rate:": "السعر الحالي:",
+  "No active pricing configured yet.": "لا يوجد تسعير نشط مضبوط حتى الآن.",
+  "Owner:": "المالك:",
+  "Daily budget:": "الميزانية اليومية:",
+  "Spent today:": "المستهلك اليوم:",
+  "platform": "المنصة",
+  "No API keys configured yet.": "لا توجد مفاتيح API مضبوطة بعد.",
+  "Edit API Key": "تعديل مفتاح API",
+  "Delete this API key?": "هل تريد حذف مفتاح API هذا؟",
+  "API key created": "تم إنشاء مفتاح API",
+  "Failed to create API key": "فشل إنشاء مفتاح API",
+  "API key updated": "تم تحديث مفتاح API",
+  "Failed to update API key": "فشل تحديث مفتاح API",
+  "API key deleted": "تم حذف مفتاح API",
+  "Failed to delete API key": "فشل حذف مفتاح API",
+  "MiniMax pricing updated": "تم تحديث تسعير MiniMax",
+  "Failed to update pricing": "فشل تحديث التسعير",
+  "New Test Chat": "محادثة اختبار جديدة",
+  "Test Controls": "أدوات الاختبار",
+  "Optional Project Context": "سياق مشروع اختياري",
+  "Optional context sent with this test message.": "سياق اختياري يتم إرساله مع رسالة الاختبار.",
+  "Message": "الرسالة",
+  "Write the admin test message here.": "اكتب رسالة الاختبار هنا.",
+  "Testing agent...": "جارٍ اختبار الوكيل...",
+  "Send Test Message": "إرسال رسالة اختبار",
+  "Current conversation": "المحادثة الحالية",
+  "No active conversation yet.": "لا توجد محادثة نشطة بعد.",
+  "Admin message": "رسالة المدير",
+  "Agent response": "رد الوكيل",
+  "Model": "النموذج",
+  "Provider / Runtime": "المزوّد / بيئة التشغيل",
+  "Latency": "زمن الاستجابة",
+  "Request URL": "رابط الطلب",
+  "Profile Used": "الملف المستخدم",
+  "n/a": "غير متوفر",
+  "Failed to load profiles": "فشل تحميل الملفات",
+  "Agent test failed": "فشل اختبار الوكيل",
+  "Install, health-check, restart, and repair the Hermes execution layer.": "تثبيت طبقة تشغيل Hermes وفحصها وإعادة تشغيلها وإصلاحها.",
+  "Check Health": "فحص الحالة",
+  "Runtime": "بيئة التشغيل",
+  "Installed": "مثبّت",
+  "Not installed": "غير مثبّت",
+  "Version": "الإصدار",
+  "Unknown": "غير معروف",
+  "Failed Syncs": "المزامنات الفاشلة",
+  "Lifecycle Controls": "أزرار التحكم",
+  "Install": "تثبيت",
+  "Start": "تشغيل",
+  "Restart": "إعادة تشغيل",
+  "Stop": "إيقاف",
+  "Repair Sync": "إصلاح المزامنة",
+  "Runtime Details": "تفاصيل التشغيل",
+  "Docker image:": "صورة Docker:",
+  "Not reported": "غير متوفر",
+  "Queue health:": "حالة الطابور:",
+  "Run health:": "حالة التشغيل:",
+  "Last sync:": "آخر مزامنة:",
+  "No logs available.": "لا توجد سجلات متاحة.",
+  "Failed to load Hermes runtime status": "فشل تحميل حالة Hermes",
+  "requested": "تم الطلب",
+  "failed": "فشل",
+  "running": "يعمل",
+  "Track privileged actions and changes across the platform.": "متابعة الإجراءات الحساسة والتغييرات عبر المنصة.",
+  "Total": "الإجمالي",
+  "Adds": "الإضافات",
+  "Updates": "التحديثات",
+  "Disables": "التعطيلات",
+  "IP": "IP",
+  "Details": "التفاصيل",
+  "No audit events yet.": "لا توجد أحداث تدقيق بعد.",
+  "Agent Templates": "قوالب الوكلاء",
+  "Reusable model and tool presets for future agents.": "إعدادات جاهزة للنماذج والأدوات للوكلاء المستقبليين.",
+  "General": "عام",
+  "Tools:": "الأدوات:",
+  "Temperature:": "درجة الحرارة:",
+  "tool": "أداة",
+  "No templates configured yet.": "لا توجد قوالب مضبوطة بعد.",
+};
+
+reverseTranslations = Object.fromEntries(
+  Object.entries(translations).map(([english, arabic]) => [arabic, english]),
+);
+
+const I18nContext = createContext<I18nContextValue | null>(null);
+
+export function LanguageProvider({ children }: { children: React.ReactNode }) {
+  const [language, setCurrentLanguage] = useState<Language>("ar");
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (stored !== "ar" && stored !== "en") {
+      return;
+    }
+    if (stored === language) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setCurrentLanguage(stored);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [language]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
+    translateDom(language);
+
+    const observer = new MutationObserver(() => {
+      translateDom(language);
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["placeholder", "title", "aria-label"],
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [language]);
+
+  const setLanguage = (nextLanguage: Language) => {
+    setCurrentLanguage(nextLanguage);
+    window.localStorage.setItem(STORAGE_KEY, nextLanguage);
+  };
+
+  const t = (text: string) => {
+    if (language === "en") {
+      return text;
+    }
+
+    return translations[text] || text;
+  };
+
+  return (
+    <I18nContext.Provider
+      value={{
+        language,
+        dir: language === "ar" ? "rtl" : "ltr",
+        setLanguage,
+        t,
+      }}
+    >
+      {children}
+    </I18nContext.Provider>
+  );
+}
+
+export function useI18n() {
+  const context = useContext(I18nContext);
+
+  if (!context) {
+    throw new Error("useI18n must be used inside LanguageProvider");
+  }
+
+  return context;
+}

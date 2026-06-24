@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import apiClient from "@/lib/api/client";
+import { useI18n } from "@/lib/i18n";
 import {
   LayoutDashboard,
   Users,
@@ -40,6 +41,7 @@ const navItems = [
 
 function SidebarContent() {
   const pathname = usePathname();
+  const { language, t, setLanguage } = useI18n();
 
   const handleLogout = async () => {
     try {
@@ -58,7 +60,7 @@ function SidebarContent() {
           </div>
           <div>
             <h1 className="text-lg font-bold kos-gradient-text">KarzounOS</h1>
-            <p className="text-[10px] text-muted-foreground font-medium">Admin dashboard</p>
+            <p className="text-[10px] text-muted-foreground font-medium">{t("Admin dashboard")}</p>
           </div>
         </div>
       </div>
@@ -71,7 +73,7 @@ function SidebarContent() {
             <Link key={item.href} href={item.href}>
               <div className={cn("kos-sidebar-item", isActive && "active")}>
                 <Icon className="h-4 w-4 flex-shrink-0" />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{t(item.label)}</span>
               </div>
             </Link>
           );
@@ -81,25 +83,32 @@ function SidebarContent() {
       <div className="px-4 py-2 mx-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100">
         <div className="flex items-center gap-2 text-emerald-700">
           <div className="kos-online-pulse" />
-          <span className="text-xs font-semibold">Workspace connected</span>
+          <span className="text-xs font-semibold">{t("Workspace connected")}</span>
         </div>
       </div>
 
       <div className="p-3 border-t border-gray-100 mt-2">
-        <Button
-          variant="ghost"
-          className="w-full justify-start gap-2 text-red-500 hover:text-red-600 hover:bg-red-50"
-          onClick={handleLogout}
-        >
-          <LogOut className="h-4 w-4" />
-          <span className="text-sm font-medium">Sign Out</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="flex-1" onClick={() => setLanguage(language === "ar" ? "en" : "ar")}>
+            {language === "ar" ? "English" : t("Arabic")}
+          </Button>
+          <Button
+            variant="ghost"
+            className="flex-1 justify-start gap-2 text-red-500 hover:text-red-600 hover:bg-red-50"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="text-sm font-medium">{t("Sign Out")}</span>
+          </Button>
+        </div>
       </div>
     </>
   );
 }
 
 export function Sidebar() {
+  const { dir } = useI18n();
+
   return (
     <>
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-b px-4 py-3 flex items-center justify-between">
@@ -115,7 +124,7 @@ export function Sidebar() {
               <Menu className="h-5 w-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="w-72 p-0">
+          <SheetContent side={dir === "rtl" ? "right" : "left"} className="w-72 p-0">
             <SidebarContent />
           </SheetContent>
         </Sheet>

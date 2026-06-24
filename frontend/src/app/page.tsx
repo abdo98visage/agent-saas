@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatRiyadhDateTime } from "@/lib/time";
 import {
   Users,
   MessageSquare,
   Activity,
-  Zap,
   Clock,
   BarChart3,
   UserCheck,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { adminApi, type AlertItem } from "@/lib/api/agentService";
+import { useI18n } from "@/lib/i18n";
 
 interface DashboardStats {
   summary: {
@@ -71,10 +72,38 @@ const statColors = [
 ];
 
 export default function DashboardPage() {
+  const { language, t } = useI18n();
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  const formatHeartbeat = (value: string | null) => {
+    if (!value) {
+      return language === "ar" ? "آخر نبضة: غير متوفر" : "Last heartbeat: unavailable";
+    }
+
+    const diffSeconds = Math.max(0, Math.floor((currentTime - new Date(value).getTime()) / 1000));
+
+    if (diffSeconds < 60) {
+      return language === "ar"
+        ? `آخر نبضة: منذ ${diffSeconds}ث`
+        : `Last heartbeat: ${diffSeconds}s ago`;
+    }
+
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) {
+      return language === "ar"
+        ? `آخر نبضة: منذ ${diffMinutes}د`
+        : `Last heartbeat: ${diffMinutes}m ago`;
+    }
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    return language === "ar"
+      ? `آخر نبضة: منذ ${diffHours}س`
+      : `Last heartbeat: ${diffHours}h ago`;
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -101,8 +130,9 @@ export default function DashboardPage() {
 
     void load();
     const interval = setInterval(() => {
+      setCurrentTime(Date.now());
       void load();
-    }, 15000);
+    }, 5000);
 
     return () => {
       mounted = false;
@@ -128,53 +158,41 @@ export default function DashboardPage() {
 
   const actionLabel = (action: string) => {
     switch (action) {
-      case "ws_connected":
-        return "Connected";
-      case "ws_disconnected":
-        return "Disconnected";
       case "message_sent":
-        return "Sent message";
+        return t("Sent message");
       case "login":
-        return "Logged in";
+        return t("Logged in");
       case "account_activated":
-        return "Activated account";
+        return t("Activated account");
       default:
         return action;
     }
   };
 
-  const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-
   const statData = [
     {
       title: "Employees",
       value: summary.total_employees,
-      description: `${summary.active_employees} active`,
+      description: language === "ar" ? `${summary.active_employees} ${t("active")}` : `${summary.active_employees} active`,
       icon: Users,
       gradient: statColors[0].gradient,
     },
     {
-      title: "Online Now",
-      value: summary.online_now,
-      description: "Desktop app currently connected",
-      icon: Zap,
-      gradient: statColors[1].gradient,
-    },
-    {
       title: "Messages Today",
       value: summary.messages_today.toLocaleString(),
-      description: `${Math.abs(summary.messages_change_pct)}% vs yesterday`,
+      description: language === "ar"
+        ? `${Math.abs(summary.messages_change_pct)}% مقارنة بالأمس`
+        : `${Math.abs(summary.messages_change_pct)}% vs yesterday`,
       trend: summary.messages_change_pct,
       icon: MessageSquare,
-      gradient: statColors[2].gradient,
+      gradient: statColors[1].gradient,
     },
     {
       title: "Tokens Today",
       value: summary.tokens_today.toLocaleString(),
-      description: `${summary.sessions_today} sessions today`,
+      description: language === "ar" ? `${summary.sessions_today} جلسات اليوم` : `${summary.sessions_today} sessions today`,
       icon: Sparkles,
-      gradient: statColors[3].gradient,
+      gradient: statColors[2].gradient,
     },
   ];
 
@@ -182,21 +200,17 @@ export default function DashboardPage() {
     <div className="p-8 space-y-8 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Operational status for employees, sessions, and usage.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Dashboard")}</h1>
+          <p className="text-muted-foreground mt-1">{t("Operational status for employees, sessions, and usage.")}</p>
         </div>
-        <Badge variant={summary.online_now > 0 ? "default" : "secondary"} className="text-sm px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0">
-          <UserCheck className="h-3 w-3 mr-1" />
-          {summary.online_now} online
-        </Badge>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {statData.map((stat) => (
           <Card key={stat.title} className="kos-card">
             <div className="card-gradient-top" />
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
+              <CardTitle className="text-sm font-medium">{t(stat.title)}</CardTitle>
               <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center text-white shadow-lg`}>
                 <stat.icon className="h-5 w-5" />
               </div>
@@ -228,7 +242,7 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4 text-indigo-600" />
-              Messages, last 7 days
+              {t("Messages, last 7 days")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -255,7 +269,7 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-amber-600" />
-              Tokens, last 7 days
+              {t("Tokens, last 7 days")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -278,21 +292,23 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {stats?.activity_counts && Object.keys(stats.activity_counts).length > 0 && (
+      {stats?.activity_counts && Object.entries(stats.activity_counts).filter(([action]) => !["ws_connected", "ws_disconnected"].includes(action)).length > 0 && (
         <Card className="kos-card">
           <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #10B981, #059669)" }} />
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-emerald-600" />
-              Activity counts
+              {t("Activity counts")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
               {Object.entries(stats.activity_counts).map(([action, count]) => (
-                <Badge key={action} className="kos-badge kos-badge-blue text-sm px-3 py-1.5">
-                  {actionLabel(action)}: <span className="font-bold ml-1">{count}</span>
-                </Badge>
+                ["ws_connected", "ws_disconnected"].includes(action) ? null : (
+                  <Badge key={action} className="kos-badge kos-badge-blue text-sm px-3 py-1.5">
+                    {actionLabel(action)}: <span className="font-bold ml-1">{count}</span>
+                  </Badge>
+                )
               ))}
             </div>
           </CardContent>
@@ -303,7 +319,7 @@ export default function DashboardPage() {
         <Card className="kos-card">
           <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #3B82F6, #2563EB)" }} />
           <CardHeader>
-            <CardTitle>Top users today</CardTitle>
+            <CardTitle>{t("Top users today")}</CardTitle>
           </CardHeader>
           <CardContent>
             {stats?.top_users && stats.top_users.length > 0 ? (
@@ -315,14 +331,14 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground">{user.email}</p>
                     </div>
                     <div className="text-left">
-                      <p className="text-sm font-bold text-indigo-600">{user.messages_sent} messages</p>
-                      <p className="text-xs text-muted-foreground">{user.tokens_used.toLocaleString()} tokens</p>
+                      <p className="text-sm font-bold text-indigo-600">{user.messages_sent} {t("messages")}</p>
+                      <p className="text-xs text-muted-foreground">{user.tokens_used.toLocaleString()} {t("tokens")}</p>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm italic text-center py-4">No activity yet.</p>
+              <p className="text-muted-foreground text-sm italic text-center py-4">{t("No activity yet.")}</p>
             )}
           </CardContent>
         </Card>
@@ -332,7 +348,7 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCheck className="h-4 w-4 text-emerald-500" />
-              Online users ({onlineUsers.length})
+              {t("Online users")} ({onlineUsers.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -345,14 +361,15 @@ export default function DashboardPage() {
                       <div>
                         <p className="text-sm font-semibold">{user.full_name || user.email}</p>
                         <p className="text-xs text-muted-foreground">{user.email}</p>
+                        <p className="text-xs text-muted-foreground">{formatHeartbeat(user.last_seen)}</p>
                       </div>
                     </div>
-                    <Badge variant="outline" className="bg-white">{user.department || "—"}</Badge>
+                    <Badge variant="outline" className="bg-white">{user.department || "-"}</Badge>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm italic text-center py-4">Nobody online right now.</p>
+              <p className="text-muted-foreground text-sm italic text-center py-4">{t("Nobody online right now.")}</p>
             )}
           </CardContent>
         </Card>
@@ -361,7 +378,7 @@ export default function DashboardPage() {
       <Card className="kos-card">
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #EF4444, #DC2626)" }} />
         <CardHeader>
-          <CardTitle>Active Alerts</CardTitle>
+          <CardTitle>{t("Active Alerts")}</CardTitle>
         </CardHeader>
         <CardContent>
           {alerts.length > 0 ? (
@@ -373,13 +390,13 @@ export default function DashboardPage() {
                     <p className="text-sm text-muted-foreground">{alert.message}</p>
                   </div>
                   <Badge variant="outline" className={alert.severity === "critical" ? "border-red-400 text-red-700" : "border-amber-400 text-amber-700"}>
-                    {alert.severity}
+                    {t(alert.severity)}
                   </Badge>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm italic text-center py-4">No active alerts.</p>
+            <p className="text-muted-foreground text-sm italic text-center py-4">{t("No active alerts.")}</p>
           )}
         </CardContent>
       </Card>
@@ -389,7 +406,7 @@ export default function DashboardPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-indigo-600" />
-            Recent activity
+            {t("Recent activity")}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -402,16 +419,16 @@ export default function DashboardPage() {
                     <p className="text-xs text-muted-foreground">{actionLabel(activity.action)}</p>
                   </div>
                   <div className="text-left">
-                    <p className="text-xs text-muted-foreground">{formatTime(activity.created_at)}</p>
+                    <p className="text-xs text-muted-foreground">{formatRiyadhDateTime(activity.created_at)}</p>
                     {typeof activity.details.tokens_used === "number" && (
-                      <p className="text-xs font-medium text-indigo-600">{activity.details.tokens_used} tokens</p>
+                      <p className="text-xs font-medium text-indigo-600">{activity.details.tokens_used} {t("tokens")}</p>
                     )}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm italic text-center py-4">No recent activity.</p>
+            <p className="text-muted-foreground text-sm italic text-center py-4">{t("No recent activity.")}</p>
           )}
         </CardContent>
       </Card>

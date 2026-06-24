@@ -11,6 +11,7 @@ from app.core.security import (
     verify_password, get_password_hash,
 )
 from app.models.user import User
+from app.models.agent_template import AgentTemplate
 from app.models.profile import Profile
 from app.models.profile_user import ProfileUser
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
@@ -253,4 +254,28 @@ async def get_assigned_profiles(
             for assignment, profile in rows
         ],
         "count": len(rows),
+    }
+
+
+@router.get("/agent-templates")
+async def get_agent_templates(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List agent templates available to authenticated desktop users."""
+    result = await db.execute(select(AgentTemplate).order_by(AgentTemplate.name.asc()))
+    templates = result.scalars().all()
+    return {
+        "templates": [
+            {
+                "name": template.name,
+                "department": template.department,
+                "model_name": template.model_name,
+                "temperature": template.temperature,
+                "max_tokens_per_request": template.max_tokens_per_request,
+                "tools": template.tools,
+            }
+            for template in templates
+        ],
+        "count": len(templates),
     }
