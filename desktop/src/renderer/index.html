@@ -1355,6 +1355,7 @@
             isStreaming: false,
             ws: null,
             heartbeatInterval: null,
+            authRequired: false,
             typingElement: null,
             streamingAssistantElement: null,
             speechRecognition: null,
@@ -1626,6 +1627,7 @@
                 return;
             }
             els.settingProfileStatus.textContent = `${state.assignedProfiles.length} assigned profile(s) available.`;
+            els.profileBadge.textContent = selectedProfileName || state.settings.template || "default";
         }
 
         async function loadAssignedProfiles() {
@@ -1747,6 +1749,30 @@
             state.isStreaming = false;
             state.streamingAssistantElement = null;
             removeTypingIndicator();
+        }
+
+        async function handleAuthFailure(message = "") {
+            state.authRequired = true;
+            resetStreamingState();
+            if (state.heartbeatInterval) {
+                clearInterval(state.heartbeatInterval);
+                state.heartbeatInterval = null;
+            }
+            if (state.ws) {
+                try {
+                    state.ws.onclose = null;
+                    state.ws.close();
+                } catch {}
+                state.ws = null;
+            }
+            state.settings.token = "";
+            els.settingToken.value = "";
+            document.getElementById("activation-panel").style.display = "flex";
+            document.getElementById("act-status").innerHTML = `<span class="text-danger">${escapeHtml(message || "انتهت الجلسة الحالية. فعّل الحساب أو سجّل الدخول من جديد.")}</span>`;
+            await window.electronAPI.setSettings({
+                ...state.settings,
+                token: "",
+            });
         }
 
         function renderQueueStatus() {
@@ -2458,15 +2484,26 @@
         async function getWebSocketToken() {
             try {
                 const data = await apiRequest("/auth/ws-token", { method: "POST" });
+                state.authRequired = false;
                 return data.access_token || state.settings.token;
             } catch (error) {
-                console.warn("Falling back to current token for WebSocket:", error.message);
+                if (/Invalid or expired token|Token has been revoked|Missing auth token|inactive/i.test(error.message || "")) {
+                    await handleAuthFailure("الجلسة منتهية أو غير صالحة. أعد التفعيل أو حدّث رمز الدخول أولاً.");
+                    throw error;
+                }
+                console.warn("Failed to create a WebSocket token:", error.message);
                 return state.settings.token;
             }
         }
 
         async function connectWebSocket() {
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+            if (state.ws && state.ws.readyState === WebSocket.CONNECTING) {
+                return;
+            }
+            if (!state.settings.token || state.authRequired) {
                 return;
             }
 
@@ -2476,7 +2513,15 @@
             const pathPrefix = apiPath.endsWith("/api") ? apiPath.slice(0, -4) : apiPath;
             const template = state.settings.template || "default";
             const profileName = state.settings.profileName || "";
-            const wsToken = await getWebSocketToken();
+            let wsToken = "";
+            try {
+                wsToken = await getWebSocketToken();
+            } catch {
+                return;
+            }
+            if (!wsToken) {
+                return;
+            }
             const params = new URLSearchParams({
                 token: wsToken,
                 agent_template_name: template,
@@ -2509,11 +2554,16 @@
                 }
             };
 
-            state.ws.onclose = () => {
+            state.ws.onclose = (event) => {
                 resetStreamingState();
                 if (state.heartbeatInterval) {
                     clearInterval(state.heartbeatInterval);
                     state.heartbeatInterval = null;
+                }
+                state.ws = null;
+                if (event.code === 4001 || event.code === 1008 || /Authentication failed/i.test(event.reason || "")) {
+                    void handleAuthFailure("فشل اتصال الدسكتوب لأن جلسة الدخول لم تعد صالحة.");
+                    return;
                 }
                 setTimeout(() => {
                     void connectWebSocket();
@@ -2740,10 +2790,62 @@
             state.ws.send(JSON.stringify(payload));
         }
 
+        async function waitForWebSocketOpen(timeoutMs = 4000) {
+            if (state.authRequired || !state.settings.token) {
+                return false;
+            }
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                return true;
+            }
+
+            await connectWebSocket();
+            if (!state.ws) {
+                return false;
+            }
+            if (state.ws.readyState === WebSocket.OPEN) {
+                return true;
+            }
+
+            return await new Promise((resolve) => {
+                const ws = state.ws;
+                let settled = false;
+                const finish = (value) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(timer);
+                    ws.removeEventListener("open", handleOpen);
+                    ws.removeEventListener("close", handleClose);
+                    ws.removeEventListener("error", handleError);
+                    resolve(value);
+                };
+                const handleOpen = () => finish(true);
+                const handleClose = () => finish(false);
+                const handleError = () => finish(false);
+                const timer = setTimeout(() => finish(false), timeoutMs);
+
+                ws.addEventListener("open", handleOpen, { once: true });
+                ws.addEventListener("close", handleClose, { once: true });
+                ws.addEventListener("error", handleError, { once: true });
+            });
+        }
+
         async function sendMessage() {
             const text = els.messageInput.value.trim();
             if (!text || state.isStreaming) {
                 return;
+            }
+            if (state.authRequired || !state.settings.token) {
+                await handleAuthFailure("لا يمكن إرسال الرسالة لأن جلسة الدسكتوب غير صالحة.");
+                return;
+            }
+
+            const wsReady = await waitForWebSocketOpen();
+            if (!wsReady) {
+                if (state.authRequired || !state.settings.token) {
+                    return;
+                }
             }
 
             els.messageInput.value = "";
@@ -4186,6 +4288,7 @@
 
         async function loadSettings() {
             state.settings = await window.electronAPI.getSettings();
+            state.authRequired = !state.settings.token;
             ensureUiSettings();
             ensureConversationTitleState();
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
@@ -4234,6 +4337,7 @@
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
                 settingsCategories: state.settings.settingsCategories,
             });
+            state.authRequired = !state.settings.token;
             ensureConversationTitleState();
             applyLocale();
             if (state.ws) {
@@ -4281,6 +4385,16 @@
             const text = els.messageInput.value.trim();
             if (!text || state.isStreaming) {
                 return;
+            }
+            if (state.authRequired || !state.settings.token) {
+                await handleAuthFailure("لا يمكن إرسال الرسالة لأن جلسة الدسكتوب غير صالحة.");
+                return;
+            }
+            const wsReady = await waitForWebSocketOpen();
+            if (!wsReady) {
+                if (state.authRequired || !state.settings.token) {
+                    return;
+                }
             }
             clearTransientSystemMessage();
             ensureConversationTitleState();
