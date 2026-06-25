@@ -12,8 +12,10 @@ import { toast } from "sonner";
 import apiClient from "@/lib/api/client";
 import { type Employee, type ProfileAssignment, type Profile } from "@/lib/api/agentService";
 import { getErrorMessage } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n";
 
 export default function AssignmentsPage() {
+  const { t } = useI18n();
   const [assignments, setAssignments] = useState<ProfileAssignment[]>([]);
   const [users, setUsers] = useState<Employee[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -64,24 +66,24 @@ export default function AssignmentsPage() {
         ...formData,
         priority: Number.parseInt(formData.priority, 10) || 0,
       });
-      toast.success("Assignment created");
+      toast.success(t("Assignment created"));
       setShowDialog(false);
       setFormData({ user_id: "", profile_id: "", priority: "0" });
       await loadAll();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to create assignment"));
+      toast.error(getErrorMessage(error, t("Failed to create assignment")));
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this assignment?")) return;
+    if (!confirm(t("Delete this assignment?"))) return;
 
     try {
       await apiClient.delete(`/admin/assignments/${id}`);
-      toast.success("Assignment removed");
+      toast.success(t("Assignment removed"));
       await loadAll();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to remove assignment"));
+      toast.error(getErrorMessage(error, t("Failed to remove assignment")));
     }
   };
 
@@ -99,29 +101,29 @@ export default function AssignmentsPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">تعيينات البروفايلات</h1>
-          <p className="text-muted-foreground mt-1">اربط الموظفين ببروفايلات Hermes وتحكم بترتيب الأولوية.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Profile Assignments")}</h1>
+          <p className="text-muted-foreground mt-1">{t("Mount employees to Hermes profiles and control priority order.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              إنشاء تعيين
+              {t("Create Assignment")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Assign Profile</DialogTitle>
+              <DialogTitle>{t("Assign Profile")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Employee</Label>
+                <Label>{t("Employee")}</Label>
                 <select
                   className="w-full p-2 border rounded-xl text-sm kos-input"
                   value={formData.user_id}
                   onChange={(event) => setFormData({ ...formData, user_id: event.target.value })}
                 >
-                  <option value="">Select employee...</option>
+                  <option value="">{t("Select employee...")}</option>
                   {users.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.full_name || user.email}
@@ -130,13 +132,13 @@ export default function AssignmentsPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Profile</Label>
+                <Label>{t("Profile")}</Label>
                 <select
                   className="w-full p-2 border rounded-xl text-sm kos-input"
                   value={formData.profile_id}
                   onChange={(event) => setFormData({ ...formData, profile_id: event.target.value })}
                 >
-                  <option value="">Select profile...</option>
+                  <option value="">{t("Select profile...")}</option>
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
                       {profile.name}
@@ -145,7 +147,7 @@ export default function AssignmentsPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Priority</Label>
+                <Label>{t("Priority")}</Label>
                 <Input
                   type="number"
                   value={formData.priority}
@@ -154,7 +156,7 @@ export default function AssignmentsPage() {
                 />
               </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
-                Save Assignment
+                {t("Save Assignment")}
               </Button>
             </div>
           </DialogContent>
@@ -167,7 +169,7 @@ export default function AssignmentsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">التعيينات</p>
+                <p className="text-sm text-muted-foreground">{t("Assignments")}</p>
                 <p className="text-2xl font-bold">{assignments.length}</p>
               </div>
               <Link2 className="h-8 w-8 text-indigo-600" />
@@ -179,7 +181,7 @@ export default function AssignmentsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">الموظفون</p>
+                <p className="text-sm text-muted-foreground">{t("Employees")}</p>
                 <p className="text-2xl font-bold text-emerald-600">{users.length}</p>
               </div>
               <User className="h-8 w-8 text-emerald-600" />
@@ -191,7 +193,7 @@ export default function AssignmentsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">البروفايلات</p>
+                <p className="text-sm text-muted-foreground">{t("Profiles")}</p>
                 <p className="text-2xl font-bold text-purple-600">{profiles.length}</p>
               </div>
               <Bot className="h-8 w-8 text-purple-600" />
@@ -203,7 +205,7 @@ export default function AssignmentsPage() {
       <Card className="kos-card">
         <CardContent className="pt-6">
           {loading ? (
-            <p className="text-muted-foreground">Loading...</p>
+            <p className="text-muted-foreground">{t("Loading...")}</p>
           ) : (
             <div className="space-y-3">
               {assignments.map((assignment, index) => (
@@ -219,7 +221,7 @@ export default function AssignmentsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium">{getUserName(assignment.user_id)}</p>
-                        <p className="text-xs text-muted-foreground">Employee</p>
+                        <p className="text-xs text-muted-foreground">{t("Employee")}</p>
                       </div>
                     </div>
                     <span className="text-muted-foreground text-xl">→</span>
@@ -230,7 +232,7 @@ export default function AssignmentsPage() {
                       <div>
                         <p className="text-sm font-medium">{getProfileName(assignment.profile_id)}</p>
                         <Badge variant="secondary" className="text-xs kos-badge-purple">
-                          Priority: {assignment.priority}
+                          {t("Priority")}: {assignment.priority}
                         </Badge>
                         <div className="flex flex-wrap gap-1 mt-1">
                           <Badge variant="outline" className="text-[10px]">
@@ -243,9 +245,9 @@ export default function AssignmentsPage() {
                             {assignment.profile_sync_status || "pending"}
                           </Badge>
                           {assignment.profile_provider_key_id ? (
-                            <Badge variant="outline" className="text-[10px] text-emerald-700">key ready</Badge>
+                            <Badge variant="outline" className="text-[10px] text-emerald-700">{t("key ready")}</Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px] text-amber-700">no profile key</Badge>
+                            <Badge variant="outline" className="text-[10px] text-amber-700">{t("no profile key")}</Badge>
                           )}
                         </div>
                       </div>
@@ -257,7 +259,7 @@ export default function AssignmentsPage() {
                 </div>
               ))}
               {assignments.length === 0 && (
-                <p className="text-muted-foreground text-center py-8">No assignments yet.</p>
+                <p className="text-muted-foreground text-center py-8">{t("No assignments yet.")}</p>
               )}
             </div>
           )}

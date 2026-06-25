@@ -17,6 +17,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MessageSquare, Eye, Filter } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { useI18n } from "@/lib/i18n";
 import { formatRiyadhDateKey, formatRiyadhDateTime } from "@/lib/time";
 
 interface Session {
@@ -41,6 +42,7 @@ interface SessionDetail {
 }
 
 export default function SessionsPage() {
+  const { t } = useI18n();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
@@ -91,29 +93,29 @@ export default function SessionsPage() {
   return (
     <div className="p-8 space-y-6 kos-animate-in">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">الجلسات</h1>
-        <p className="text-muted-foreground mt-1">استعرض سجل المحادثات حسب المستخدم والبروفايل والتاريخ.</p>
+        <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Sessions")}</h1>
+        <p className="text-muted-foreground mt-1">{t("Inspect conversation history by user, profile, and date.")}</p>
       </div>
 
       <Card className="kos-card">
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #3B82F6, #2563EB)" }} />
         <CardContent className="pt-6 grid gap-4 md:grid-cols-4">
           <div className="space-y-2">
-            <Label>المستخدم</Label>
+            <Label>{t("User")}</Label>
             <Input value={filterUserId} onChange={(event) => setFilterUserId(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2">
-            <Label>البروفايل</Label>
+            <Label>{t("Profile")}</Label>
             <Input value={filterProfile} onChange={(event) => setFilterProfile(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2">
-            <Label>من تاريخ</Label>
+            <Label>{t("From Date")}</Label>
             <Input type="date" value={filterDateFrom} onChange={(event) => setFilterDateFrom(event.target.value)} className="kos-input" />
           </div>
           <div className="space-y-2 flex items-end">
             <Button className="w-full kos-gradient-btn text-white" onClick={load}>
               <Filter className="mr-2 h-4 w-4" />
-              تطبيق الفلاتر
+              {t("Apply Filters")}
             </Button>
           </div>
         </CardContent>
@@ -125,7 +127,7 @@ export default function SessionsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">إجمالي الجلسات</p>
+                <p className="text-sm text-muted-foreground">{t("Total Sessions")}</p>
                 <p className="text-2xl font-bold">{sessions.length}</p>
               </div>
               <MessageSquare className="h-8 w-8 text-indigo-600" />
@@ -137,7 +139,7 @@ export default function SessionsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">اليوم</p>
+                <p className="text-sm text-muted-foreground">{t("Today")}</p>
                 <p className="text-2xl font-bold text-emerald-600">
                   {sessions.filter((session) => formatRiyadhDateKey(session.created_at) === today).length}
                 </p>
@@ -151,24 +153,24 @@ export default function SessionsPage() {
       <Card className="kos-card">
         <CardContent className="pt-6">
           {loading ? (
-            <p className="text-muted-foreground">Loading...</p>
+            <p className="text-muted-foreground">{t("Loading...")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>العنوان</TableHead>
-                  <TableHead>المستخدم</TableHead>
-                  <TableHead>البروفايل</TableHead>
-                  <TableHead>تاريخ الإنشاء</TableHead>
-                  <TableHead className="text-right">الإجراءات</TableHead>
+                  <TableHead>{t("Title")}</TableHead>
+                  <TableHead>{t("User")}</TableHead>
+                  <TableHead>{t("Profile")}</TableHead>
+                  <TableHead>{t("Created")}</TableHead>
+                  <TableHead className="text-right">{t("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sessions.map((session) => (
                   <TableRow key={session.id}>
-                    <TableCell className="font-medium max-w-[200px] truncate">{session.title || "Untitled"}</TableCell>
+                    <TableCell className="font-medium max-w-[200px] truncate">{session.title || t("Untitled")}</TableCell>
                     <TableCell className="text-xs font-mono max-w-[150px] truncate">{session.user_id}</TableCell>
-                    <TableCell>{session.profile_name || <Badge variant="secondary">default</Badge>}</TableCell>
+                    <TableCell>{session.profile_name || <Badge variant="secondary">{t("default")}</Badge>}</TableCell>
                     <TableCell className="text-xs">{formatRiyadhDateTime(session.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" onClick={() => viewSession(session.id)}>
@@ -180,7 +182,7 @@ export default function SessionsPage() {
                 {sessions.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      No sessions found.
+                      {t("No sessions found.")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -193,7 +195,7 @@ export default function SessionsPage() {
       <Dialog open={selectedSession !== null} onOpenChange={(open) => !open && setSelectedSession(null)}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Session Detail</DialogTitle>
+            <DialogTitle>{t("Session Detail")}</DialogTitle>
           </DialogHeader>
           {selectedSession && (
             <div className="space-y-3">

@@ -10,10 +10,12 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { adminApi, type SkillDefinition } from "@/lib/api/agentService";
 import { getErrorMessage } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n";
 import { toast } from "sonner";
 import { Plus, Edit, Trash2, Wrench } from "lucide-react";
 
 export default function SkillsPage() {
+  const { t } = useI18n();
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
@@ -63,12 +65,12 @@ export default function SkillsPage() {
         ...formData,
         slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, "-"),
       });
-      toast.success("Skill created");
+      toast.success(t("Skill created"));
       setShowDialog(false);
       setFormData({ name: "", slug: "", description: "", instructions_md: "", is_active: true });
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to create skill"));
+      toast.error(getErrorMessage(error, t("Failed to create skill")));
     }
   };
 
@@ -89,24 +91,24 @@ export default function SkillsPage() {
 
     try {
       await adminApi.updateSkill(editSkill.id, editFormData);
-      toast.success("Skill updated");
+      toast.success(t("Skill updated"));
       setShowEditDialog(false);
       setEditSkill(null);
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to update skill"));
+      toast.error(getErrorMessage(error, t("Failed to update skill")));
     }
   };
 
   const handleDelete = async (skillId: string) => {
-    if (!confirm("Delete this skill?")) return;
+    if (!confirm(t("Delete this skill?"))) return;
 
     try {
       await adminApi.deleteSkill(skillId);
-      toast.success("Skill deleted");
+      toast.success(t("Skill deleted"));
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to delete skill"));
+      toast.error(getErrorMessage(error, t("Failed to delete skill")));
     }
   };
 
@@ -114,37 +116,37 @@ export default function SkillsPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">المهارات</h1>
-          <p className="text-muted-foreground mt-1">أنشئ مهارات Hermes قابلة لإعادة الاستخدام واربطها بالبروفايلات.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Skills")}</h1>
+          <p className="text-muted-foreground mt-1">{t("Create reusable Hermes skills and attach them to profiles.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              إضافة مهارة
+              {t("Add Skill")}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create Skill</DialogTitle>
+              <DialogTitle>{t("Create Skill")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Name</Label>
+                  <Label>{t("Name")}</Label>
                   <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="kos-input" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Slug</Label>
+                  <Label>{t("Slug")}</Label>
                   <Input value={formData.slug} onChange={(event) => setFormData({ ...formData, slug: event.target.value })} className="kos-input" />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Description</Label>
+                <Label>{t("Description")}</Label>
                 <Input value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Instructions (SKILL.md body)</Label>
+                <Label>{t("Instructions (SKILL.md body)")}</Label>
                 <textarea
                   className="w-full min-h-[320px] p-3 border rounded-xl text-sm font-mono bg-gray-50"
                   value={formData.instructions_md}
@@ -152,7 +154,7 @@ export default function SkillsPage() {
                 />
               </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
-                Create Skill
+                {t("Create Skill")}
               </Button>
             </div>
           </DialogContent>
@@ -164,7 +166,7 @@ export default function SkillsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">إجمالي المهارات</p>
+                <p className="text-sm text-muted-foreground">{t("Total Skills")}</p>
                 <p className="text-2xl font-bold">{skills.length}</p>
               </div>
               <Wrench className="h-8 w-8 text-indigo-600" />
@@ -173,13 +175,13 @@ export default function SkillsPage() {
         </Card>
         <Card className="kos-card">
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">نشط</p>
+            <p className="text-sm text-muted-foreground">{t("Active")}</p>
             <p className="text-2xl font-bold text-emerald-600">{skills.filter((skill) => skill.is_active).length}</p>
           </CardContent>
         </Card>
         <Card className="kos-card">
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">غير نشط</p>
+            <p className="text-sm text-muted-foreground">{t("Inactive")}</p>
             <p className="text-2xl font-bold text-amber-600">{skills.filter((skill) => !skill.is_active).length}</p>
           </CardContent>
         </Card>
@@ -188,7 +190,7 @@ export default function SkillsPage() {
       <Card className="kos-card">
         <CardContent className="pt-6">
           {loading ? (
-            <p className="text-muted-foreground">Loading...</p>
+            <p className="text-muted-foreground">{t("Loading...")}</p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {skills.map((skill) => (
@@ -200,29 +202,29 @@ export default function SkillsPage() {
                       <p className="text-xs text-muted-foreground mt-1">{skill.slug}</p>
                     </div>
                     <Badge className={skill.is_active ? "kos-badge-green" : "kos-badge-gray"}>
-                      {skill.is_active ? "Active" : "Inactive"}
+                      {skill.is_active ? t("Active") : t("Inactive")}
                     </Badge>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <p className="text-sm">{skill.description || "No description"}</p>
+                    <p className="text-sm">{skill.description || t("No description")}</p>
                     <pre className="whitespace-pre-wrap rounded-xl bg-gray-50 border p-3 text-xs max-h-56 overflow-auto">
-                      {skill.instructions_md || "No instructions yet."}
+                      {skill.instructions_md || t("No instructions yet.")}
                     </pre>
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm" onClick={() => handleEdit(skill)}>
                         <Edit className="h-3 w-3 mr-1" />
-                        Edit
+                        {t("Edit")}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => handleDelete(skill.id)}>
                         <Trash2 className="h-3 w-3 text-red-500 mr-1" />
-                        Delete
+                        {t("Delete")}
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
               ))}
               {skills.length === 0 && (
-                <p className="text-muted-foreground col-span-2 text-center py-8">No skills defined yet.</p>
+                <p className="text-muted-foreground col-span-2 text-center py-8">{t("No skills defined yet.")}</p>
               )}
             </div>
           )}
@@ -232,25 +234,25 @@ export default function SkillsPage() {
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Skill</DialogTitle>
+            <DialogTitle>{t("Edit Skill")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Name</Label>
+                <Label>{t("Name")}</Label>
                 <Input value={editFormData.name} onChange={(event) => setEditFormData({ ...editFormData, name: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Slug</Label>
+                <Label>{t("Slug")}</Label>
                 <Input value={editFormData.slug} onChange={(event) => setEditFormData({ ...editFormData, slug: event.target.value })} className="kos-input" />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
+              <Label>{t("Description")}</Label>
               <Input value={editFormData.description} onChange={(event) => setEditFormData({ ...editFormData, description: event.target.value })} className="kos-input" />
             </div>
             <div className="space-y-2">
-              <Label>Instructions (SKILL.md body)</Label>
+              <Label>{t("Instructions (SKILL.md body)")}</Label>
               <textarea
                 className="w-full min-h-[320px] p-3 border rounded-xl text-sm font-mono bg-gray-50"
                 value={editFormData.instructions_md}
@@ -258,11 +260,11 @@ export default function SkillsPage() {
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label>Active</Label>
+              <Label>{t("Active")}</Label>
               <Switch checked={editFormData.is_active} onCheckedChange={(checked) => setEditFormData({ ...editFormData, is_active: checked })} />
             </div>
             <Button className="w-full kos-gradient-btn text-white" onClick={handleUpdate}>
-              Save Changes
+              {t("Save Changes")}
             </Button>
           </div>
         </DialogContent>

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { adminApi, type Profile, type SkillDefinition } from "@/lib/api/agentService";
+import { useI18n } from "@/lib/i18n";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, Edit, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
@@ -34,6 +35,7 @@ const buildSkillOptions = (catalogSkills: SkillDefinition[], selectedSkills: str
 };
 
 export default function ProfilesPage() {
+  const { t } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,16 +122,26 @@ export default function ProfilesPage() {
         allowed_tools: parseCsv(formData.allowed_tools),
         approval_required_tools: parseCsv(formData.approval_required_tools),
       });
-      toast.success("Profile created");
+      toast.success(t("Profile created"));
       setShowDialog(false);
       setFormData({
-        name: "", slug: "", soul_md: "", agents_md: "", skills: [], system_prompt: "",
-        max_tokens_per_day: "", max_requests_per_day: "", daily_cost_budget: "",
-        allowed_providers: "minimax", allowed_mcp_servers: "", allowed_tools: "", approval_required_tools: "",
+        name: "",
+        slug: "",
+        soul_md: "",
+        agents_md: "",
+        skills: [],
+        system_prompt: "",
+        max_tokens_per_day: "",
+        max_requests_per_day: "",
+        daily_cost_budget: "",
+        allowed_providers: "minimax",
+        allowed_mcp_servers: "",
+        allowed_tools: "",
+        approval_required_tools: "",
       });
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to create profile"));
+      toast.error(getErrorMessage(error, t("Failed to create profile")));
     }
   };
 
@@ -172,34 +184,34 @@ export default function ProfilesPage() {
         allowed_tools: parseCsv(editFormData.allowed_tools),
         approval_required_tools: parseCsv(editFormData.approval_required_tools),
       });
-      toast.success("Profile updated");
+      toast.success(t("Profile updated"));
       setShowEditDialog(false);
       setEditProfile(null);
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to update profile"));
+      toast.error(getErrorMessage(error, t("Failed to update profile")));
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this profile?")) return;
+    if (!confirm(t("Delete this profile?"))) return;
 
     try {
       await apiClient.delete(`/admin/profiles/${id}`);
-      toast.success("Profile deleted");
+      toast.success(t("Profile deleted"));
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to delete profile"));
+      toast.error(getErrorMessage(error, t("Failed to delete profile")));
     }
   };
 
   const handleSync = async (id: string) => {
     try {
       await apiClient.post(`/admin/profiles/${id}/sync`);
-      toast.success("Profile sync requested");
+      toast.success(t("Profile sync requested"));
       await load();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Failed to sync profile"));
+      toast.error(getErrorMessage(error, t("Failed to sync profile")));
     }
   };
 
@@ -207,35 +219,35 @@ export default function ProfilesPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">بروفايلات Hermes</h1>
-          <p className="text-muted-foreground mt-1">إدارة AGENTS.md وملف soul والمهارات وتعليمات النظام لكل دور.</p>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Hermes Profiles")}</h1>
+          <p className="text-muted-foreground mt-1">{t("Manage AGENTS.md, soul, skills, and system prompts per role.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button className="kos-gradient-btn text-white">
               <Plus className="mr-2 h-4 w-4" />
-              إضافة بروفايل
+              {t("Add Profile")}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create Profile</DialogTitle>
+              <DialogTitle>{t("Create Profile")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Name</Label>
+                <Label>{t("Name")}</Label>
                 <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Slug</Label>
+                <Label>{t("Slug")}</Label>
                 <Input value={formData.slug} onChange={(event) => setFormData({ ...formData, slug: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>SOUL.md</Label>
+                <Label>{t("SOUL.md")}</Label>
                 <Input value={formData.soul_md} onChange={(event) => setFormData({ ...formData, soul_md: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Skills</Label>
+                <Label>{t("Skills")}</Label>
                 <select
                   multiple
                   value={formData.skills}
@@ -248,7 +260,7 @@ export default function ProfilesPage() {
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-muted-foreground">Hold Ctrl or Cmd to select multiple skills.</p>
+                <p className="text-xs text-muted-foreground">{t("Hold Ctrl or Cmd to select multiple skills.")}</p>
               </div>
               <div className="space-y-2">
                 <Label>AGENTS.md</Label>
@@ -259,43 +271,43 @@ export default function ProfilesPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>System Prompt</Label>
+                <Label>{t("System Prompt")}</Label>
                 <Input value={formData.system_prompt} onChange={(event) => setFormData({ ...formData, system_prompt: event.target.value })} className="kos-input" />
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label>Daily Tokens</Label>
+                  <Label>{t("Daily Tokens")}</Label>
                   <Input type="number" value={formData.max_tokens_per_day} onChange={(event) => setFormData({ ...formData, max_tokens_per_day: event.target.value })} className="kos-input" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Daily Requests</Label>
+                  <Label>{t("Daily Requests")}</Label>
                   <Input type="number" value={formData.max_requests_per_day} onChange={(event) => setFormData({ ...formData, max_requests_per_day: event.target.value })} className="kos-input" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Cost Budget</Label>
+                  <Label>{t("Cost Budget")}</Label>
                   <Input type="number" value={formData.daily_cost_budget} onChange={(event) => setFormData({ ...formData, daily_cost_budget: event.target.value })} className="kos-input" />
                 </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Allowed Providers</Label>
+                  <Label>{t("Allowed Providers")}</Label>
                   <Input value={formData.allowed_providers} onChange={(event) => setFormData({ ...formData, allowed_providers: event.target.value })} className="kos-input" />
                 </div>
                 <div className="space-y-2">
-                  <Label>MCP Servers</Label>
+                  <Label>{t("MCP Servers")}</Label>
                   <Input value={formData.allowed_mcp_servers} onChange={(event) => setFormData({ ...formData, allowed_mcp_servers: event.target.value })} className="kos-input" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Allowed Tools</Label>
+                  <Label>{t("Allowed Tools")}</Label>
                   <Input value={formData.allowed_tools} onChange={(event) => setFormData({ ...formData, allowed_tools: event.target.value })} className="kos-input" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Approval Tools</Label>
+                  <Label>{t("Approval Tools")}</Label>
                   <Input value={formData.approval_required_tools} onChange={(event) => setFormData({ ...formData, approval_required_tools: event.target.value })} className="kos-input" />
                 </div>
               </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
-                Create Profile
+                {t("Create Profile")}
               </Button>
             </div>
           </DialogContent>
@@ -305,7 +317,7 @@ export default function ProfilesPage() {
       <Card className="kos-card">
         <CardContent className="pt-6">
           {loading ? (
-            <p className="text-muted-foreground">Loading...</p>
+            <p className="text-muted-foreground">{t("Loading...")}</p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {profiles.map((profile) => (
@@ -320,7 +332,7 @@ export default function ProfilesPage() {
                       variant={profile.is_active ? "default" : "secondary"}
                       className={profile.is_active ? "kos-badge-green" : "kos-badge-gray"}
                     >
-                      {profile.is_active ? "Active" : "Inactive"}
+                      {profile.is_active ? t("Active") : t("Inactive")}
                     </Badge>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -341,7 +353,7 @@ export default function ProfilesPage() {
                       </p>
                     )}
                     <div>
-                      <span className="text-xs text-muted-foreground">Skills:</span>
+                      <span className="text-xs text-muted-foreground">{t("Skills:")}</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {(profile.skill_details || []).map((skill) => (
                           <Badge key={skill.slug} variant="outline" className="text-xs">
@@ -351,24 +363,24 @@ export default function ProfilesPage() {
                         {(profile.skills || [])
                           .filter((skillSlug) => !(profile.skill_details || []).some((skill) => skill.slug === skillSlug))
                           .map((skillSlug) => (
-                          <Badge key={skillSlug} variant="outline" className="text-xs">
-                            {skillSlug}
-                          </Badge>
-                        ))}
+                            <Badge key={skillSlug} variant="outline" className="text-xs">
+                              {skillSlug}
+                            </Badge>
+                          ))}
                       </div>
                     </div>
                     <div className="flex gap-2 pt-2">
                       <Button variant="outline" size="sm" onClick={() => setViewMd(profile.agents_md || profile.agents_md_preview)}>
                         <Eye className="h-3 w-3 mr-1" />
-                        View
+                        {t("View")}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => handleEdit(profile)}>
                         <Edit className="h-3 w-3 text-blue-500 mr-1" />
-                        Edit
+                        {t("Edit")}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => handleSync(profile.id)}>
                         <RefreshCw className="h-3 w-3 mr-1" />
-                        Sync
+                        {t("Sync")}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => handleDelete(profile.id)}>
                         <Trash2 className="h-3 w-3 text-red-500" />
@@ -378,7 +390,7 @@ export default function ProfilesPage() {
                 </Card>
               ))}
               {profiles.length === 0 && (
-                <p className="text-muted-foreground col-span-2 text-center py-4">No profiles created yet.</p>
+                <p className="text-muted-foreground col-span-2 text-center py-4">{t("No profiles created yet.")}</p>
               )}
             </div>
           )}
@@ -391,7 +403,7 @@ export default function ProfilesPage() {
             <DialogTitle>AGENTS.md</DialogTitle>
           </DialogHeader>
           <pre className="whitespace-pre-wrap text-sm font-mono bg-gray-100 p-4 rounded-xl">
-            {viewMd || "No AGENTS.md content."}
+            {viewMd || t("No AGENTS.md content.")}
           </pre>
         </DialogContent>
       </Dialog>
@@ -399,19 +411,19 @@ export default function ProfilesPage() {
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Profile</DialogTitle>
+            <DialogTitle>{t("Edit Profile")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Name</Label>
+              <Label>{t("Name")}</Label>
               <Input value={editFormData.name} onChange={(event) => setEditFormData({ ...editFormData, name: event.target.value })} className="kos-input" />
             </div>
             <div className="space-y-2">
-              <Label>SOUL.md</Label>
+              <Label>{t("SOUL.md")}</Label>
               <Input value={editFormData.soul_md} onChange={(event) => setEditFormData({ ...editFormData, soul_md: event.target.value })} className="kos-input" />
             </div>
             <div className="space-y-2">
-              <Label>Skills</Label>
+              <Label>{t("Skills")}</Label>
               <select
                 multiple
                 value={editFormData.skills}
@@ -424,7 +436,7 @@ export default function ProfilesPage() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-muted-foreground">Hold Ctrl or Cmd to select multiple skills.</p>
+              <p className="text-xs text-muted-foreground">{t("Hold Ctrl or Cmd to select multiple skills.")}</p>
             </div>
             <div className="space-y-2">
               <Label>AGENTS.md</Label>
@@ -435,50 +447,50 @@ export default function ProfilesPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>System Prompt</Label>
+              <Label>{t("System Prompt")}</Label>
               <Input value={editFormData.system_prompt} onChange={(event) => setEditFormData({ ...editFormData, system_prompt: event.target.value })} className="kos-input" />
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
-                <Label>Daily Tokens</Label>
+                <Label>{t("Daily Tokens")}</Label>
                 <Input type="number" value={editFormData.max_tokens_per_day} onChange={(event) => setEditFormData({ ...editFormData, max_tokens_per_day: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Daily Requests</Label>
+                <Label>{t("Daily Requests")}</Label>
                 <Input type="number" value={editFormData.max_requests_per_day} onChange={(event) => setEditFormData({ ...editFormData, max_requests_per_day: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Cost Budget</Label>
+                <Label>{t("Cost Budget")}</Label>
                 <Input type="number" value={editFormData.daily_cost_budget} onChange={(event) => setEditFormData({ ...editFormData, daily_cost_budget: event.target.value })} className="kos-input" />
               </div>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Allowed Providers</Label>
+                <Label>{t("Allowed Providers")}</Label>
                 <Input value={editFormData.allowed_providers} onChange={(event) => setEditFormData({ ...editFormData, allowed_providers: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>MCP Servers</Label>
+                <Label>{t("MCP Servers")}</Label>
                 <Input value={editFormData.allowed_mcp_servers} onChange={(event) => setEditFormData({ ...editFormData, allowed_mcp_servers: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Allowed Tools</Label>
+                <Label>{t("Allowed Tools")}</Label>
                 <Input value={editFormData.allowed_tools} onChange={(event) => setEditFormData({ ...editFormData, allowed_tools: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
-                <Label>Approval Tools</Label>
+                <Label>{t("Approval Tools")}</Label>
                 <Input value={editFormData.approval_required_tools} onChange={(event) => setEditFormData({ ...editFormData, approval_required_tools: event.target.value })} className="kos-input" />
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <Label>Active</Label>
+              <Label>{t("Active")}</Label>
               <Switch
                 checked={editFormData.is_active}
                 onCheckedChange={(checked) => setEditFormData({ ...editFormData, is_active: checked })}
               />
             </div>
             <Button className="w-full kos-gradient-btn text-white" onClick={handleUpdate}>
-              Save Changes
+              {t("Save Changes")}
             </Button>
           </div>
         </DialogContent>

@@ -380,13 +380,30 @@
             border-bottom: 1px solid rgba(88, 118, 244, 0.14);
             display: flex;
             align-items: center;
-            gap: 12px;
-            flex-wrap: nowrap;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: wrap;
             background:
                 linear-gradient(135deg, rgba(88, 118, 244, 0.18), rgba(123, 146, 251, 0.08)),
                 rgba(255, 255, 255, 0.72);
             backdrop-filter: blur(16px);
             box-shadow: 0 10px 24px rgba(88, 118, 244, 0.08);
+        }
+        .chat-header-main,
+        .chat-header-side {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+        .chat-header-main {
+            flex: 1 1 320px;
+        }
+        .chat-header-title-block {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
         .chat-header h5 {
             font-size: 22px;
@@ -395,10 +412,50 @@
             line-height: 1.1;
             display: flex;
             align-items: center;
+            min-width: 0;
+        }
+        .chat-header-title-text {
+            display: block;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-header-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         .chat-header .badge,
         .chat-header .header-action-btn {
             align-self: center;
+        }
+        .employee-chip {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 10px 14px;
+            border-radius: 16px;
+            border: 1px solid rgba(88, 118, 244, 0.14);
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow-card);
+            min-width: 0;
+            max-width: min(360px, 48vw);
+        }
+        .employee-name {
+            font-size: 14px;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .employee-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .chat-body {
             flex: 1;
@@ -760,7 +817,6 @@
         .settings-category .settings-grid {
             margin-top: 12px;
         }
-        #profile-badge,
         #btn-language-toggle {
             display: none !important;
         }
@@ -1063,6 +1119,9 @@
         html[dir="ltr"] .chat-header {
             flex-direction: row;
         }
+        html[dir="ltr"] .chat-header-side {
+            justify-content: flex-end;
+        }
         html[dir="ltr"] .sidebar {
             border-left: none;
             border-right: 1px solid rgba(88, 118, 244, 0.08);
@@ -1140,15 +1199,27 @@
 
     <div class="main-content">
         <div class="chat-header">
+            <div class="chat-header-main">
+                <div class="chat-header-title-block">
             <h5 id="chat-title" class="mb-0">محادثة جديدة</h5>
-            <span class="badge bg-secondary ms-auto" id="profile-badge">default</span>
-            <span class="badge queued-badge" id="queue-badge">0 queued</span>
+            <div class="chat-header-meta">
+                <span class="badge queued-badge" id="queue-badge">0 queued</span>
+            </div>
+                </div>
+            </div>
+            <div class="chat-header-side">
+                <div class="employee-chip" id="employee-chip" title="Employee identity">
+                    <span class="employee-name" id="employee-name">Unknown employee</span>
+                    <span class="employee-meta" id="employee-meta">Desktop employee account</span>
+                </div>
+                <span class="badge bg-secondary" id="profile-badge">default</span>
             <button class="header-action-btn lang-toggle" id="btn-language-toggle" title="تبديل اللغة">AR</button>
             <button class="header-action-btn" id="btn-settings" title="الإعدادات">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M4 7H14M18 7H20M10 17H20M4 17H6M8 7C8 8.1 7.1 9 6 9C4.9 9 4 8.1 4 7C4 5.9 4.9 5 6 5C7.1 5 8 5.9 8 7ZM20 17C20 18.1 19.1 19 18 19C16.9 19 16 18.1 16 17C16 15.9 16.9 15 18 15C19.1 15 20 15.9 20 17Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
                 </svg>
             </button>
+            </div>
         </div>
         <div class="chat-body" id="chat-body">
             <div class="text-center text-muted mt-5" id="welcome-screen">
@@ -1341,8 +1412,8 @@
             conversations: [],
             currentConversation: null,
             currentMessages: [],
+            currentUser: null,
             assignedProfiles: [],
-            agentTemplates: [],
             projects: [],
             conversationProjectMap: {},
             currentProjectId: null,
@@ -1356,6 +1427,7 @@
             isStreaming: false,
             ws: null,
             heartbeatInterval: null,
+            authRequired: false,
             typingElement: null,
             streamingAssistantElement: null,
             speechRecognition: null,
@@ -1380,6 +1452,8 @@
             chatTitle: document.getElementById("chat-title"),
             profileBadge: document.getElementById("profile-badge"),
             queueBadge: document.getElementById("queue-badge"),
+            employeeName: document.getElementById("employee-name"),
+            employeeMeta: document.getElementById("employee-meta"),
             welcomeScreen: document.getElementById("welcome-screen"),
             settingsPanel: document.getElementById("settings-panel"),
             contextPanel: document.getElementById("context-panel"),
@@ -1412,37 +1486,6 @@
 
         function getOfflineQueue() {
             return Array.isArray(state.settings.offlineQueue) ? state.settings.offlineQueue : [];
-        }
-
-        function getFallbackTemplates() {
-            return [
-                { name: "default" },
-                { name: "it" },
-                { name: "marketing" },
-                { name: "hr" },
-            ];
-        }
-
-        function getAvailableTemplates() {
-            return state.agentTemplates.length > 0 ? state.agentTemplates : getFallbackTemplates();
-        }
-
-        function buildAgentSelectionValue(profileName, templateName) {
-            return `${encodeURIComponent(profileName || "")}::${encodeURIComponent(templateName || "default")}`;
-        }
-
-        function parseAgentSelectionValue(value) {
-            const [profileName = "", templateName = "default"] = String(value || "").split("::");
-            return {
-                profileName: decodeURIComponent(profileName || ""),
-                templateName: decodeURIComponent(templateName || "default"),
-            };
-        }
-
-        function updateProfileBadge() {
-            const profileName = state.settings.profileName || "";
-            const templateName = state.settings.template || "default";
-            els.profileBadge.textContent = profileName ? `${profileName} (${templateName})` : templateName;
         }
 
         function ensureUiSettings() {
@@ -1563,6 +1606,7 @@
                 els.chatTitle.textContent = t("newChat");
             }
             els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderHeaderIdentity();
         }
 
         function escapeJsString(text) {
@@ -1613,6 +1657,32 @@
             els.composerStatus.textContent = message;
         }
 
+        function renderHeaderIdentity() {
+            const locale = getLocale();
+            const selectedProfile = state.settings.profileName || state.settings.template || "default";
+            const fallbackName = locale === "en" ? "Unknown employee" : "موظف غير معروف";
+            const fallbackMeta = locale === "en" ? "Open the desktop with an employee account" : "افتح الدسكتوب بحساب موظف";
+            const employeeName = String(state.currentUser?.full_name || "").trim()
+                || String(state.currentUser?.email || "").trim().split("@")[0]
+                || fallbackName;
+            const metaParts = [];
+
+            if (state.currentUser?.email) {
+                metaParts.push(state.currentUser.email);
+            }
+            metaParts.push(`Hermes: ${selectedProfile}`);
+
+            if (els.employeeName) {
+                els.employeeName.textContent = employeeName;
+            }
+            if (els.employeeMeta) {
+                els.employeeMeta.textContent = metaParts.join(" • ") || fallbackMeta;
+            }
+            if (els.profileBadge) {
+                els.profileBadge.textContent = selectedProfile;
+            }
+        }
+
         function markConversationProject(conversationId, projectId) {
             if (!conversationId) {
                 return;
@@ -1651,14 +1721,33 @@
 
             if (!state.settings.token) {
                 els.settingProfileStatus.textContent = "Login or activate the app to load assigned profiles.";
+                renderHeaderIdentity();
                 return;
             }
             if (state.assignedProfiles.length === 0) {
                 els.settingProfileStatus.textContent = "No assigned profiles were returned by the platform.";
+                renderHeaderIdentity();
                 return;
             }
             els.settingProfileStatus.textContent = `${state.assignedProfiles.length} assigned profile(s) available.`;
-            els.profileBadge.textContent = selectedProfileName || state.settings.template || "default";
+            renderHeaderIdentity();
+        }
+
+        async function loadCurrentUser() {
+            if (!state.settings.token) {
+                state.currentUser = null;
+                renderHeaderIdentity();
+                return;
+            }
+
+            try {
+                state.currentUser = await apiRequest("/auth/me");
+            } catch (error) {
+                console.error("Failed to load current user:", error);
+                state.currentUser = null;
+            }
+
+            renderHeaderIdentity();
         }
 
         async function loadAssignedProfiles() {
@@ -1782,6 +1871,32 @@
             removeTypingIndicator();
         }
 
+        async function handleAuthFailure(message = "") {
+            state.authRequired = true;
+            state.currentUser = null;
+            resetStreamingState();
+            if (state.heartbeatInterval) {
+                clearInterval(state.heartbeatInterval);
+                state.heartbeatInterval = null;
+            }
+            if (state.ws) {
+                try {
+                    state.ws.onclose = null;
+                    state.ws.close();
+                } catch {}
+                state.ws = null;
+            }
+            state.settings.token = "";
+            els.settingToken.value = "";
+            document.getElementById("activation-panel").style.display = "flex";
+            document.getElementById("act-status").innerHTML = `<span class="text-danger">${escapeHtml(message || "انتهت الجلسة الحالية. فعّل الحساب أو سجّل الدخول من جديد.")}</span>`;
+            await window.electronAPI.setSettings({
+                ...state.settings,
+                token: "",
+            });
+            renderHeaderIdentity();
+        }
+
         function renderQueueStatus() {
             const queue = getOfflineQueue();
             els.queueBadge.textContent = `${queue.length} ${t("queueSuffix")}`;
@@ -1866,6 +1981,7 @@
             updateComposerStatus(getCurrentProject() ? `${t("contextPrefix")} ${getCurrentProject().name}` : `${t("contextPrefix")} ${t("regularChat")} - ${t("noProject")}`);
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadCurrentUser();
             await loadAssignedProfiles();
 
             await refreshProjectFiles();
@@ -1895,6 +2011,7 @@
             if (state.settings.token) {
                 connectWebSocket();
             }
+            await loadCurrentUser();
             await loadConversations();
             renderAssignedProfiles();
         }
@@ -2491,15 +2608,26 @@
         async function getWebSocketToken() {
             try {
                 const data = await apiRequest("/auth/ws-token", { method: "POST" });
+                state.authRequired = false;
                 return data.access_token || state.settings.token;
             } catch (error) {
-                console.warn("Falling back to current token for WebSocket:", error.message);
+                if (/Invalid or expired token|Token has been revoked|Missing auth token|inactive/i.test(error.message || "")) {
+                    await handleAuthFailure("الجلسة منتهية أو غير صالحة. أعد التفعيل أو حدّث رمز الدخول أولاً.");
+                    throw error;
+                }
+                console.warn("Failed to create a WebSocket token:", error.message);
                 return state.settings.token;
             }
         }
 
         async function connectWebSocket() {
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+            if (state.ws && state.ws.readyState === WebSocket.CONNECTING) {
+                return;
+            }
+            if (!state.settings.token || state.authRequired) {
                 return;
             }
 
@@ -2509,7 +2637,15 @@
             const pathPrefix = apiPath.endsWith("/api") ? apiPath.slice(0, -4) : apiPath;
             const template = state.settings.template || "default";
             const profileName = state.settings.profileName || "";
-            const wsToken = await getWebSocketToken();
+            let wsToken = "";
+            try {
+                wsToken = await getWebSocketToken();
+            } catch {
+                return;
+            }
+            if (!wsToken) {
+                return;
+            }
             const params = new URLSearchParams({
                 token: wsToken,
                 agent_template_name: template,
@@ -2542,11 +2678,16 @@
                 }
             };
 
-            state.ws.onclose = () => {
+            state.ws.onclose = (event) => {
                 resetStreamingState();
                 if (state.heartbeatInterval) {
                     clearInterval(state.heartbeatInterval);
                     state.heartbeatInterval = null;
+                }
+                state.ws = null;
+                if (event.code === 4001 || event.code === 1008 || /Authentication failed/i.test(event.reason || "")) {
+                    void handleAuthFailure("فشل اتصال الدسكتوب لأن جلسة الدخول لم تعد صالحة.");
+                    return;
                 }
                 setTimeout(() => {
                     void connectWebSocket();
@@ -2773,10 +2914,62 @@
             state.ws.send(JSON.stringify(payload));
         }
 
+        async function waitForWebSocketOpen(timeoutMs = 4000) {
+            if (state.authRequired || !state.settings.token) {
+                return false;
+            }
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                return true;
+            }
+
+            await connectWebSocket();
+            if (!state.ws) {
+                return false;
+            }
+            if (state.ws.readyState === WebSocket.OPEN) {
+                return true;
+            }
+
+            return await new Promise((resolve) => {
+                const ws = state.ws;
+                let settled = false;
+                const finish = (value) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(timer);
+                    ws.removeEventListener("open", handleOpen);
+                    ws.removeEventListener("close", handleClose);
+                    ws.removeEventListener("error", handleError);
+                    resolve(value);
+                };
+                const handleOpen = () => finish(true);
+                const handleClose = () => finish(false);
+                const handleError = () => finish(false);
+                const timer = setTimeout(() => finish(false), timeoutMs);
+
+                ws.addEventListener("open", handleOpen, { once: true });
+                ws.addEventListener("close", handleClose, { once: true });
+                ws.addEventListener("error", handleError, { once: true });
+            });
+        }
+
         async function sendMessage() {
             const text = els.messageInput.value.trim();
             if (!text || state.isStreaming) {
                 return;
+            }
+            if (state.authRequired || !state.settings.token) {
+                await handleAuthFailure("لا يمكن إرسال الرسالة لأن جلسة الدسكتوب غير صالحة.");
+                return;
+            }
+
+            const wsReady = await waitForWebSocketOpen();
+            if (!wsReady) {
+                if (state.authRequired || !state.settings.token) {
+                    return;
+                }
             }
 
             els.messageInput.value = "";
@@ -3304,36 +3497,13 @@
             void toggleMicrophone();
         });
         els.composerProfileSelect.addEventListener("change", async () => {
-            const selection = parseAgentSelectionValue(els.composerProfileSelect.value.trim());
-            state.settings.profileName = selection.profileName;
-            state.settings.template = selection.templateName || "default";
+            state.settings.profileName = els.composerProfileSelect.value.trim();
             els.settingProfile.value = state.settings.profileName;
-            els.settingTemplate.value = state.settings.template;
-            updateProfileBadge();
+            els.profileBadge.textContent = state.settings.profileName || state.settings.template || "default";
             await persistSettings();
-            if (state.ws) {
-                state.ws.close();
-                state.ws = null;
-            }
-            if (state.settings.token) {
-                await connectWebSocket();
-            }
         });
         els.settingProfile.addEventListener("change", () => {
-            const profileName = els.settingProfile.value.trim();
-            const templateName = els.settingTemplate.value || state.settings.template || "default";
-            state.settings.profileName = profileName;
-            state.settings.template = templateName;
-            els.composerProfileSelect.value = profileName ? buildAgentSelectionValue(profileName, templateName) : "";
-            updateProfileBadge();
-        });
-        els.settingTemplate.addEventListener("change", () => {
-            const profileName = els.settingProfile.value.trim() || state.settings.profileName || "";
-            const templateName = els.settingTemplate.value || "default";
-            state.settings.profileName = profileName;
-            state.settings.template = templateName;
-            els.composerProfileSelect.value = profileName ? buildAgentSelectionValue(profileName, templateName) : "";
-            updateProfileBadge();
+            els.composerProfileSelect.value = els.settingProfile.value.trim();
         });
 
         els.messageInput.addEventListener("keydown", (event) => {
@@ -3668,6 +3838,7 @@
                 els.chatTitle.textContent = t("newChat");
             }
             els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderHeaderIdentity();
             renderContextSidebar();
         }
 
@@ -3692,6 +3863,7 @@
             renderConversations();
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadCurrentUser();
             await loadAssignedProfiles();
             await refreshProjectFiles();
         }
@@ -3725,6 +3897,7 @@
             if (state.settings.token) {
                 connectWebSocket();
             }
+            await loadCurrentUser();
             await loadConversations();
             renderAssignedProfiles();
             toggleSettingsPanel(false);
@@ -4237,11 +4410,13 @@
                 els.chatTitle.textContent = t("newChat");
             }
             els.queueBadge.textContent = `${getOfflineQueue().length} ${t("queueSuffix")}`;
+            renderHeaderIdentity();
             renderContextSidebar();
         }
 
         async function loadSettings() {
             state.settings = await window.electronAPI.getSettings();
+            state.authRequired = !state.settings.token;
             ensureUiSettings();
             ensureConversationTitleState();
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
@@ -4262,6 +4437,7 @@
             renderConversations();
             renderQueueStatus();
             await refreshUpdateStatus();
+            await loadCurrentUser();
             await loadAssignedProfiles();
             await refreshProjectFiles();
         }
@@ -4290,6 +4466,7 @@
                 selectedProjectFiles: Array.from(state.selectedProjectFiles),
                 settingsCategories: state.settings.settingsCategories,
             });
+            state.authRequired = !state.settings.token;
             ensureConversationTitleState();
             applyLocale();
             if (state.ws) {
@@ -4299,6 +4476,7 @@
             if (state.settings.token) {
                 connectWebSocket();
             }
+            await loadCurrentUser();
             await loadConversations();
             renderAssignedProfiles();
             toggleSettingsPanel(false);
@@ -4337,6 +4515,16 @@
             const text = els.messageInput.value.trim();
             if (!text || state.isStreaming) {
                 return;
+            }
+            if (state.authRequired || !state.settings.token) {
+                await handleAuthFailure("لا يمكن إرسال الرسالة لأن جلسة الدسكتوب غير صالحة.");
+                return;
+            }
+            const wsReady = await waitForWebSocketOpen();
+            if (!wsReady) {
+                if (state.authRequired || !state.settings.token) {
+                    return;
+                }
             }
             clearTransientSystemMessage();
             ensureConversationTitleState();
@@ -4439,171 +4627,6 @@
                 default:
                     break;
             }
-        }
-
-        function renderAssignedProfiles() {
-            const selectedProfileName = state.settings.profileName || "";
-            const selectedTemplateName = state.settings.template || "default";
-            const defaultLabel = getLocale() === "en" ? "Default assigned profile" : "Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ Ø§Ù„Ù…Ø®ØµØµ";
-            const profileOptionsHtml = [`<option value="">${defaultLabel}</option>`]
-                .concat(state.assignedProfiles.map((profile) => `
-                    <option value="${escapeHtml(profile.name)}" ${selectedProfileName === profile.name ? "selected" : ""}>
-                        ${escapeHtml(profile.name)}
-                    </option>
-                `))
-                .join("");
-            const composerOptionsHtml = [`<option value="">${defaultLabel}</option>`]
-                .concat(state.assignedProfiles.flatMap((profile) => (
-                    getAvailableTemplates().map((template) => {
-                        const value = buildAgentSelectionValue(profile.name, template.name);
-                        const label = `${profile.name} (${template.name})`;
-                        const isSelected = selectedProfileName === profile.name && selectedTemplateName === template.name;
-                        return `
-                            <option value="${escapeHtml(value)}" ${isSelected ? "selected" : ""}>
-                                ${escapeHtml(label)}
-                            </option>
-                        `;
-                    })
-                )))
-                .join("");
-
-            els.settingProfile.innerHTML = profileOptionsHtml;
-            els.composerProfileSelect.innerHTML = composerOptionsHtml;
-            els.settingProfile.value = selectedProfileName;
-            els.settingTemplate.value = selectedTemplateName;
-            els.composerProfileSelect.value = selectedProfileName
-                ? buildAgentSelectionValue(selectedProfileName, selectedTemplateName)
-                : "";
-
-            if (!state.settings.token) {
-                els.settingProfileStatus.textContent = "Login or activate the app to load assigned profiles.";
-                updateProfileBadge();
-                return;
-            }
-            if (state.assignedProfiles.length === 0) {
-                els.settingProfileStatus.textContent = "No assigned profiles were returned by the platform.";
-                updateProfileBadge();
-                return;
-            }
-
-            els.settingProfileStatus.textContent = `${state.assignedProfiles.length} assigned profile(s) available with ${getAvailableTemplates().length} template option(s) each.`;
-            updateProfileBadge();
-        }
-
-        async function loadAgentTemplates() {
-            if (!state.settings.token) {
-                state.agentTemplates = getFallbackTemplates();
-                renderAssignedProfiles();
-                return;
-            }
-
-            try {
-                const data = await apiRequest("/auth/agent-templates");
-                state.agentTemplates = Array.isArray(data.templates) && data.templates.length > 0
-                    ? data.templates
-                    : getFallbackTemplates();
-            } catch (error) {
-                state.agentTemplates = getFallbackTemplates();
-            }
-
-            if (!getAvailableTemplates().some((template) => template.name === (state.settings.template || "default"))) {
-                state.settings.template = getAvailableTemplates()[0]?.name || "default";
-            }
-            renderAssignedProfiles();
-        }
-
-        async function loadAssignedProfiles() {
-            if (!state.settings.token) {
-                state.assignedProfiles = [];
-                renderAssignedProfiles();
-                return;
-            }
-
-            try {
-                const data = await apiRequest("/auth/assigned-profiles");
-                state.assignedProfiles = data.profiles || [];
-                if (
-                    state.assignedProfiles.length > 0
-                    && (!state.settings.profileName || !state.assignedProfiles.some((profile) => profile.name === state.settings.profileName))
-                ) {
-                    state.settings.profileName = state.assignedProfiles[0].name;
-                    await persistSettings();
-                }
-            } catch (error) {
-                state.assignedProfiles = [];
-                els.settingProfileStatus.textContent = `Failed to load assigned profiles: ${error.message}`;
-            }
-
-            renderAssignedProfiles();
-        }
-
-        async function loadSettings() {
-            state.settings = await window.electronAPI.getSettings();
-            ensureUiSettings();
-            ensureConversationTitleState();
-            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
-            els.settingToken.value = state.settings.token || "";
-            els.settingTemplate.value = state.settings.template || "default";
-            els.settingLanguage && (els.settingLanguage.value = state.settings.locale || "ar");
-            els.composerCommandSelect && (els.composerCommandSelect.value = state.settings.commandMode || "queue");
-            els.composerApprovalSelect && (els.composerApprovalSelect.value = state.settings.approvalMode || "ask_for_approval");
-            state.projects = normalizeProjects(state.settings.projects);
-            state.conversationProjectMap = state.settings.conversationProjectMap && typeof state.settings.conversationProjectMap === "object"
-                ? state.settings.conversationProjectMap
-                : {};
-            state.currentProjectId = state.settings.currentProjectId || null;
-            syncCurrentProjectContext();
-            buildSettingsPanelLayout();
-            applyLocale();
-            updateComposerStatus(getCurrentProject() ? `${t("contextPrefix")} ${getCurrentProject().name}` : `${t("contextPrefix")} ${t("regularChat")} - ${t("noProject")}`);
-            renderConversations();
-            renderQueueStatus();
-            await refreshUpdateStatus();
-            await loadAgentTemplates();
-            await loadAssignedProfiles();
-            await refreshProjectFiles();
-        }
-
-        async function saveSettings() {
-            ensureUiSettings();
-            ensureConversationTitleState();
-            state.settings.locale = els.settingLanguage?.value === "en" ? "en" : "ar";
-            state.settings.commandMode = els.composerCommandSelect?.value || "queue";
-            state.settings.approvalMode = els.composerApprovalSelect?.value || "ask_for_approval";
-            state.settings.profileName = els.settingProfile?.value.trim() || state.settings.profileName || "";
-            state.settings.template = els.settingTemplate?.value || state.settings.template || "default";
-            state.settings = await window.electronAPI.setSettings({
-                ...state.settings,
-                apiUrl: els.settingApiUrl.value.trim(),
-                token: els.settingToken.value.trim(),
-                template: state.settings.template,
-                profileName: state.settings.profileName,
-                locale: state.settings.locale,
-                commandMode: state.settings.commandMode,
-                approvalMode: state.settings.approvalMode,
-                projects: state.projects,
-                conversationProjectMap: state.conversationProjectMap,
-                conversationTitleMap: state.settings.conversationTitleMap,
-                projectOutputFilesMap: state.settings.projectOutputFilesMap,
-                currentProjectId: state.currentProjectId,
-                projectPath: state.projectPath,
-                selectedProjectFiles: Array.from(state.selectedProjectFiles),
-                settingsCategories: state.settings.settingsCategories,
-            });
-            ensureConversationTitleState();
-            applyLocale();
-            updateProfileBadge();
-            if (state.ws) {
-                state.ws.close();
-                state.ws = null;
-            }
-            if (state.settings.token) {
-                connectWebSocket();
-            }
-            await loadAgentTemplates();
-            await loadConversations();
-            renderAssignedProfiles();
-            toggleSettingsPanel(false);
         }
 
         els.messageInput.addEventListener("input", () => {
