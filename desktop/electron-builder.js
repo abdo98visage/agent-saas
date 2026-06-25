@@ -22,6 +22,22 @@ const config = {
     ],
     verifyUpdateCodeSignature: true,
   },
+  mac: {
+    target: [
+      {
+        target: "dmg",
+        arch: ["universal"],
+      },
+      {
+        target: "zip",
+        arch: ["universal"],
+      },
+    ],
+    category: "public.app-category.productivity",
+  },
+  dmg: {
+    artifactName: "${productName}-${version}-${arch}.${ext}",
+  },
   nsis: {
     oneClick: false,
     perMachine: true,

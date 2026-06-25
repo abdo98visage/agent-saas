@@ -187,9 +187,13 @@ if (-not $usage.pricing -or $usage.pricing.provider -ne $Provider) {
 }
 
 $alertRun = Invoke-Json -Method POST -Uri "$BaseUrl/api/admin/monitoring/alerts/run" -Headers $adminHeaders
-Assert-Truthy $alertRun.generated "Alert evaluation response is missing generated count"
+if ($null -eq $alertRun.generated) {
+  throw "Alert evaluation response is missing generated count"
+}
 $alerts = Invoke-Json -Method GET -Uri "$BaseUrl/api/admin/monitoring/alerts" -Headers $adminHeaders
-Assert-Truthy $alerts.items "Alerts list did not return items"
+if ($null -eq $alerts.items) {
+  throw "Alerts list did not return items"
+}
 
 Write-Output "Smoke journey passed."
 Write-Output "Hermes status: $($hermes.status)"

@@ -1,0 +1,22 @@
+{
+  "id": "a441a006-181e-464c-8ebc-65c2a8a6ca86",
+  "name": "E2E Marketing fe38e4f8",
+  "slug": "e2e-marketing-fe38e4f8",
+  "version": 1,
+  "runtime_type": "hermes",
+  "provider_key_id": "01a2b046-0268-4ff3-b7d2-583aae243bf4",
+  "limits": {
+    "max_tokens_per_day": 100000,
+    "max_requests_per_day": 1000,
+    "daily_cost_budget": 100000
+  },
+  "providers": [
+    "openai"
+  ],
+  "mcp_servers": [],
+  "allowed_tools": [
+    "local_runtime"
+  ],
+  "approval_required_tools": [],
+  "memory_settings": {}
+}

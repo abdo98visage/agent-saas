@@ -1,10 +1,10 @@
 # Desktop Release Runbook
 
-This runbook defines the minimum safe release process for the Windows desktop app.
+This runbook defines the minimum safe release process for the desktop app on Windows and macOS.
 
 ## Goals
 
-- build a packaged EXE/installer
+- build a packaged installer for Windows or macOS
 - optionally enable auto-update through a generic feed
 - strongly prefer signed binaries before public distribution
 
@@ -36,7 +36,9 @@ If `UPDATE_FEED_URL` is not set:
 - update status will show unconfigured
 - auto-update will not work
 
-## 3. Optional Windows code signing
+## 3. Optional code signing
+
+### Windows
 
 Preferred environment variables:
 
@@ -58,6 +60,35 @@ If signing vars are missing:
 - the EXE will be unsigned
 - SmartScreen trust will be worse
 
+### macOS
+
+Recommended environment variables for signing:
+
+```powershell
+$env:CSC_LINK="file:///Users/you/certs/macos-signing.p12"
+$env:CSC_KEY_PASSWORD="your-password"
+```
+
+Recommended environment variables for notarization:
+
+```powershell
+$env:APPLE_API_KEY="/Users/you/private_keys/AuthKey_ABC123XYZ.p8"
+$env:APPLE_API_KEY_ID="ABC123XYZ"
+$env:APPLE_API_ISSUER="00000000-0000-0000-0000-000000000000"
+```
+
+Alternative certificate discovery also works:
+
+```powershell
+$env:CSC_NAME="Developer ID Application: Example Company (TEAMID1234)"
+```
+
+If macOS signing/notarization vars are missing:
+
+- the app can still be built
+- the `.app` or `.dmg` will be unsigned or not notarized
+- Gatekeeper warnings will be worse on end-user machines
+
 ## 4. Run release preflight
 
 ```powershell
@@ -65,10 +96,17 @@ cd desktop
 npm run release:check
 ```
 
+For a macOS release target, set the platform explicitly before the check:
+
+```powershell
+$env:DESKTOP_RELEASE_PLATFORM="mac"
+npm run release:check
+```
+
 This reports:
 
 - whether `UPDATE_FEED_URL` is set
-- whether Windows signing variables are set
+- whether platform-appropriate signing variables are set
 
 ## 5. Build
 
@@ -76,6 +114,18 @@ This reports:
 cd desktop
 npm run build:release
 ```
+
+For macOS:
+
+```powershell
+cd desktop
+npm run build:release:mac
+```
+
+Note:
+
+- `dmg` creation should be executed on a macOS build machine
+- the config builds `universal` mac artifacts so one package supports Apple Silicon and Intel
 
 ## 6. Validate artifacts
 
@@ -89,12 +139,13 @@ Validate:
 - app activates against the target API URL
 - chat works
 - if `UPDATE_FEED_URL` is configured, update status no longer reports `not_configured`
+- on macOS, reopening the dock icon after all windows are closed opens a fresh window
 
 ## 7. Public distribution rule
 
 Recommended minimum before broad external release:
 
-- signed EXE
+- signed installer or app bundle
 - real `UPDATE_FEED_URL`
-- tested installer on a clean Windows machine
+- tested installer on a clean Windows or macOS machine matching the release target
 - tested activation and chat against staging or production

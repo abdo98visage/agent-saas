@@ -1,0 +1,40 @@
+INFO:     Started server process [42820]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+{"event": "http_request", "request_id": "23664ab2", "method": "GET", "path": "/api/ready", "status": 200, "ip": "127.0.0.1", "latency_ms": 406.3}
+{"event": "http_request", "request_id": "12e0ca56", "method": "POST", "path": "/api/auth/login", "status": 200, "ip": "127.0.0.1", "latency_ms": 400.9}
+{"event": "http_request", "request_id": "d4006bc8", "method": "GET", "path": "/api/admin/monitoring/alerts", "status": 200, "ip": "127.0.0.1", "latency_ms": 11.8}
+{"event": "http_request", "request_id": "26ddb4d1", "method": "GET", "path": "/api/status", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.7}
+{"event": "http_request", "request_id": "bdb0955d", "method": "GET", "path": "/api/ready", "status": 200, "ip": "127.0.0.1", "latency_ms": 415.4}
+{"event": "http_request", "request_id": "59de7aa1", "method": "POST", "path": "/api/auth/login", "status": 200, "ip": "127.0.0.1", "latency_ms": 176.4}
+{"event": "http_request", "request_id": "425ccade", "method": "PUT", "path": "/api/admin/provider-pricing/openai", "status": 200, "ip": "127.0.0.1", "latency_ms": 43.6}
+{"event": "http_request", "request_id": "2f5c2ee4", "method": "GET", "path": "/api/admin/hermes/status", "status": 200, "ip": "127.0.0.1", "latency_ms": 227.0}
+{"event": "http_request", "request_id": "ea8cd0e1", "method": "POST", "path": "/api/admin/profiles", "status": 201, "ip": "127.0.0.1", "latency_ms": 137.0}
+{"event": "http_request", "request_id": "c37be284", "method": "POST", "path": "/api/admin/api-keys", "status": 201, "ip": "127.0.0.1", "latency_ms": 35.9}
+{"event": "http_request", "request_id": "1dfd348f", "method": "POST", "path": "/api/admin/employees", "status": 201, "ip": "127.0.0.1", "latency_ms": 177.9}
+{"event": "http_request", "request_id": "c2173114", "method": "POST", "path": "/api/admin/assignments", "status": 201, "ip": "127.0.0.1", "latency_ms": 123.3}
+{"event": "http_request", "request_id": "a2f43fbd", "method": "POST", "path": "/api/auth/activate", "status": 200, "ip": "127.0.0.1", "latency_ms": 187.7}
+{"event": "http_request", "request_id": "45243e4d", "method": "POST", "path": "/api/chat/message", "status": 200, "ip": "127.0.0.1", "latency_ms": 5448.3}
+{"event": "http_request", "request_id": "10c1ee3b", "method": "POST", "path": "/api/auth/ws-token", "status": 200, "ip": "127.0.0.1", "latency_ms": 6.3}
+{"event": "http_request", "request_id": "eb6105c6", "method": "GET", "path": "/api/admin/sessions/a92757f0-efcd-48f7-930b-ec9c5d567f32", "status": 200, "ip": "127.0.0.1", "latency_ms": 16.7}
+{"event": "http_request", "request_id": "bbdf1f56", "method": "GET", "path": "/api/admin/kpis", "status": 200, "ip": "127.0.0.1", "latency_ms": 15.6}
+{"event": "http_request", "request_id": "35d7ec6f", "method": "GET", "path": "/api/admin/monitoring/dashboard-stats", "status": 200, "ip": "127.0.0.1", "latency_ms": 363.9}
+{"event": "http_request", "request_id": "3794fea1", "method": "GET", "path": "/api/admin/usage-report", "status": 200, "ip": "127.0.0.1", "latency_ms": 19.9}
+{"event": "http_request", "request_id": "86a187f5", "method": "POST", "path": "/api/admin/monitoring/alerts/run", "status": 200, "ip": "127.0.0.1", "latency_ms": 238.6}
+{"event": "http_request", "request_id": "ffdb1505", "method": "GET", "path": "/api/admin/monitoring/alerts", "status": 200, "ip": "127.0.0.1", "latency_ms": 3.9}
+{"event": "http_request", "request_id": "a9e9ea90", "method": "OPTIONS", "path": "/api/admin/monitoring/dashboard-stats", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.6}
+{"event": "http_request", "request_id": "4e9e1f13", "method": "OPTIONS", "path": "/api/admin/monitoring/online-users", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.7}
+{"event": "http_request", "request_id": "24065930", "method": "OPTIONS", "path": "/api/auth/me", "status": 200, "ip": "127.0.0.1", "latency_ms": 1.0}
+{"event": "http_request", "request_id": "6ece7f68", "method": "OPTIONS", "path": "/api/admin/monitoring/alerts", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.3}
+{"event": "http_request", "request_id": "cf9a664c", "method": "OPTIONS", "path": "/api/admin/monitoring/activity-feed", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.9}
+{"event": "http_request", "request_id": "17b2d456", "method": "GET", "path": "/api/admin/monitoring/dashboard-stats", "status": 401, "ip": "127.0.0.1", "latency_ms": 2.4}
+{"event": "http_request", "request_id": "53526ba6", "method": "GET", "path": "/api/admin/monitoring/online-users", "status": 401, "ip": "127.0.0.1", "latency_ms": 2.9}
+{"event": "http_request", "request_id": "5799a9d0", "method": "GET", "path": "/api/auth/me", "status": 401, "ip": "127.0.0.1", "latency_ms": 3.0}
+{"event": "http_request", "request_id": "453f05c6", "method": "GET", "path": "/api/admin/monitoring/alerts", "status": 401, "ip": "127.0.0.1", "latency_ms": 2.5}
+{"event": "http_request", "request_id": "b0ca4420", "method": "GET", "path": "/api/admin/monitoring/activity-feed", "status": 401, "ip": "127.0.0.1", "latency_ms": 2.7}
+{"event": "http_request", "request_id": "b314a975", "method": "GET", "path": "/api/admin/monitoring/dashboard-stats", "status": 401, "ip": "127.0.0.1", "latency_ms": 0.7}
+{"event": "http_request", "request_id": "a89b1a72", "method": "GET", "path": "/api/admin/monitoring/activity-feed", "status": 401, "ip": "127.0.0.1", "latency_ms": 1.1}
+{"event": "http_request", "request_id": "ad20b2df", "method": "GET", "path": "/api/admin/monitoring/alerts", "status": 401, "ip": "127.0.0.1", "latency_ms": 1.5}
+{"event": "http_request", "request_id": "7920a3fa", "method": "GET", "path": "/api/admin/monitoring/online-users", "status": 401, "ip": "127.0.0.1", "latency_ms": 1.7}
+{"event": "http_request", "request_id": "414c3dc4", "method": "GET", "path": "/api/auth/me", "status": 401, "ip": "127.0.0.1", "latency_ms": 0.5}

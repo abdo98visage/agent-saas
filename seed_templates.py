@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.db import Base
 from app.core.security import create_access_token, get_password_hash
 from app.models.agent_template import AgentTemplate
+from app.models.skill_definition import SkillDefinition
 from app.models.user import User
 
 
@@ -60,6 +61,23 @@ DEFAULT_TEMPLATES = [
         "temperature": 0.5,
         "max_tokens_per_request": 4000,
         "tools": ["web_search"],
+    },
+]
+
+DEFAULT_SKILLS = [
+    {
+        "name": "Campaigns",
+        "slug": "campaigns",
+        "description": "Marketing campaign planning and execution.",
+        "instructions_md": "# Campaigns\n\nPlan and optimize marketing campaigns.",
+        "is_active": True,
+    },
+    {
+        "name": "Copywriting",
+        "slug": "copywriting",
+        "description": "Marketing copywriting for ads and landing pages.",
+        "instructions_md": "# Copywriting\n\nWrite concise, high-conversion marketing copy.",
+        "is_active": True,
     },
 ]
 
@@ -108,6 +126,16 @@ async def seed() -> None:
                 continue
             session.add(AgentTemplate(**tmpl))
             print(f"  [ok] Template: {tmpl['name']}")
+
+        for skill_data in DEFAULT_SKILLS:
+            existing = await session.execute(
+                select(SkillDefinition).where(SkillDefinition.slug == skill_data["slug"])
+            )
+            if existing.scalar_one_or_none():
+                print(f"  [skip] Skill exists: {skill_data['slug']}")
+                continue
+            session.add(SkillDefinition(**skill_data))
+            print(f"  [ok] Skill: {skill_data['slug']}")
 
         print("  [info] Default profiles seeding is disabled")
         await session.commit()

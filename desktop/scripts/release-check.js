@@ -7,6 +7,11 @@ const path = require("path");
 const requiredForRelease = [];
 const warnings = [];
 const allowInsecureRelease = process.env.ALLOW_INSECURE_DESKTOP_RELEASE === "true";
+const releasePlatform = String(
+  process.env.DESKTOP_RELEASE_PLATFORM ||
+  process.env.npm_config_platform ||
+  process.platform
+).toLowerCase();
 
 const updateFeedUrl = process.env.UPDATE_FEED_URL || "";
 if (!updateFeedUrl) {
@@ -16,9 +21,21 @@ if (!updateFeedUrl) {
 const hasWindowsSigning =
   Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD) ||
   Boolean(process.env.WIN_CSC_LINK && process.env.WIN_CSC_KEY_PASSWORD);
+const hasMacSigning =
+  Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD) ||
+  Boolean(process.env.CSC_NAME) ||
+  Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER);
 
-if (!hasWindowsSigning) {
-  requiredForRelease.push("Windows code-signing environment variables are not set.");
+if (releasePlatform === "win32" || releasePlatform === "windows") {
+  if (!hasWindowsSigning) {
+    requiredForRelease.push("Windows code-signing environment variables are not set.");
+  }
+} else if (releasePlatform === "darwin" || releasePlatform === "mac" || releasePlatform === "macos") {
+  if (!hasMacSigning) {
+    requiredForRelease.push("macOS signing or notarization environment variables are not set.");
+  }
+} else {
+  warnings.push(`No platform-specific signing checks are defined for '${releasePlatform}'.`);
 }
 
 const desktopConfigPath = path.join(__dirname, "..", "desktop-config.json");

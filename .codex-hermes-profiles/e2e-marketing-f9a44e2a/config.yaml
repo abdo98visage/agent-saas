@@ -1,0 +1,8 @@
+model:
+  provider: custom
+  default: "mock-model"
+  base_url: "http://127.0.0.1:18080/v1"
+  api_key: ${OPENAI_API_KEY}
+terminal:
+  backend: local
+  cwd: "C:\\Users\\windows-server\\Desktop\\work\\Hermes\\ai\\AgentSaaS\\.codex-hermes-profiles\\e2e-marketing-f9a44e2a\\workspace"

@@ -1205,24 +1205,26 @@ async def get_alerts(
     admin: User = Depends(get_current_admin_user),
 ):
     alerts = await alert_service.list_alerts(db, status=status, severity=severity, limit=limit)
+    payload = [
+        {
+            "id": str(alert.id),
+            "alert_type": alert.alert_type,
+            "severity": alert.severity,
+            "status": alert.status,
+            "title": alert.title,
+            "message": alert.message,
+            "context": alert.context,
+            "first_seen_at": str(alert.first_seen_at),
+            "last_seen_at": str(alert.last_seen_at),
+            "last_notified_at": str(alert.last_notified_at) if alert.last_notified_at else None,
+            "is_acknowledged": alert.is_acknowledged,
+            "created_at": str(alert.created_at),
+        }
+        for alert in alerts
+    ]
     return {
-        "alerts": [
-            {
-                "id": str(alert.id),
-                "alert_type": alert.alert_type,
-                "severity": alert.severity,
-                "status": alert.status,
-                "title": alert.title,
-                "message": alert.message,
-                "context": alert.context,
-                "first_seen_at": str(alert.first_seen_at),
-                "last_seen_at": str(alert.last_seen_at),
-                "last_notified_at": str(alert.last_notified_at) if alert.last_notified_at else None,
-                "is_acknowledged": alert.is_acknowledged,
-                "created_at": str(alert.created_at),
-            }
-            for alert in alerts
-        ],
+        "alerts": payload,
+        "items": payload,
         "count": len(alerts),
     }
 
@@ -1234,6 +1236,7 @@ async def run_alert_evaluation(
 ):
     candidates = await alert_service.collect_candidates(db)
     result = await alert_service.sync_candidates(db, candidates)
+    result["generated"] = result.get("activated", 0)
     db.add(
         AuditLog(
             user_id=str(admin.id),
