@@ -33,6 +33,21 @@ def test_list_employees_excludes_admin_accounts():
     assert 'select(User).where(User.role == "employee")' in source
 
 
+def test_desktop_invite_endpoint_regenerates_private_employee_activation_token():
+    source = inspect.getsource(admin_api.create_desktop_invite)
+    list_source = inspect.getsource(admin_api.list_employees)
+
+    assert '@router.post("/employees/{user_id}/desktop-invite")' in source
+    assert "_issue_invite_token(user, revoke_existing_sessions=was_activated)" in source
+    assert "Employee account is already activated" not in source
+    assert "revoked_existing_sessions" in source
+    assert '"has_invite_token": u.invite_token is not None' in list_source
+    assert '"invite_token": u.invite_token' not in list_source
+
+    helper_source = inspect.getsource(admin_api._issue_invite_token)
+    assert "user.token_version = int(user.token_version or 0) + 1" in helper_source
+
+
 def test_agent_tester_updates_kpis_and_token_usage():
     source = inspect.getsource(admin_api.admin_test_agent_message)
 
@@ -71,7 +86,7 @@ def test_skills_page_and_sidebar_exist():
     with open("frontend/src/components/layout/sidebar.tsx", encoding="utf-8") as file:
         sidebar = file.read()
 
-    assert "Create reusable Hermes skills and attach them to profiles." in skills_page
+    assert "Create reusable agent skills and attach them to profiles." in skills_page
     assert 'href: "/skills"' in sidebar
 
 

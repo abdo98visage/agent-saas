@@ -28,7 +28,7 @@ def build_profile_sync_payload(
             f"description: Role-specific operating guide for the {profile.name} profile.\n"
             "---\n\n"
             f"# {profile.name} profile context\n\n"
-            "Use this skill as the role-specific operating guide for this Hermes profile.\n\n"
+            "Use this skill as the role-specific operating guide for this smart-agent profile.\n\n"
             "## System instructions\n\n"
             f"{profile.system_prompt or 'No additional system instructions were configured.'}\n\n"
             "## Declared skill tags\n\n"

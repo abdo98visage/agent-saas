@@ -4,8 +4,10 @@ const fs = require("fs");
 const path = require("path");
 
 const pendingWrites = new Map();
+const ACTIVATION_PROTOCOL = "fqsaas";
 
 let mainWindow;
+let pendingActivationUrl = "";
 
 function stripBom(value) {
   return typeof value === "string" ? value.replace(/^\uFEFF/, "") : value;
@@ -52,6 +54,64 @@ function buildRendererSettings() {
     conversationProjectMap: rawStore.conversationProjectMap && typeof rawStore.conversationProjectMap === "object" ? rawStore.conversationProjectMap : {},
     currentProjectId: typeof rawStore.currentProjectId === "string" ? rawStore.currentProjectId : null,
   };
+}
+
+function normalizeApiUrl(serverUrl) {
+  const parsed = new URL(serverUrl);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Activation server must use http or https");
+  }
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname.replace(/\/$/, "");
+  if (!parsed.pathname.endsWith("/api")) {
+    parsed.pathname = `${parsed.pathname}/api`.replace(/\/+/g, "/");
+  }
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function parseActivationUrl(rawUrl) {
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== `${ACTIVATION_PROTOCOL}:`) {
+    return null;
+  }
+  const token = parsed.searchParams.get("token") || "";
+  const server = parsed.searchParams.get("server") || "";
+  if (!token || !server) {
+    return null;
+  }
+  return {
+    token,
+    apiUrl: normalizeApiUrl(server),
+  };
+}
+
+function applyActivationUrl(rawUrl) {
+  let activation;
+  try {
+    activation = parseActivationUrl(rawUrl);
+  } catch (error) {
+    console.warn("Invalid activation URL:", error.message);
+    return false;
+  }
+  if (!activation) {
+    return false;
+  }
+  store.set({
+    activationToken: activation.token,
+    activationApiUrl: activation.apiUrl,
+    apiUrl: activation.apiUrl,
+  });
+  if (mainWindow) {
+    mainWindow.webContents.send("activation-link", activation);
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  return true;
+}
+
+function findActivationArg(argv) {
+  return argv.find((arg) => typeof arg === "string" && arg.startsWith(`${ACTIVATION_PROTOCOL}://`)) || "";
 }
 
 function readDesktopConfig() {
@@ -183,6 +243,12 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  if (pendingActivationUrl) {
+    mainWindow.webContents.once("did-finish-load", () => {
+      applyActivationUrl(pendingActivationUrl);
+      pendingActivationUrl = "";
+    });
+  }
 }
 
 function toRealDir(rootPath) {
@@ -504,11 +570,36 @@ function applyWorkspaceChanges(previewToken) {
   return { ok: true, changedFiles };
 }
 
-app.whenReady().then(() => {
-  setupSecurity();
-  configureAutoUpdates();
-  createWindow();
-});
+const startupActivationUrl = findActivationArg(process.argv);
+if (startupActivationUrl) {
+  pendingActivationUrl = startupActivationUrl;
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const activationUrl = findActivationArg(argv);
+    if (activationUrl) {
+      applyActivationUrl(activationUrl);
+    }
+  });
+
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    if (!applyActivationUrl(url)) {
+      pendingActivationUrl = url;
+    }
+  });
+
+  app.whenReady().then(() => {
+    app.setAsDefaultProtocolClient(ACTIVATION_PROTOCOL);
+    setupSecurity();
+    configureAutoUpdates();
+    createWindow();
+  });
+}
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
@@ -537,6 +628,8 @@ ipcMain.handle("set-settings", (_, settings) => {
     ...buildRendererSettings(),
   };
 });
+
+ipcMain.handle("parse-activation-url", (_, rawUrl) => parseActivationUrl(rawUrl));
 
 ipcMain.handle("get-update-status", () => ({ ...updateStatus }));
 

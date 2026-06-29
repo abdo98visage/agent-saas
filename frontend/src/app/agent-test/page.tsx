@@ -16,7 +16,7 @@ type ChatEntry =
   | { id: string; role: "assistant"; content: string; meta: AdminAgentTestResponse };
 
 export default function AgentTestPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [message, setMessage] = useState("اعطني ردا قصيرا يثبت انك تعمل فعليا واذكر بإيجاز مهمتك.");
@@ -172,18 +172,18 @@ export default function AgentTestPage() {
                 <option value="">Select profile</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.name}>
-                    {profile.name} ({profile.slug})
+                    {safeText(profile.name)} ({safeText(profile.slug)})
                   </option>
                 ))}
               </select>
               {selectedProfileObject && (
                 <div className="flex flex-wrap gap-2 pt-1">
-                  <Badge variant="outline">{selectedProfileObject.runtime_type || "hermes"}</Badge>
+                  <Badge variant="outline">{t(selectedProfileObject.runtime_type === "direct_llm" ? "Direct Model" : "Smart Agents")}</Badge>
                   <Badge
                     variant="outline"
                     className={selectedProfileObject.hermes_sync_status === "synced" ? "text-emerald-700" : "text-amber-700"}
                   >
-                    {selectedProfileObject.hermes_sync_status || "pending"}
+                    {t(selectedProfileObject.hermes_sync_status || "pending")}
                   </Badge>
                   <Badge variant="outline">
                     {t("providers:")} {(selectedProfileObject.allowed_providers || []).join(", ") || "any"}

@@ -42,11 +42,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8002/api
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_API_ORIGIN: http://api:8000
     ports:
       - "3002:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8002/api
+      NEXT_PUBLIC_API_URL: /api
+      NEXT_PUBLIC_API_ORIGIN: http://api:8000
     depends_on:
       api:
         condition: service_healthy

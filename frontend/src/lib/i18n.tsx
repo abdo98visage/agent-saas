@@ -9,6 +9,7 @@ interface I18nContextValue {
   dir: "rtl" | "ltr";
   setLanguage: (language: Language) => void;
   t: (text: string) => string;
+  safeText: (text: string) => string;
 }
 
 const STORAGE_KEY = "admin-language";
@@ -20,6 +21,10 @@ function translateValue(language: Language, value: string) {
   }
 
   return reverseTranslations[value] || value;
+}
+
+function sanitizeProductNames(language: Language, value: string) {
+  return value.replace(/hermes|هرمز|هيرمس/gi, language === "ar" ? "الوكلاء الأذكياء" : "Smart Agents");
 }
 
 const translations: Record<string, string> = {
@@ -37,7 +42,7 @@ const translations: Record<string, string> = {
   "KPIs": "مؤشرات الأداء",
   "API Keys": "مفاتيح API",
   "Agent Tester": "مختبر الوكيل",
-  "Hermes Runtime": "تشغيل Hermes",
+  "Agent Runtime": "تشغيل الوكلاء",
   "Audit Log": "سجل التدقيق",
   "Templates": "القوالب",
   "Signed in": "تم تسجيل الدخول",
@@ -98,12 +103,27 @@ const translations: Record<string, string> = {
   "Save Changes": "حفظ التغييرات",
   "Disable this employee?": "هل تريد تعطيل هذا الموظف؟",
   "Employee created": "تم إنشاء الموظف",
+  "Activation link copied": "تم نسخ رابط التفعيل",
+  "Desktop invite copied": "تم نسخ دعوة تطبيق سطح المكتب",
+  "Desktop sharing package": "حزمة مشاركة تطبيق سطح المكتب",
+  "Employee desktop activation": "تفعيل تطبيق الدسكتوب للموظف",
+  "Copy desktop activation link": "نسخ رابط تفعيل الدسكتوب",
+  "Create and copy desktop activation link": "إنشاء ونسخ رابط تفعيل الدسكتوب",
+  "Reissue and copy desktop activation link": "إعادة إصدار ونسخ رابط تفعيل الدسكتوب",
+  "Reissuing the activation link signs the employee out of existing desktop sessions.": "إعادة إصدار الرابط تسجّل خروج الموظف من جلسات الدسكتوب الحالية.",
+  "Failed to create desktop invite": "فشل إنشاء دعوة تفعيل الدسكتوب",
+  "This employee has already activated the desktop app.": "هذا الموظف فعّل تطبيق الدسكتوب مسبقاً.",
+  "Desktop app downloads": "تحميل تطبيق الدسكتوب",
+  "The installer is shared by all employees. Activation is employee-specific.": "ملف التثبيت مشترك لكل الموظفين. التفعيل خاص بكل موظف.",
+  "Download Windows app": "تحميل تطبيق Windows",
+  "Download macOS app": "تحميل تطبيق macOS",
+  "Copy full desktop invite": "نسخ دعوة الدسكتوب كاملة",
   "Failed to create employee": "فشل إنشاء الموظف",
   "Employee updated": "تم تحديث الموظف",
   "Failed to update employee": "فشل تحديث الموظف",
   "Employee disabled": "تم تعطيل الموظف",
   "Failed to disable employee": "فشل تعطيل الموظف",
-  "Hermes Profiles": "بروفايلات Hermes",
+  "Smart Agent Profiles": "بروفايلات الوكلاء الأذكياء",
   "Manage AGENTS.md, soul, skills, and system prompts per role.": "إدارة AGENTS.md وملف soul والمهارات وتعليمات النظام لكل دور.",
   "Add Profile": "إضافة بروفايل",
   "Create Profile": "إنشاء بروفايل",
@@ -141,7 +161,7 @@ const translations: Record<string, string> = {
   "Profile sync requested": "تم طلب مزامنة الملف",
   "Failed to sync profile": "فشل مزامنة الملف",
   "Edit Profile": "تعديل الملف",
-  "Create reusable Hermes skills and attach them to profiles.": "أنشئ مهارات Hermes قابلة لإعادة الاستخدام واربطها بالبروفايلات.",
+  "Create reusable agent skills and attach them to profiles.": "أنشئ مهارات للوكلاء قابلة لإعادة الاستخدام واربطها بالبروفايلات.",
   "Add Skill": "إضافة مهارة",
   "Create Skill": "إنشاء مهارة",
   "Description": "الوصف",
@@ -160,7 +180,7 @@ const translations: Record<string, string> = {
   "Failed to delete skill": "فشل حذف المهارة",
   "Edit Skill": "تعديل المهارة",
   "Profile Assignments": "تعيينات البروفايلات",
-  "Mount employees to Hermes profiles and control priority order.": "اربط الموظفين ببروفايلات Hermes وتحكم بترتيب الأولوية.",
+  "Assign employees to smart agent profiles and control priority order.": "اربط الموظفين ببروفايلات الوكلاء الأذكياء وتحكم بترتيب الأولوية.",
   "Create Assignment": "إنشاء تعيين",
   "Assign Profile": "تعيين بروفايل",
   "Employee": "الموظف",
@@ -274,7 +294,7 @@ const translations: Record<string, string> = {
   "n/a": "غير متوفر",
   "Failed to load profiles": "فشل تحميل الملفات",
   "Agent test failed": "فشل اختبار الوكيل",
-  "Install, health-check, restart, and repair the Hermes execution layer.": "تثبيت طبقة تشغيل Hermes وفحصها وإعادة تشغيلها وإصلاحها.",
+  "Install, health-check, restart, and repair the agent execution layer.": "ثبّت طبقة تشغيل الوكلاء وافحصها وأعد تشغيلها أو إصلاحها.",
   "Check Health": "فحص الحالة",
   "Runtime": "بيئة التشغيل",
   "Installed": "مثبّت",
@@ -295,7 +315,12 @@ const translations: Record<string, string> = {
   "Run health:": "حالة التشغيل:",
   "Last sync:": "آخر مزامنة:",
   "No logs available.": "لا توجد سجلات متاحة.",
-  "Failed to load Hermes runtime status": "فشل تحميل حالة Hermes",
+  "Failed to load agent runtime status": "فشل تحميل حالة تشغيل الوكلاء",
+  "Smart Agents": "الوكلاء الأذكياء",
+  "Direct Model": "النموذج المباشر",
+  "Agent action requested": "تم طلب إجراء تشغيل الوكلاء",
+  "Agent action failed": "فشل إجراء تشغيل الوكلاء",
+  "Agent profile synchronization failed.": "فشلت مزامنة بروفايل الوكيل.",
   "requested": "تم الطلب",
   "failed": "فشل",
   "running": "يعمل",
@@ -380,12 +405,11 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   };
 
   const t = (text: string) => {
-    if (language === "en") {
-      return text;
-    }
-
-    return translations[text] || text;
+    const translated = language === "en" ? text : translations[text] || text;
+    return sanitizeProductNames(language, translated);
   };
+
+  const safeText = (text: string) => sanitizeProductNames(language, text);
 
   return (
     <I18nContext.Provider
@@ -394,6 +418,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         dir: language === "ar" ? "rtl" : "ltr",
         setLanguage,
         t,
+        safeText,
       }}
     >
       {children}

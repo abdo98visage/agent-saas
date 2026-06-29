@@ -20,6 +20,29 @@ def test_production_compose_has_private_hermes_and_nginx():
     assert "NEXT_PUBLIC_API_URL" in content
 
 
+def test_release_compose_uses_caddy_and_platform_owned_data():
+    content = (ROOT / "docker-compose.release.yml").read_text(encoding="utf-8")
+
+    assert "caddy:" in content
+    assert "80:80" in content
+    assert "443:443" in content
+    assert "hermes-runtime:" in content
+    assert "HERMES_MANAGED_EXTERNALLY: \"true\"" in content
+    assert "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/hermes/profiles:/data/hermes/profiles" in content
+    assert "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/postgres:/var/lib/postgresql/data" in content
+    assert "/var/run/docker.sock:/var/run/docker.sock" not in content
+
+
+def test_caddyfile_proxies_api_websocket_and_admin():
+    content = (ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+
+    assert "{$DOMAIN}" in content
+    assert "path /api/chat/ws/*" in content
+    assert "handle /api/*" in content
+    assert "reverse_proxy api:8000" in content
+    assert "reverse_proxy admin:3000" in content
+
+
 def test_nginx_proxies_api_and_websocket():
     content = (ROOT / "deploy" / "nginx.conf").read_text(encoding="utf-8")
 
@@ -52,6 +75,38 @@ def test_backup_restore_and_smoke_scripts_exist():
         script = ROOT / "deploy" / script_name
         assert script.exists()
         assert "docker compose" in script.read_text(encoding="utf-8") or script_name in {"verify_backup.ps1", "smoke_test.ps1", "production_readiness_check.ps1", "load_test.py"}
+
+
+def test_linux_one_command_deployment_scripts_exist():
+    for script_name in [
+        "install.sh",
+        "agentsaas.sh",
+        "production_readiness_check.sh",
+        "backup.sh",
+        "restore.sh",
+        "smoke_test.sh",
+    ]:
+        script = ROOT / "deploy" / script_name
+        assert script.exists()
+        content = script.read_text(encoding="utf-8")
+        assert "#!/usr/bin/env bash" in content
+
+    install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert "https://get.docker.com" in install
+    assert "python -m scripts.bootstrap_production" in install
+    assert "wait_for_api_health" in install
+    assert "/opt/agentsaas" in install
+
+
+def test_production_bootstrap_seeds_platform_minimax_key():
+    content = (ROOT / "scripts" / "bootstrap_production.py").read_text(encoding="utf-8")
+
+    assert "ADMIN_EMAIL" in content
+    assert "ADMIN_PASSWORD" in content
+    assert "MINIMAX_API_KEY" in content
+    assert 'owner_type="platform"' in content
+    assert 'provider="minimax"' in content
+    assert "Fernet(settings.fernet_key.encode())" in content
 
 
 def test_backup_scripts_generate_and_verify_manifest():

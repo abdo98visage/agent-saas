@@ -19,7 +19,7 @@ import { Shield, Search, Filter } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AuditPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -132,10 +132,10 @@ export default function AuditPage() {
               <TableBody>
                 {logs.map((log) => (
                   <TableRow key={log.id}>
-                    <TableCell><Badge className={actionColor(log.action)}>{log.action}</Badge></TableCell>
+                    <TableCell><Badge className={actionColor(log.action)}>{safeText(log.action)}</Badge></TableCell>
                     <TableCell className="text-sm">{log.user_id || "—"}</TableCell>
                     <TableCell className="text-sm font-mono text-xs">{log.ip_address || "—"}</TableCell>
-                    <TableCell className="text-xs max-w-xs truncate">{JSON.stringify(log.details)}</TableCell>
+                    <TableCell className="text-xs max-w-xs truncate">{safeText(JSON.stringify(log.details))}</TableCell>
                     <TableCell className="text-right text-xs text-muted-foreground">{formatRiyadhDateTime(log.created_at)}</TableCell>
                   </TableRow>
                 ))}

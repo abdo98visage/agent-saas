@@ -38,8 +38,8 @@ class AlertService:
                     AlertCandidate(
                         alert_type="hermes_runtime",
                         severity="critical",
-                        title="Hermes runtime is unhealthy",
-                        message="Hermes runtime or orchestrator is unreachable or unhealthy.",
+                        title="Agent runtime is unhealthy",
+                        message="The agent runtime is unreachable or unhealthy.",
                         fingerprint="hermes_runtime",
                         context=hermes,
                     )
@@ -49,8 +49,8 @@ class AlertService:
                 AlertCandidate(
                     alert_type="hermes_runtime",
                     severity="critical",
-                    title="Hermes runtime check failed",
-                    message="Hermes runtime status check raised an exception.",
+                    title="Agent runtime check failed",
+                    message="The agent runtime status check raised an exception.",
                     fingerprint="hermes_runtime",
                     context={"error": str(exc)},
                 )
@@ -66,7 +66,7 @@ class AlertService:
                     alert_type="profile_sync",
                     severity="warning",
                     title="Profile sync issues detected",
-                    message=f"{failed_profile_syncs_count} Hermes profiles need sync attention.",
+                    message=f"{failed_profile_syncs_count} agent profiles need sync attention.",
                     fingerprint="profile_sync",
                     context={"count": failed_profile_syncs_count},
                 )

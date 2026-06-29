@@ -34,7 +34,7 @@ const navItems = [
   { href: "/kpis", label: "KPIs", icon: BarChart3 },
   { href: "/api-keys", label: "API Keys", icon: Key },
   { href: "/agent-test", label: "Agent Tester", icon: FlaskConical },
-  { href: "/hermes", label: "Hermes Runtime", icon: ServerCog },
+  { href: "/agent-runtime", label: "Agent Runtime", icon: ServerCog },
   { href: "/audit", label: "Audit Log", icon: Shield },
   { href: "/templates", label: "Templates", icon: BookOpen },
 ];

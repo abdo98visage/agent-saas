@@ -31,12 +31,12 @@ HERMES_PUBLISH_PORT = os.getenv("HERMES_PUBLISH_PORT", "false").lower() == "true
 HERMES_REQUEST_TIMEOUT_SECONDS = float(os.getenv("HERMES_REQUEST_TIMEOUT_SECONDS", "300"))
 HERMES_MANAGED_EXTERNALLY = os.getenv("HERMES_MANAGED_EXTERNALLY", "false").lower() == "true"
 
-app = FastAPI(title="AgentSaaS Hermes Orchestrator", version="0.1.0")
+app = FastAPI(title="AgentSaaS Agent Orchestrator", version="0.1.0")
 
 
 def _authorize(secret: str | None) -> None:
     if ORCHESTRATOR_REQUIRE_SECRET and not ORCHESTRATOR_SECRET:
-        raise HTTPException(status_code=503, detail="Hermes orchestrator secret is not configured")
+        raise HTTPException(status_code=503, detail="Agent orchestrator secret is not configured")
     if ORCHESTRATOR_SECRET and secret != ORCHESTRATOR_SECRET:
         raise HTTPException(status_code=403, detail="Invalid orchestrator secret")
 
@@ -189,7 +189,7 @@ async def logs(
         return {
             "status": "managed_externally",
             "logs": [],
-            "message": "Hermes runtime is managed by the container platform; use platform logs for runtime output.",
+            "message": "The agent runtime is managed by the container platform; use platform logs for runtime output.",
             "health": health,
             "limit": limit,
         }
@@ -305,9 +305,9 @@ async def run_agent(payload: dict[str, Any], x_hermes_orchestrator_secret: str |
             response.raise_for_status()
             return _normalize_run_result(response.json())
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"Hermes run failed: {exc.response.text}") from exc
+        raise HTTPException(status_code=502, detail=f"Agent run failed: {exc.response.text}") from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Hermes runtime unavailable: {exc}") from exc
+        raise HTTPException(status_code=503, detail=f"Agent runtime unavailable: {exc}") from exc
 
 
 @app.post("/runs/stream")

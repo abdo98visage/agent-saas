@@ -42,7 +42,7 @@ interface SessionDetail {
 }
 
 export default function SessionsPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
@@ -168,9 +168,9 @@ export default function SessionsPage() {
               <TableBody>
                 {sessions.map((session) => (
                   <TableRow key={session.id}>
-                    <TableCell className="font-medium max-w-[200px] truncate">{session.title || t("Untitled")}</TableCell>
+                    <TableCell className="font-medium max-w-[200px] truncate">{safeText(session.title || t("Untitled"))}</TableCell>
                     <TableCell className="text-xs font-mono max-w-[150px] truncate">{session.user_id}</TableCell>
-                    <TableCell>{session.profile_name || <Badge variant="secondary">{t("default")}</Badge>}</TableCell>
+                    <TableCell>{session.profile_name ? safeText(session.profile_name) : <Badge variant="secondary">{t("default")}</Badge>}</TableCell>
                     <TableCell className="text-xs">{formatRiyadhDateTime(session.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" onClick={() => viewSession(session.id)}>
@@ -214,7 +214,7 @@ export default function SessionsPage() {
                     </Badge>
                     <span className="text-xs text-muted-foreground">{formatRiyadhDateTime(message.created_at)}</span>
                   </div>
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  <p className="text-sm whitespace-pre-wrap">{safeText(message.content)}</p>
                 </div>
               ))}
             </div>

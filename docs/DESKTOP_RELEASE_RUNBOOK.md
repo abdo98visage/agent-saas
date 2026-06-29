@@ -122,6 +122,13 @@ cd desktop
 npm run build:release:mac
 ```
 
+The repository also includes `.github/workflows/desktop-macos-release.yml`.
+Run it manually with the public API URL, or push a `v*` tag after configuring
+the `DESKTOP_API_URL` repository variable. Tagged builds attach the universal
+DMG and ZIP to the GitHub release. Configure
+`NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL` while building the admin image to point
+the employee-page download button at that published DMG.
+
 Note:
 
 - `dmg` creation should be executed on a macOS build machine

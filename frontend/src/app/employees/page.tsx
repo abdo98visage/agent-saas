@@ -18,7 +18,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { adminApi, type Employee, type EmployeeCreatePayload, type EmployeeUpdatePayload } from "@/lib/api/agentService";
 import { toast } from "sonner";
-import { Trash2, Edit, UserPlus, Users, UserCheck, UserX } from "lucide-react";
+import { Trash2, Edit, UserPlus, Users, UserCheck, UserX, Copy, Download } from "lucide-react";
 import { getErrorMessage } from "@/lib/api/errors";
 import { useI18n } from "@/lib/i18n";
 
@@ -29,6 +29,7 @@ export default function EmployeesPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
+  const [editDesktopInviteLink, setEditDesktopInviteLink] = useState("");
   const [formData, setFormData] = useState<EmployeeCreatePayload>({
     email: "",
     full_name: "",
@@ -45,6 +46,24 @@ export default function EmployeesPage() {
     max_tokens_per_day: 50000,
     max_requests_per_day: 200,
   });
+
+  const getDownloadUrl = (platform: "windows" | "mac") => {
+    const configured =
+      platform === "windows"
+        ? process.env.NEXT_PUBLIC_DESKTOP_WINDOWS_DOWNLOAD_URL
+        : process.env.NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL;
+
+    if (configured) {
+      return configured;
+    }
+
+    const file =
+      platform === "windows"
+        ? "FQ-SaaS Workspace Setup 1.0.0.exe"
+        : "FQ-SaaS Workspace-1.0.0-universal.dmg";
+
+    return `/downloads/${encodeURIComponent(file)}`;
+  };
 
   const load = async () => {
     const response = await adminApi.getEmployees();
@@ -89,6 +108,34 @@ export default function EmployeesPage() {
     }
   };
 
+  const buildActivationLink = (inviteToken: string) => {
+    if (typeof window === "undefined") return "";
+    const server = window.location.origin;
+    return `fqsaas://activate?server=${encodeURIComponent(server)}&token=${encodeURIComponent(inviteToken)}`;
+  };
+
+  const createAndCopyDesktopInvite = async () => {
+    if (!editEmployee) return;
+
+    try {
+      const response = await adminApi.createDesktopInvite(editEmployee.id);
+      const inviteToken = response.data.invite_token;
+      const activationLink = buildActivationLink(inviteToken);
+      setEditDesktopInviteLink(activationLink);
+      await navigator.clipboard.writeText(activationLink);
+      toast.success(t("Activation link copied"));
+      await load();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t("Failed to create desktop invite")));
+    }
+  };
+
+  const copyEditDesktopInvite = async () => {
+    if (!editDesktopInviteLink) return;
+    await navigator.clipboard.writeText(editDesktopInviteLink);
+    toast.success(t("Activation link copied"));
+  };
+
   const handleEdit = (employee: Employee) => {
     setEditEmployee(employee);
     setEditFormData({
@@ -99,6 +146,7 @@ export default function EmployeesPage() {
       max_tokens_per_day: employee.max_tokens_per_day,
       max_requests_per_day: employee.max_requests_per_day,
     });
+    setEditDesktopInviteLink("");
     setShowEditDialog(true);
   };
 
@@ -304,6 +352,31 @@ export default function EmployeesPage() {
         </CardContent>
       </Card>
 
+      <Card className="kos-card">
+        <CardContent className="pt-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold">{t("Desktop app downloads")}</p>
+              <p className="text-sm text-muted-foreground">{t("The installer is shared by all employees. Activation is employee-specific.")}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button type="button" variant="outline" asChild>
+                <a href={getDownloadUrl("windows")} download>
+                  <Download className="mr-2 h-4 w-4" />
+                  {t("Download Windows app")}
+                </a>
+              </Button>
+              <Button type="button" variant="outline" asChild>
+                <a href={getDownloadUrl("mac")} download>
+                  <Download className="mr-2 h-4 w-4" />
+                  {t("Download macOS app")}
+                </a>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent>
           <DialogHeader>
@@ -368,6 +441,30 @@ export default function EmployeesPage() {
             <Button className="w-full kos-gradient-btn text-white" onClick={handleUpdate}>
               {t("Save Changes")}
             </Button>
+            <div className="space-y-2 rounded-md border p-3">
+              <Label>{t("Employee desktop activation")}</Label>
+              {editEmployee?.is_activated && (
+                <p className="text-sm text-muted-foreground">
+                  {t("Reissuing the activation link signs the employee out of existing desktop sessions.")}
+                </p>
+              )}
+              <Button type="button" className="w-full" variant="secondary" onClick={createAndCopyDesktopInvite}>
+                <Copy className="mr-2 h-4 w-4" />
+                {editEmployee?.is_activated
+                  ? t("Reissue and copy desktop activation link")
+                  : editEmployee?.has_invite_token
+                    ? t("Copy desktop activation link")
+                    : t("Create and copy desktop activation link")}
+              </Button>
+              {editDesktopInviteLink && (
+                <div className="flex gap-2">
+                  <Input value={editDesktopInviteLink} readOnly className="kos-input text-xs" />
+                  <Button type="button" variant="outline" size="icon" onClick={copyEditDesktopInvite}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

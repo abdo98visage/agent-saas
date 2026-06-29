@@ -1310,7 +1310,7 @@
             </select>
         </div>
         <div class="mb-3">
-            <label class="form-label">بروفايل Hermes</label>
+            <label class="form-label">بروفايل الوكيل الذكي</label>
             <label class="form-label">اللغة</label>
             <select class="form-select form-select-sm mb-3" id="setting-language">
                 <option value="ar">العربية</option>
@@ -1670,7 +1670,7 @@
             if (state.currentUser?.email) {
                 metaParts.push(state.currentUser.email);
             }
-            metaParts.push(`Hermes: ${selectedProfile}`);
+            metaParts.push(`الوكيل الذكي: ${selectedProfile}`);
 
             if (els.employeeName) {
                 els.employeeName.textContent = employeeName;
@@ -1806,6 +1806,33 @@
             }
             return data;
         }
+
+        function applyActivationSettings(settings = state.settings) {
+            const activationApiUrl = settings.activationApiUrl || settings.apiUrl || "http://localhost:8002/api";
+            const activationToken = settings.activationToken || "";
+            const apiInput = document.getElementById("act-api-url");
+            const tokenInput = document.getElementById("act-token");
+            if (apiInput) {
+                apiInput.value = activationApiUrl;
+            }
+            if (tokenInput && activationToken && !tokenInput.value) {
+                tokenInput.value = activationToken;
+            }
+            if (activationToken && !settings.token) {
+                document.getElementById("activation-panel").style.display = "flex";
+                document.getElementById("act-status").innerHTML = "<span class=\"text-info\">Activation link loaded. Set a password to finish activation.</span>";
+            }
+        }
+
+        window.electronAPI.onActivationLink?.((activation) => {
+            state.settings = {
+                ...state.settings,
+                apiUrl: activation.apiUrl,
+                activationApiUrl: activation.apiUrl,
+                activationToken: activation.token,
+            };
+            applyActivationSettings(state.settings);
+        });
 
         function escapeHtml(text) {
             const div = document.createElement("div");
@@ -1968,6 +1995,7 @@
             state.settings = await window.electronAPI.getSettings();
             ensureUiSettings();
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
+            applyActivationSettings(state.settings);
             els.settingToken.value = state.settings.token || "";
             els.settingTemplate.value = state.settings.template || "default";
             state.projects = normalizeProjects(state.settings.projects);
@@ -2792,7 +2820,7 @@
                     return;
                 }
 
-                const summary = data.summary || "Hermes proposed workspace changes.";
+                const summary = data.summary || "The smart agent proposed workspace changes.";
                 const details = [
                     summary,
                     `Operations: ${preview.summary.totalOperations || 0}`,
@@ -2852,11 +2880,11 @@
                     break;
                 }
                 case "tool_request":
-                    appendSystemMessage(`Hermes requested local tool: ${data.tool}`);
+                    appendSystemMessage(`The smart agent requested local tool: ${data.tool}`);
                     void executeToolRequest(data);
                     break;
                 case "approval_required":
-                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    appendSystemMessage(data.summary || data.title || "The smart agent requested approval for local changes.");
                     break;
                 case "apply_request":
                     void executeApplyRequest(data);
@@ -3146,11 +3174,11 @@
                     break;
                 }
                 case "tool_request":
-                    appendSystemMessage(`Hermes requested local tool: ${data.tool}`);
+                    appendSystemMessage(`The smart agent requested local tool: ${data.tool}`);
                     void executeToolRequest(data);
                     break;
                 case "approval_required":
-                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    appendSystemMessage(data.summary || data.title || "The smart agent requested approval for local changes.");
                     break;
                 case "apply_request":
                     void executeApplyRequest(data);
@@ -3594,6 +3622,8 @@
                     ...state.settings,
                     apiUrl,
                     token: data.access_token,
+                    activationApiUrl: "",
+                    activationToken: "",
                     template: "default",
                 });
 
@@ -3846,6 +3876,7 @@
             state.settings = await window.electronAPI.getSettings();
             ensureUiSettings();
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
+            applyActivationSettings(state.settings);
             els.settingToken.value = state.settings.token || "";
             els.settingTemplate.value = state.settings.template || "default";
             els.settingLanguage && (els.settingLanguage.value = state.settings.locale || "ar");
@@ -4031,11 +4062,11 @@
                     break;
                 }
                 case "tool_request":
-                    appendSystemMessage(`Hermes requested local tool: ${data.tool}`);
+                    appendSystemMessage(`The smart agent requested local tool: ${data.tool}`);
                     void executeToolRequest(data);
                     break;
                 case "approval_required":
-                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    appendSystemMessage(data.summary || data.title || "The smart agent requested approval for local changes.");
                     break;
                 case "apply_request":
                     void executeApplyRequest(data);
@@ -4420,6 +4451,7 @@
             ensureUiSettings();
             ensureConversationTitleState();
             els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
+            applyActivationSettings(state.settings);
             els.settingToken.value = state.settings.token || "";
             els.settingTemplate.value = state.settings.template || "default";
             els.settingLanguage && (els.settingLanguage.value = state.settings.locale || "ar");

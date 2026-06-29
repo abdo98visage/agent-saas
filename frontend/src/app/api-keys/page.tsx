@@ -41,7 +41,7 @@ interface ProfileOption {
 }
 
 export default function ApiKeysPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [profiles, setProfiles] = useState<ProfileOption[]>([]);
@@ -257,7 +257,7 @@ export default function ApiKeysPage() {
                   <option value="">Select profile</option>
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {profile.name} ({profile.slug}) - {profile.hermes_sync_status || "pending"}
+                      {safeText(profile.name)} ({safeText(profile.slug)}) - {t(profile.hermes_sync_status || "pending")}
                     </option>
                   ))}
                 </select>

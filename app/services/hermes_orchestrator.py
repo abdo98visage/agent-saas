@@ -29,7 +29,7 @@ class HermesOrchestratorClient:
 
     async def _request(self, method: str, path: str, json: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         if not self.configured:
-            raise HermesOrchestratorUnavailable("Hermes orchestrator URL is not configured")
+            raise HermesOrchestratorUnavailable("Agent orchestrator URL is not configured")
         async with httpx.AsyncClient(timeout=settings.hermes_request_timeout_seconds) as client:
             response = await client.request(
                 method,
@@ -51,7 +51,7 @@ class HermesOrchestratorClient:
                 "last_sync_status": None,
                 "queue_health": "unknown",
                 "run_health": "unknown",
-                "message": "Set HERMES_ORCHESTRATOR_URL to enable zero-terminal runtime control.",
+                "message": "Configure the agent orchestrator URL to enable runtime control.",
             }
         return await self._request("GET", "/status")
 
@@ -62,7 +62,7 @@ class HermesOrchestratorClient:
 
     async def lifecycle(self, action: str) -> dict[str, Any]:
         if action not in {"install", "start", "restart", "stop", "repair-sync"}:
-            raise ValueError(f"Unsupported Hermes lifecycle action: {action}")
+            raise ValueError(f"Unsupported agent lifecycle action: {action}")
         return await self._request("POST", f"/{action}")
 
     async def sync_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -76,7 +76,7 @@ class HermesOrchestratorClient:
 
     async def run_agent_stream(self, payload: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         if not self.configured:
-            raise HermesOrchestratorUnavailable("Hermes orchestrator URL is not configured")
+            raise HermesOrchestratorUnavailable("Agent orchestrator URL is not configured")
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST",
@@ -94,7 +94,7 @@ class HermesOrchestratorClient:
                         line = line[6:]
                     event = json.loads(line)
                     if event.get("type") == "error":
-                        raise HermesOrchestratorUnavailable(event.get("error") or event.get("detail") or "Hermes stream failed")
+                        raise HermesOrchestratorUnavailable(event.get("error") or event.get("detail") or "Agent stream failed")
                     yield event
 
 

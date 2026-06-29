@@ -1,6 +1,7 @@
 from uuid import UUID
 from typing import Optional
 from datetime import date, datetime, timedelta
+import secrets
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
@@ -136,6 +137,16 @@ async def _ensure_valid_skill_slugs(db: AsyncSession, skill_slugs: list[str]) ->
 
 # ==================== EMPLOYEES ====================
 
+def _issue_invite_token(user: User, *, revoke_existing_sessions: bool = False) -> str:
+    invite_token = secrets.token_urlsafe(48)
+    user.invite_token = invite_token
+    user.invite_token_expires_at = datetime.utcnow() + timedelta(hours=settings.invite_token_ttl_hours)
+    user.is_active = False
+    user.is_activated = False
+    if revoke_existing_sessions:
+        user.token_version = int(user.token_version or 0) + 1
+    return invite_token
+
 @router.get("/employees")
 async def list_employees(
     department: Optional[str] = None,
@@ -170,13 +181,9 @@ async def create_employee(
     req: EmployeeCreate, db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
-    import secrets
     result = await db.execute(select(User).where(User.email == req.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
-
-    invite_token = secrets.token_urlsafe(48)
-    invite_token_expires_at = datetime.utcnow() + timedelta(hours=settings.invite_token_ttl_hours)
 
     user = User(
         email=req.email,
@@ -186,11 +193,10 @@ async def create_employee(
         role=req.role,
         is_active=False,
         is_activated=False,
-        invite_token=invite_token,
-        invite_token_expires_at=invite_token_expires_at,
         max_tokens_per_day=req.max_tokens_per_day,
         max_requests_per_day=req.max_requests_per_day,
     )
+    invite_token = _issue_invite_token(user)
     db.add(user)
     await db.flush()
     audit = AuditLog(user_id=str(admin.id), action="add_employee",
@@ -200,6 +206,39 @@ async def create_employee(
         "id": str(user.id), "email": user.email,
         "invite_token": invite_token,
         "message": "Employee created. Share invite token for activation."
+    }
+
+
+@router.post("/employees/{user_id}/desktop-invite")
+async def create_desktop_invite(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    result = await db.execute(select(User).where(User.id == user_id, User.role == "employee"))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    was_activated = user.is_activated
+    invite_token = _issue_invite_token(user, revoke_existing_sessions=was_activated)
+    audit = AuditLog(
+        user_id=str(admin.id),
+        action="create_desktop_invite",
+        details={
+            "user_id": str(user_id),
+            "email": user.email,
+            "was_activated": was_activated,
+            "revoked_existing_sessions": was_activated,
+        },
+    )
+    db.add(audit)
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "invite_token": invite_token,
+        "invite_token_expires_at": str(user.invite_token_expires_at),
+        "message": "Desktop activation invite created.",
     }
 
 
@@ -1782,7 +1821,7 @@ async def get_dashboard_stats(
         alerts.append({
             "type": "hermes_runtime",
             "level": "critical",
-            "message": "Hermes runtime is unhealthy or unreachable.",
+            "message": "Agent runtime is unhealthy or unreachable.",
         })
     if failed_profile_syncs:
         alerts.append({

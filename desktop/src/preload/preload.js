@@ -16,5 +16,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   applyWorkspaceChanges: (previewToken) => ipcRenderer.invoke("apply-workspace-changes", previewToken),
   getUpdateStatus: () => ipcRenderer.invoke("get-update-status"),
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  parseActivationUrl: (url) => ipcRenderer.invoke("parse-activation-url", url),
+  onActivationLink: (callback) => {
+    ipcRenderer.removeAllListeners("activation-link");
+    ipcRenderer.on("activation-link", (_event, activation) => callback(activation));
+  },
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });

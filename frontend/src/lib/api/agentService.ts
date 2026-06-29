@@ -228,6 +228,9 @@ export const adminApi = {
   disableEmployee: (userId: string) =>
     apiClient.delete(`/admin/employees/${userId}`),
 
+  createDesktopInvite: (userId: string) =>
+    apiClient.post(`/admin/employees/${userId}/desktop-invite`),
+
   updateQuotas: (userId: string, data: { max_tokens_per_day: number; max_requests_per_day: number }) =>
     apiClient.put(`/admin/employees/${userId}/quotas`, data),
 

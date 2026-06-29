@@ -72,7 +72,7 @@ const statColors = [
 ];
 
 export default function DashboardPage() {
-  const { language, t } = useI18n();
+  const { language, t, safeText } = useI18n();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -386,8 +386,8 @@ export default function DashboardPage() {
               {alerts.map((alert) => (
                 <div key={alert.id} className="flex items-start justify-between gap-4 p-3 rounded-xl border border-red-100 bg-red-50/40">
                   <div>
-                    <p className="font-semibold">{alert.title}</p>
-                    <p className="text-sm text-muted-foreground">{alert.message}</p>
+                    <p className="font-semibold">{safeText(alert.title)}</p>
+                    <p className="text-sm text-muted-foreground">{safeText(alert.message)}</p>
                   </div>
                   <Badge variant="outline" className={alert.severity === "critical" ? "border-red-400 text-red-700" : "border-amber-400 text-amber-700"}>
                     {t(alert.severity)}

@@ -22,7 +22,7 @@ MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3-14b")
 
-app = FastAPI(title="AgentSaaS Hermes Runtime", version="0.2.0")
+app = FastAPI(title="AgentSaaS Agent Runtime", version="0.2.0")
 
 
 @app.get("/health")
@@ -262,7 +262,7 @@ def _run_hermes(payload: dict[str, Any]) -> str:
         check=False,
     )
     if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip() or "Unknown Hermes runtime failure"
+        error = result.stderr.strip() or result.stdout.strip() or "Unknown agent runtime failure"
         raise RuntimeError(error)
     return _extract_response_text(result.stdout)
 

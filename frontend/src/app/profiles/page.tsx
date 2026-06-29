@@ -35,7 +35,7 @@ const buildSkillOptions = (catalogSkills: SkillDefinition[], selectedSkills: str
 };
 
 export default function ProfilesPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,7 +219,7 @@ export default function ProfilesPage() {
     <div className="p-8 space-y-6 kos-animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Hermes Profiles")}</h1>
+          <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Smart Agent Profiles")}</h1>
           <p className="text-muted-foreground mt-1">{t("Manage AGENTS.md, soul, skills, and system prompts per role.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -325,8 +325,8 @@ export default function ProfilesPage() {
                   <div className="card-gradient-top" />
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg">{profile.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground mt-1">{profile.slug}</p>
+                      <CardTitle className="text-lg">{safeText(profile.name)}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-1">{safeText(profile.slug)}</p>
                     </div>
                     <Badge
                       variant={profile.is_active ? "default" : "secondary"}
@@ -338,18 +338,18 @@ export default function ProfilesPage() {
                   <CardContent className="space-y-3">
                     <p className="text-sm">{profile.soul_md || "—"}</p>
                     <div className="flex flex-wrap gap-2 text-xs">
-                      <Badge variant="outline">{profile.runtime_type || "hermes"}</Badge>
+                      <Badge variant="outline">{t(profile.runtime_type === "direct_llm" ? "Direct Model" : "Smart Agents")}</Badge>
                       <Badge
                         variant="outline"
                         className={profile.hermes_sync_status === "synced" ? "text-emerald-700 border-emerald-200" : "text-amber-700 border-amber-200"}
                       >
-                        {profile.hermes_sync_status || "pending"}
+                        {t(profile.hermes_sync_status || "pending")}
                       </Badge>
                       {profile.version && <Badge variant="outline">v{profile.version}</Badge>}
                     </div>
                     {profile.hermes_sync_error && (
                       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md p-2">
-                        {profile.hermes_sync_error}
+                        {t("Agent profile synchronization failed.")}
                       </p>
                     )}
                     <div>

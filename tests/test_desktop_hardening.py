@@ -86,6 +86,23 @@ def test_desktop_has_update_feed_hook():
     assert "Desktop release API URL still points to localhost." in open("desktop/scripts/release-check.js", encoding="utf-8").read()
 
 
+def test_desktop_supports_generic_activation_links():
+    with open("desktop/src/main/main.js", encoding="utf-8") as file:
+        main_content = file.read()
+    with open("desktop/src/preload/preload.js", encoding="utf-8") as file:
+        preload_content = file.read()
+    with open("desktop/src/renderer/index.html", encoding="utf-8") as file:
+        renderer_content = file.read()
+
+    assert "ACTIVATION_PROTOCOL = \"fqsaas\"" in main_content
+    assert "setAsDefaultProtocolClient(ACTIVATION_PROTOCOL)" in main_content
+    assert "parseActivationUrl" in main_content
+    assert "activationToken" in main_content
+    assert "onActivationLink" in preload_content
+    assert "applyActivationSettings" in renderer_content
+    assert "activationApiUrl" in renderer_content
+
+
 def test_desktop_main_process_has_local_cowork_tools():
     with open("desktop/src/main/main.js", encoding="utf-8") as file:
         content = file.read()

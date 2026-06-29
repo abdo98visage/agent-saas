@@ -117,7 +117,7 @@ export default function SkillsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Skills")}</h1>
-          <p className="text-muted-foreground mt-1">{t("Create reusable Hermes skills and attach them to profiles.")}</p>
+          <p className="text-muted-foreground mt-1">{t("Create reusable agent skills and attach them to profiles.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>

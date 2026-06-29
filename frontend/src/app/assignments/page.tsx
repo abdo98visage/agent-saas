@@ -15,7 +15,7 @@ import { getErrorMessage } from "@/lib/api/errors";
 import { useI18n } from "@/lib/i18n";
 
 export default function AssignmentsPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [assignments, setAssignments] = useState<ProfileAssignment[]>([]);
   const [users, setUsers] = useState<Employee[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -102,7 +102,7 @@ export default function AssignmentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight kos-gradient-text">{t("Profile Assignments")}</h1>
-          <p className="text-muted-foreground mt-1">{t("Mount employees to Hermes profiles and control priority order.")}</p>
+          <p className="text-muted-foreground mt-1">{t("Assign employees to smart agent profiles and control priority order.")}</p>
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
@@ -141,7 +141,7 @@ export default function AssignmentsPage() {
                   <option value="">{t("Select profile...")}</option>
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {profile.name}
+                      {safeText(profile.name)}
                     </option>
                   ))}
                 </select>
@@ -230,19 +230,19 @@ export default function AssignmentsPage() {
                         <Bot className="h-5 w-5 text-purple-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium">{getProfileName(assignment.profile_id)}</p>
+                        <p className="text-sm font-medium">{safeText(getProfileName(assignment.profile_id))}</p>
                         <Badge variant="secondary" className="text-xs kos-badge-purple">
                           {t("Priority")}: {assignment.priority}
                         </Badge>
                         <div className="flex flex-wrap gap-1 mt-1">
                           <Badge variant="outline" className="text-[10px]">
-                            {assignment.profile_runtime_type || "hermes"}
+                            {t(assignment.profile_runtime_type === "direct_llm" ? "Direct Model" : "Smart Agents")}
                           </Badge>
                           <Badge
                             variant="outline"
                             className={assignment.profile_sync_status === "synced" ? "text-[10px] text-emerald-700" : "text-[10px] text-amber-700"}
                           >
-                            {assignment.profile_sync_status || "pending"}
+                            {t(assignment.profile_sync_status || "pending")}
                           </Badge>
                           {assignment.profile_provider_key_id ? (
                             <Badge variant="outline" className="text-[10px] text-emerald-700">{t("key ready")}</Badge>

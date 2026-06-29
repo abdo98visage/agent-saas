@@ -273,7 +273,7 @@ async def _run_cowork_loop(
                 request_id = result.get("request_id") or str(uuid4())
                 tool_name = result.get("tool") or ""
                 if tool_name not in READ_ONLY_COWORK_TOOLS:
-                    raise RuntimeError(f"Unsupported cowork tool requested by Hermes: {tool_name}")
+                    raise RuntimeError(f"Unsupported cowork tool requested by the smart agent: {tool_name}")
                 tool_event = {
                     "type": "tool_request",
                     "request_id": request_id,
@@ -304,7 +304,7 @@ async def _run_cowork_loop(
                     "type": "approval_required",
                     "request_id": request_id,
                     "title": "Apply proposed workspace changes?",
-                    "summary": result.get("summary") or "Hermes proposed local workspace changes.",
+                    "summary": result.get("summary") or "The smart agent proposed local workspace changes.",
                 }
                 await websocket.send_json(approval_event)
                 apply_event = {

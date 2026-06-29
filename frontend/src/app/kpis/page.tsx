@@ -47,7 +47,7 @@ function currentMonthValue() {
 }
 
 export default function KPIsPage() {
-  const { t } = useI18n();
+  const { t, safeText } = useI18n();
   const [kpis, setKpis] = useState<KPI[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -145,7 +145,7 @@ export default function KPIsPage() {
               <option value="">{t("All agents")}</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name}
+                  {safeText(profile.name)}
                 </option>
               ))}
             </select>
@@ -270,8 +270,8 @@ export default function KPIsPage() {
                   {(usageReport?.profiles || []).map((row) => (
                     <tr key={row.profile_id || "unassigned"} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                       <td className="py-2 px-3">
-                        <div className="font-medium">{row.profile_name}</div>
-                        <div className="text-xs text-muted-foreground">{row.profile_slug || t("unassigned")}</div>
+                        <div className="font-medium">{safeText(row.profile_name)}</div>
+                        <div className="text-xs text-muted-foreground">{safeText(row.profile_slug || t("unassigned"))}</div>
                       </td>
                       <td className="py-2 px-3">{row.runs}</td>
                       <td className="py-2 px-3">{row.input_tokens.toLocaleString()}</td>
@@ -310,7 +310,7 @@ export default function KPIsPage() {
                       </div>
                       <Badge variant="outline">
                         <Bot className="mr-1 h-3 w-3" />
-                        {row.profile_name}
+                        {safeText(row.profile_name)}
                       </Badge>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm">

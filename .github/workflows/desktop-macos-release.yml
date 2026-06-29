@@ -1,0 +1,72 @@
+name: Build macOS desktop app
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: Public API URL embedded as the initial desktop server
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      API_URL: ${{ inputs.api_url || vars.DESKTOP_API_URL }}
+      UPDATE_FEED_URL: ${{ vars.DESKTOP_UPDATE_FEED_URL }}
+      CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Validate release URL
+        run: |
+          if [[ -z "$API_URL" || "$API_URL" == *localhost* || "$API_URL" == *127.0.0.1* ]]; then
+            echo "Set a public API_URL using the workflow input or DESKTOP_API_URL repository variable."
+            exit 1
+          fi
+
+      - name: Configure desktop API
+        run: node -e 'const fs=require("fs");fs.writeFileSync("desktop-config.json",JSON.stringify({apiUrl:process.env.API_URL},null,2)+"\n")'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build universal DMG and ZIP
+        run: npm run build:release:mac
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fq-saas-workspace-macos
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*-mac.zip
+          if-no-files-found: error
+
+      - name: Attach artifacts to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/*.dmg
+            desktop/dist/*-mac.zip

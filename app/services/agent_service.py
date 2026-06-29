@@ -201,7 +201,7 @@ class AgentService:
             raise RuntimeError(f"Provider {settings.llm_provider} is not allowed for this profile")
         if profile.runtime_type == "hermes" and profile.hermes_sync_status != "synced":
             raise RuntimeError(
-                f"Hermes profile is not ready: {profile.hermes_sync_status or 'pending'}"
+                f"Agent profile is not ready: {profile.hermes_sync_status or 'pending'}"
             )
 
     async def _enforce_profile_request_limit(self, db: AsyncSession, profile: Optional[Profile]) -> None:

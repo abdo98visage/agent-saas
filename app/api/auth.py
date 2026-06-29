@@ -231,7 +231,7 @@ async def get_assigned_profiles(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List active Hermes profiles assigned to the current employee."""
+    """List active smart-agent profiles assigned to the current employee."""
     result = await db.execute(
         select(ProfileUser, Profile)
         .join(Profile, Profile.id == ProfileUser.profile_id)

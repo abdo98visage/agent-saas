@@ -267,8 +267,9 @@ def main() -> int:
     employee = ApiClient(args.api_url, timeout_seconds=args.request_timeout)
 
     state: dict[str, Any] = {
-        "profile_name": f"QA Hermes {suffix}",
-        "profile_slug": f"qa-hermes-{suffix}",
+        "profile_name": f"QA Smart Agent {suffix}",
+        "profile_slug": f"qa-smart-agent-{suffix}",
+        "skill_slug": f"qa-validation-{suffix}",
         "employee_email": f"qa-{suffix}@example.com",
         "chat_id": 900000000 + int.from_bytes(os.urandom(2), "big"),
     }
@@ -350,6 +351,32 @@ def main() -> int:
             },
         )
 
+    def admin_skill_crud() -> None:
+        created = admin.request(
+            "POST",
+            "/api/admin/skills",
+            {
+                "name": f"QA Validation {suffix}",
+                "slug": state["skill_slug"],
+                "description": "Reusable end-to-end validation skill.",
+                "instructions_md": "Validate the requested workflow and return a concise result.",
+                "is_active": True,
+            },
+            expected=201,
+        )
+        state["skill_id"] = created["id"]
+        updated = admin.request(
+            "PUT",
+            f"/api/admin/skills/{state['skill_id']}",
+            {"description": "Updated reusable end-to-end validation skill."},
+        )
+        assert_true(updated.get("description", "").startswith("Updated"), "Skill update did not persist")
+        listed = admin.request("GET", "/api/admin/skills?include_inactive=true")
+        assert_true(
+            any(skill["id"] == state["skill_id"] for skill in listed.get("skills", [])),
+            "Skill not listed",
+        )
+
     def profile_key_employee_assignment_flow() -> None:
         profile = admin.request(
             "POST",
@@ -358,9 +385,9 @@ def main() -> int:
                 "name": state["profile_name"],
                 "slug": state["profile_slug"],
                 "runtime_type": "hermes",
-                "agents_md": "# QA Hermes\nValidate Docker execution.",
+                "agents_md": "# QA Smart Agent\nValidate Docker execution.",
                 "soul_md": "Reliable QA assistant.",
-                "skills": ["qa", "docker"],
+                "skills": [state["skill_slug"]],
                 "system_prompt": "Respond concisely for Docker validation.",
                 "max_tokens_per_day": 100000,
                 "max_requests_per_day": 1000,
@@ -376,7 +403,7 @@ def main() -> int:
         update = admin.request(
             "PUT",
             f"/api/admin/profiles/{state['profile_id']}",
-            {"skills": ["qa", "docker", "streaming"], "system_prompt": "Updated Docker validation prompt."},
+            {"skills": [state["skill_slug"]], "system_prompt": "Updated Docker validation prompt."},
         )
         assert_true(update.get("hermes_sync_status") == "synced", f"Profile update did not sync: {update}")
         sync = admin.request("POST", f"/api/admin/profiles/{state['profile_id']}/sync")
@@ -558,8 +585,9 @@ def main() -> int:
     tests = [
         ("public health and admin frontend", public_health_and_frontend),
         ("auth, cookies, and access control", auth_and_session_security),
-        ("Hermes control plane", hermes_control_plane),
+        ("agent control plane", hermes_control_plane),
         ("admin agent template CRUD", admin_template_crud),
+        ("admin skill CRUD", admin_skill_crud),
         ("profiles, API keys, employees, assignments", profile_key_employee_assignment_flow),
         ("employee activation and admin isolation", employee_activation_and_isolation),
         ("chat REST, SSE, conversations, history", chat_rest_sse_and_history),
