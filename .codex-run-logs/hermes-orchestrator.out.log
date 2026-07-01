@@ -1,8 +1,0 @@
-INFO:     127.0.0.1:51701 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51744 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51746 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51748 - "POST /profiles/sync HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51760 - "POST /profiles/sync HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51761 - "POST /runs HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51840 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51888 - "GET /status HTTP/1.1" 200 OK
