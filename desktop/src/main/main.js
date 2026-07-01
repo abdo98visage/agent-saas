@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session: electronSession, autoUpdater, safeStorage } = require("electron");
 const Store = require("electron-store");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const pendingWrites = new Map();
@@ -275,6 +276,39 @@ function resolveWorkspaceFile(rootPath, relativePath) {
   }
 
   return { root, target };
+}
+
+function sanitizeArtifactFileName(fileName) {
+  const normalized = String(fileName || "").trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+  return normalized || `artifact-${Date.now()}.txt`;
+}
+
+function ensureArtifactDownloadsDir() {
+  const downloadsRoot = app.getPath("downloads") || path.join(os.homedir(), "Downloads");
+  const targetDir = path.join(downloadsRoot, "KarzounOS");
+  fs.mkdirSync(targetDir, { recursive: true });
+  return targetDir;
+}
+
+function saveConversationArtifact(fileName, content) {
+  const artifactDir = ensureArtifactDownloadsDir();
+  const safeName = sanitizeArtifactFileName(fileName);
+  const parsed = path.parse(safeName);
+  let target = path.join(artifactDir, safeName);
+  let suffix = 1;
+
+  while (fs.existsSync(target)) {
+    target = path.join(artifactDir, `${parsed.name}-${suffix}${parsed.ext}`);
+    suffix += 1;
+  }
+
+  fs.writeFileSync(target, String(content || ""), "utf-8");
+  return {
+    ok: true,
+    path: target,
+    directory: artifactDir,
+    fileName: path.basename(target),
+  };
 }
 
 function isIncludedFile(entryName, fullPath) {
@@ -782,6 +816,14 @@ ipcMain.handle("open-external", async (_, url) => {
   }
   await shell.openExternal(url);
   return { ok: true };
+});
+
+ipcMain.handle("save-conversation-artifact", async (_, fileName, content) => {
+  try {
+    return saveConversationArtifact(fileName, content);
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 });
 
 console.log("FQ-SaaS Desktop initialized");

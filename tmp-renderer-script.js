@@ -1,1409 +1,4 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src http: https: ws: wss:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none';">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KarzounOS - Workspace</title>
-    <link href="./vendor.css" rel="stylesheet">
-    <style>
-        :root {
-            --bg-primary: #eef2f7;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #f7f9fc;
-            --bg-soft: #eef1f6;
-            --text-primary: #172033;
-            --text-secondary: #667085;
-            --border: rgba(15, 23, 42, 0.08);
-            --accent: #5876f4;
-            --accent-hover: #4565eb;
-            --accent-soft: rgba(88, 118, 244, 0.12);
-            --success: #10b981;
-            --warning: #f59e0b;
-            --error: #ef4444;
-            --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.08);
-            --shadow-card: 0 10px 24px rgba(15, 23, 42, 0.06);
-        }
-        * {
-            font-family: "Cairo", "Segoe UI", system-ui, sans-serif;
-            box-sizing: border-box;
-        }
-        body {
-            margin: 0;
-            height: 100vh;
-            display: flex;
-            background:
-                radial-gradient(circle at top left, rgba(88, 118, 244, 0.1), transparent 24%),
-                linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
-            color: var(--text-primary);
-        }
-        .sidebar {
-            width: 320px;
-            background: rgba(255, 255, 255, 0.82);
-            border-left: 1px solid rgba(88, 118, 244, 0.08);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            backdrop-filter: blur(18px);
-            box-shadow: var(--shadow-soft);
-        }
-        .sidebar-header {
-            padding: 22px 20px 16px;
-            border-bottom: 1px solid var(--border);
-            text-align: center;
-        }
-        .brand-row {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            margin-bottom: 8px;
-        }
-        .logo {
-            width: 46px;
-            height: 46px;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #6b84f8, #4e67e9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 21px;
-            box-shadow: 0 10px 24px rgba(88, 118, 244, 0.28);
-            flex-shrink: 0;
-        }
-        .sidebar-header h5 {
-            margin: 0;
-            background: linear-gradient(135deg, #4160df, #7b92fb);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 20px;
-        }
-        .brand-subtitle {
-            display: block;
-            color: var(--text-secondary);
-            font-size: 12px;
-            text-align: center;
-        }
-        .sidebar-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 14px;
-        }
-        .sidebar-section-label {
-            padding: 6px 2px 8px;
-            color: var(--text-secondary);
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-        .sidebar-footer {
-            display: none;
-        }
-        .conversation-item {
-            padding: 10px 15px;
-            border-radius: 10px;
-            cursor: pointer;
-            margin-bottom: 4px;
-            transition: all 0.2s ease;
-        }
-        .conversation-item:hover {
-            background: var(--accent-soft);
-        }
-        .conversation-item.active {
-            background: linear-gradient(90deg, rgba(88, 118, 244, 0.18), rgba(88, 118, 244, 0.06));
-            border-right: 3px solid var(--accent);
-        }
-        .sidebar-action-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            border-radius: 14px;
-            margin-bottom: 12px;
-            min-height: 48px;
-        }
-        .section-toggle-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            margin: 10px 0 8px;
-        }
-        .section-divider {
-            height: 1px;
-            background: rgba(88, 118, 244, 0.12);
-            margin: 14px 2px;
-            border-radius: 999px;
-        }
-        .section-toggle-btn {
-            width: 100%;
-            border: none;
-            background: rgba(247, 249, 252, 0.92);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            color: var(--text-secondary);
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0;
-            border-radius: 14px;
-            padding: 10px 14px;
-            border: 1px solid rgba(88, 118, 244, 0.14);
-            min-height: 44px;
-        }
-        .section-toggle-btn:hover {
-            color: var(--text-primary);
-            border-color: rgba(88, 118, 244, 0.24);
-            background: rgba(88, 118, 244, 0.08);
-        }
-        .section-toggle-btn i {
-            color: var(--accent);
-            font-size: 16px;
-            width: 22px;
-            text-align: center;
-        }
-        .collapse-arrow {
-            color: var(--accent);
-            font-size: 18px;
-            line-height: 1;
-            width: 22px;
-            text-align: center;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-        }
-        .sidebar-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .sidebar-empty {
-            padding: 12px 14px;
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.7);
-            border: 1px dashed rgba(88, 118, 244, 0.2);
-            color: var(--text-secondary);
-            font-size: 13px;
-        }
-        .project-item {
-            border-radius: 18px;
-            margin-bottom: 10px;
-            overflow: hidden;
-            position: relative;
-            background: transparent;
-        }
-        .project-delete-rail {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: stretch;
-            justify-content: flex-start;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.18s ease;
-        }
-        .project-delete-btn {
-            width: 72px;
-            border: none;
-            background: linear-gradient(180deg, #ef4444, #dc2626);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            pointer-events: none;
-            border-radius: 18px 0 0 18px;
-        }
-        .project-delete-btn svg {
-            width: 20px;
-            height: 20px;
-        }
-        .project-card {
-            position: relative;
-            z-index: 1;
-            border: 1px solid rgba(88, 118, 244, 0.08);
-            border-radius: 18px;
-            background: rgba(255, 255, 255, 0.82);
-            box-shadow: var(--shadow-card);
-            transition: transform 0.18s ease;
-            touch-action: pan-y;
-        }
-        .project-card.swiped {
-            transform: translateX(-72px);
-        }
-        .project-item.swiped .project-delete-rail {
-            opacity: 1;
-        }
-        .project-item.swiped .project-delete-btn {
-            pointer-events: auto;
-        }
-        .project-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 14px;
-        }
-        .project-title-btn {
-            flex: 1;
-            min-width: 0;
-            background: transparent;
-            color: inherit;
-            border: none;
-            text-align: right;
-            padding: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .project-title-copy {
-            min-width: 0;
-            flex: 1;
-        }
-        .project-title-btn .project-name {
-            font-size: 14px;
-            font-weight: 700;
-        }
-        .project-title-btn .project-path {
-            display: block;
-            font-size: 11px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .project-title-btn.active .project-name {
-            color: var(--accent);
-        }
-        .project-action-btn {
-            width: 34px;
-            height: 34px;
-            border-radius: 11px;
-            border: 1px solid rgba(88, 118, 244, 0.12);
-            background: rgba(245, 247, 251, 0.95);
-            color: var(--text-secondary);
-        }
-        .project-action-btn:hover {
-            background: var(--accent-soft);
-            border-color: rgba(88, 118, 244, 0.24);
-            color: var(--accent);
-        }
-        .project-action-btn.compact {
-            width: 30px;
-            height: 30px;
-            border-radius: 10px;
-        }
-        .project-action-btn svg {
-            width: 16px;
-            height: 16px;
-        }
-        .section-add-btn {
-            border: 1px solid rgba(88, 118, 244, 0.14);
-            background: rgba(247, 249, 252, 0.92);
-            color: var(--text-secondary);
-            border-radius: 14px;
-            min-height: 44px;
-            padding: 0 12px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            white-space: nowrap;
-            font-size: 13px;
-            font-weight: 700;
-        }
-        .section-add-btn:hover {
-            color: var(--accent);
-            border-color: rgba(88, 118, 244, 0.24);
-            background: rgba(88, 118, 244, 0.08);
-        }
-        .section-add-btn svg {
-            width: 15px;
-            height: 15px;
-        }
-        .project-sessions {
-            padding: 0 10px 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .project-session-item,
-        .general-session-item {
-            width: 100%;
-            border: none;
-            border-radius: 12px;
-            background: rgba(247, 249, 252, 0.9);
-            color: inherit;
-            text-align: right;
-            padding: 10px 12px;
-            border: 1px solid transparent;
-        }
-        .project-session-item:hover,
-        .general-session-item:hover {
-            background: var(--accent-soft);
-            border-color: rgba(88, 118, 244, 0.16);
-        }
-        .project-session-item.active,
-        .general-session-item.active {
-            background: linear-gradient(90deg, rgba(88, 118, 244, 0.18), rgba(88, 118, 244, 0.06));
-            border-right: 3px solid var(--accent);
-        }
-        .project-session-meta {
-            display: block;
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-        .show-more-btn,
-        .empty-project-btn {
-            width: 100%;
-            border: 1px dashed rgba(88, 118, 244, 0.2);
-            border-radius: 12px;
-            background: rgba(247, 249, 252, 0.75);
-            color: var(--text-secondary);
-            text-align: center;
-            padding: 9px 12px;
-        }
-        .show-more-btn:hover,
-        .empty-project-btn:hover {
-            color: var(--text-primary);
-            border-color: rgba(88, 118, 244, 0.32);
-        }
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-        }
-        .chat-header {
-            padding: 18px 28px;
-            border-bottom: 1px solid rgba(88, 118, 244, 0.14);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 18px;
-            flex-wrap: wrap;
-            background:
-                linear-gradient(135deg, rgba(88, 118, 244, 0.18), rgba(123, 146, 251, 0.08)),
-                rgba(255, 255, 255, 0.72);
-            backdrop-filter: blur(16px);
-            box-shadow: 0 10px 24px rgba(88, 118, 244, 0.08);
-        }
-        .chat-header-main,
-        .chat-header-side {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            min-width: 0;
-        }
-        .chat-header-main {
-            flex: 1 1 320px;
-        }
-        .chat-header-title-block {
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .chat-header h5 {
-            font-size: 22px;
-            font-weight: 800;
-            margin: 0;
-            line-height: 1.1;
-            display: flex;
-            align-items: center;
-            min-width: 0;
-        }
-        .chat-header-title-text {
-            display: block;
-            min-width: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .chat-header-meta {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        .chat-header .badge,
-        .chat-header .header-action-btn {
-            align-self: center;
-        }
-        .employee-chip {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            padding: 10px 14px;
-            border-radius: 16px;
-            border: 1px solid rgba(88, 118, 244, 0.14);
-            background: rgba(255, 255, 255, 0.86);
-            box-shadow: var(--shadow-card);
-            min-width: 0;
-            max-width: min(360px, 48vw);
-        }
-        .employee-name {
-            font-size: 14px;
-            font-weight: 800;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .employee-meta {
-            font-size: 11px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .chat-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 26px 28px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-        .message {
-            max-width: 70%;
-            padding: 14px 18px 12px;
-            border-radius: 18px;
-            line-height: 1.5;
-            word-wrap: break-word;
-            box-shadow: var(--shadow-card);
-            position: relative;
-        }
-        .message.user {
-            align-self: flex-end;
-            background: linear-gradient(135deg, #5977f4, #4661e7);
-            color: white;
-            border-bottom-left-radius: 4px;
-        }
-        .message.assistant {
-            align-self: flex-start;
-            background: rgba(255, 255, 255, 0.96);
-            color: var(--text-primary);
-            border-bottom-right-radius: 4px;
-            border: 1px solid var(--border);
-        }
-        .message.system {
-            align-self: center;
-            background: rgba(245, 158, 11, 0.12);
-            border: 1px solid rgba(245, 158, 11, 0.25);
-            color: #9a6500;
-        }
-        .message .timestamp {
-            font-size: 10px;
-            color: rgba(102, 112, 133, 0.78);
-            margin-top: 6px;
-        }
-        .message-copy-btn {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            right: auto;
-            width: 30px;
-            height: 30px;
-            border-radius: 10px;
-            border: 1px solid rgba(88, 118, 244, 0.14);
-            background: rgba(255, 255, 255, 0.76);
-            color: var(--text-secondary);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            transition: opacity 0.16s ease, color 0.16s ease, background 0.16s ease;
-        }
-        .message:hover .message-copy-btn {
-            opacity: 1;
-        }
-        .message-copy-btn:hover {
-            color: var(--accent);
-            background: rgba(255, 255, 255, 0.96);
-        }
-        .message-copy-btn svg {
-            width: 15px;
-            height: 15px;
-        }
-        .chat-input-area {
-            padding: 24px 32px 30px;
-            background: linear-gradient(0deg, rgba(255, 255, 255, 0.85), transparent);
-            display: flex;
-            justify-content: center;
-        }
-        .composer-shell {
-            border: 1px solid rgba(88, 118, 244, 0.08);
-            background: rgba(255, 255, 255, 0.94);
-            border-radius: 24px;
-            padding: 16px 18px;
-            box-shadow: var(--shadow-soft);
-            width: min(980px, calc(100% - 180px));
-            margin-inline: auto;
-        }
-        .chat-input {
-            background: var(--bg-tertiary);
-            border: 1px solid rgba(88, 118, 244, 0.12);
-            color: var(--text-primary);
-            border-radius: 18px;
-            resize: none;
-            min-height: 84px;
-            max-height: 248px;
-            padding: 14px 18px;
-            line-height: 1.7;
-        }
-        .composer-toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            gap: 10px;
-            margin-top: 12px;
-            flex-wrap: nowrap;
-        }
-        .composer-actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex: 0 1 auto;
-            flex-shrink: 0;
-            flex-wrap: nowrap;
-            min-width: 0;
-        }
-        .agent-select {
-            max-width: 220px;
-            min-width: 170px;
-            height: 42px;
-            font-size: 13px;
-            padding-inline-start: 14px;
-            padding-inline-end: 32px;
-            background-position: 10px center;
-        }
-        .composer-select {
-            max-width: 168px;
-            min-width: 140px;
-            height: 42px;
-            font-size: 13px;
-            padding-inline-start: 12px;
-            padding-inline-end: 32px;
-            background-position: 10px center;
-        }
-        .btn-mic {
-            width: 42px;
-            height: 42px;
-            border-radius: 12px;
-            border: 1px solid rgba(88, 118, 244, 0.12);
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            order: 2;
-        }
-        .btn-mic:hover {
-            background: var(--accent-soft);
-            color: var(--accent);
-        }
-        .btn-mic svg,
-        .btn-send svg {
-            width: 18px;
-            height: 18px;
-        }
-        .btn-mic.recording {
-            background: rgba(239, 68, 68, 0.16);
-            border-color: rgba(239, 68, 68, 0.42);
-            color: #fecaca;
-        }
-        .composer-status {
-            color: var(--text-secondary);
-            font-size: 13px;
-            min-height: 20px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            flex: 0 1 260px;
-            min-width: 140px;
-        }
-        .chat-input:focus,
-        .form-control:focus,
-        .form-select:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(88, 118, 244, 0.12);
-        }
-        .btn-send,
-        .btn-primary-custom {
-            background: linear-gradient(135deg, #5977f4, #4661e7);
-            color: white;
-            border: none;
-            box-shadow: 0 12px 22px rgba(88, 118, 244, 0.22);
-        }
-        .btn-send {
-            border-radius: 12px;
-            min-width: 96px;
-            height: 42px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 0 16px;
-            font-size: 13px;
-            font-weight: 700;
-            order: 2;
-        }
-        .btn-mic { order: 1; }
-        .btn-primary-custom:hover,
-        .btn-send:hover {
-            color: white;
-            box-shadow: 0 14px 26px rgba(88, 118, 244, 0.28);
-        }
-        .context-panel {
-            background: rgba(255, 255, 255, 0.92);
-            border-left: 1px solid rgba(88, 118, 244, 0.08);
-            width: 360px;
-            padding: 18px 16px;
-            overflow-y: auto;
-            flex-shrink: 0;
-            box-shadow: -10px 0 30px rgba(15, 23, 42, 0.06);
-        }
-        .context-panel-header {
-            padding: 8px 10px 14px;
-            border-bottom: 1px solid rgba(88, 118, 244, 0.1);
-            margin-bottom: 14px;
-        }
-        .context-panel-title {
-            font-size: 18px;
-            font-weight: 800;
-            margin-bottom: 6px;
-        }
-        .context-panel-subtitle {
-            font-size: 12px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .context-summary-card,
-        .context-section-card {
-            border: 1px solid rgba(88, 118, 244, 0.08);
-            border-radius: 20px;
-            background: rgba(255, 255, 255, 0.94);
-            padding: 14px;
-            box-shadow: var(--shadow-card);
-            margin-bottom: 12px;
-        }
-        .context-section-card h6,
-        .context-summary-card h6 {
-            margin: 0 0 10px;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .settings-panel {
-            position: fixed;
-            top: 28px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: min(860px, calc(100vw - 40px));
-            max-height: calc(100vh - 56px);
-            overflow-y: auto;
-            background: rgba(255, 255, 255, 0.98);
-            border: 1px solid rgba(88, 118, 244, 0.14);
-            border-radius: 28px;
-            box-shadow: 0 28px 60px rgba(15, 23, 42, 0.18);
-            padding: 22px;
-            z-index: 4000;
-        }
-        .settings-panel::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 42, 0.28);
-            backdrop-filter: blur(8px);
-            z-index: -1;
-        }
-        .context-activity {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .activity-item {
-            padding: 10px 12px;
-            border-radius: 14px;
-            background: rgba(247, 249, 252, 0.88);
-            border: 1px solid rgba(88, 118, 244, 0.08);
-        }
-        .activity-role {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--accent);
-            margin-bottom: 4px;
-        }
-        .activity-empty {
-            font-size: 12px;
-            color: var(--text-secondary);
-            padding: 12px;
-            text-align: center;
-            background: rgba(247, 249, 252, 0.72);
-            border-radius: 14px;
-            border: 1px dashed rgba(88, 118, 244, 0.16);
-        }
-        .settings-modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 42, 0.28);
-            backdrop-filter: blur(8px);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 4000;
-            padding: 24px;
-        }
-        .settings-modal-overlay.open {
-            display: flex;
-        }
-        .settings-modal-window {
-            width: min(860px, 100%);
-            max-height: calc(100vh - 56px);
-            overflow-y: auto;
-            border-radius: 28px;
-            background: rgba(255, 255, 255, 0.97);
-            box-shadow: 0 28px 60px rgba(15, 23, 42, 0.18);
-            border: 1px solid rgba(88, 118, 244, 0.14);
-            padding: 22px;
-        }
-        .settings-modal-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-            margin-bottom: 18px;
-        }
-        .settings-modal-header h5 {
-            margin: 0;
-            font-size: 22px;
-            font-weight: 800;
-        }
-        .settings-category {
-            border: 1px solid rgba(88, 118, 244, 0.1);
-            border-radius: 20px;
-            background: rgba(248, 250, 252, 0.94);
-            margin-bottom: 12px;
-            overflow: hidden;
-        }
-        .settings-category-toggle {
-            width: 100%;
-            background: transparent;
-            border: none;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 14px 16px;
-            font-size: 14px;
-            font-weight: 800;
-            color: var(--text-primary);
-        }
-        .settings-category-body {
-            padding: 0 16px 16px;
-        }
-        .settings-category.collapsed .settings-category-body {
-            display: none;
-        }
-        .settings-category-copy {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-        .settings-category .settings-grid {
-            margin-top: 12px;
-        }
-        #btn-language-toggle {
-            display: none !important;
-        }
-        .form-control,
-        .form-select {
-            background: var(--bg-tertiary);
-            border: 1px solid rgba(88, 118, 244, 0.12);
-            color: var(--text-primary);
-            border-radius: 12px;
-        }
-        .settings-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .settings-card {
-            background: rgba(255, 255, 255, 0.92);
-            border: 1px solid rgba(88, 118, 244, 0.08);
-            border-radius: 18px;
-            padding: 16px;
-            margin-bottom: 14px;
-            box-shadow: var(--shadow-card);
-        }
-        .settings-card h6 {
-            margin: 0 0 12px;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .settings-card p {
-            margin: 0 0 12px;
-            color: var(--text-secondary);
-            font-size: 12px;
-        }
-        .settings-grid {
-            display: grid;
-            gap: 12px;
-        }
-        .settings-grid.two {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-        .settings-actions {
-            display: flex;
-            gap: 10px;
-        }
-        .settings-actions > * {
-            flex: 1;
-        }
-        .settings-inline-note {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-top: 8px;
-        }
-        .settings-modal-window .input-group {
-            gap: 8px;
-        }
-        .settings-modal-window .input-group > .form-control,
-        .settings-modal-window .input-group > .btn {
-            border-radius: 12px !important;
-        }
-        .btn-outline-secondary {
-            border-color: rgba(88, 118, 244, 0.18);
-            color: var(--text-secondary);
-            background: rgba(247, 249, 252, 0.94);
-        }
-        .btn-outline-secondary:hover {
-            border-color: rgba(88, 118, 244, 0.28);
-            color: var(--accent);
-            background: var(--accent-soft);
-        }
-        .project-files {
-            max-height: 320px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .context-tree {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .context-tree-folder {
-            border: 1px solid rgba(88, 118, 244, 0.08);
-            border-radius: 12px;
-            background: rgba(247, 249, 252, 0.82);
-            padding: 8px 10px;
-        }
-        .context-tree-folder-name {
-            font-size: 12px;
-            font-weight: 800;
-            margin-bottom: 4px;
-        }
-        .context-tree-folder-files {
-            font-size: 11px;
-            color: var(--text-secondary);
-            line-height: 1.5;
-        }
-        .file-item {
-            border: 1px solid rgba(88, 118, 244, 0.1);
-            border-radius: 14px;
-            padding: 7px 10px;
-            background: rgba(247, 249, 252, 0.92);
-        }
-        .file-item.selected {
-            border-color: rgba(88, 118, 244, 0.42);
-            background: rgba(88, 118, 244, 0.08);
-        }
-        .project-file-tree {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .project-tree-root {
-            border: 1px solid rgba(88, 118, 244, 0.08);
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 10px;
-        }
-        .project-tree-root-label,
-        .project-tree-folder-toggle {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            border: none;
-            background: transparent;
-            color: var(--text-primary);
-            padding: 4px 2px;
-            text-align: start;
-            font-weight: 700;
-        }
-        .project-tree-root-label {
-            cursor: default;
-            padding-bottom: 8px;
-        }
-        .project-tree-folder-toggle {
-            cursor: pointer;
-            border-radius: 10px;
-        }
-        .project-tree-folder-toggle:hover {
-            background: rgba(88, 118, 244, 0.06);
-        }
-        .project-tree-chevron {
-            width: 16px;
-            color: var(--text-secondary);
-            flex: 0 0 16px;
-            text-align: center;
-        }
-        .project-tree-children {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            padding-inline-start: 14px;
-            border-inline-start: 1px solid rgba(88, 118, 244, 0.08);
-            margin-inline-start: 7px;
-        }
-        .project-tree-node {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .file-name {
-            font-size: 12px;
-            font-weight: 700;
-            margin-bottom: 3px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            line-height: 1.2;
-        }
-        .file-meta-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 6px;
-            flex-wrap: nowrap;
-            min-width: 0;
-        }
-        .file-meta-group,
-        .file-action-group {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: nowrap;
-        }
-        .file-meta-group {
-            flex: 1 1 auto;
-            min-width: 0;
-        }
-        .file-meta-text {
-            font-size: 11px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-        }
-        .file-badges {
-            flex-wrap: nowrap;
-            white-space: nowrap;
-        }
-        .file-action-group .btn {
-            padding: 2px 8px;
-            line-height: 1.2;
-        }
-        .file-snippet {
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-top: 6px;
-            white-space: pre-wrap;
-            max-height: 72px;
-            overflow: hidden;
-            display: none;
-        }
-        .file-badges {
-            display: inline-flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 0;
-        }
-        .file-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 2px 8px;
-            border-radius: 999px;
-            font-size: 10px;
-            font-weight: 700;
-        }
-        .file-badge.new {
-            background: rgba(16, 185, 129, 0.14);
-            color: #0f8a63;
-        }
-        .file-badge.modified {
-            background: rgba(245, 158, 11, 0.14);
-            color: #946200;
-        }
-        .file-badge.selected {
-            background: rgba(88, 118, 244, 0.14);
-            color: var(--accent);
-        }
-        .typing-indicator span {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--accent);
-            animation: typing 1.4s ease-in-out infinite;
-            margin: 0 2px;
-        }
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes typing {
-            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-            30% { transform: translateY(-8px); opacity: 1; }
-        }
-        .editor-box {
-            min-height: 180px;
-            font-family: Consolas, "JetBrains Mono", monospace;
-            font-size: 12px;
-            white-space: pre;
-        }
-        .status-box {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-top: 8px;
-        }
-        .header-action-btn {
-            width: 38px;
-            height: 38px;
-            border-radius: 12px;
-            border: 1px solid rgba(88, 118, 244, 0.12);
-            background: rgba(247, 249, 252, 0.94);
-            color: var(--text-secondary);
-        }
-        .header-action-btn:hover {
-            color: var(--accent);
-            background: var(--accent-soft);
-        }
-        .header-action-btn svg {
-            width: 18px;
-            height: 18px;
-        }
-        .header-action-btn.lang-toggle {
-            min-width: 52px;
-            padding: 0 10px;
-            font-size: 12px;
-            font-weight: 700;
-        }
-        html[dir="ltr"] body,
-        html[dir="ltr"] .project-title-btn,
-        html[dir="ltr"] .project-session-item,
-        html[dir="ltr"] .general-session-item,
-        html[dir="ltr"] .message,
-        html[dir="ltr"] .chat-input,
-        html[dir="ltr"] .composer-status,
-        html[dir="ltr"] .section-toggle-btn {
-            text-align: left;
-        }
-        html[dir="ltr"] .chat-header {
-            flex-direction: row;
-        }
-        html[dir="ltr"] .chat-header-side {
-            justify-content: flex-end;
-        }
-        html[dir="ltr"] .sidebar {
-            border-left: none;
-            border-right: 1px solid rgba(88, 118, 244, 0.08);
-        }
-        html[dir="ltr"] .context-panel {
-            border-left: none;
-            border-right: 1px solid rgba(88, 118, 244, 0.08);
-        }
-        html[dir="ltr"] .message.user {
-            align-self: flex-end;
-        }
-        html[dir="ltr"] .message.assistant {
-            align-self: flex-start;
-        }
-        #activation-panel {
-            position: fixed;
-            inset: 0;
-            background: rgba(237, 242, 247, 0.86);
-            z-index: 9999;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            backdrop-filter: blur(10px);
-        }
-        .queued-badge {
-            background: rgba(245, 158, 11, 0.14);
-            color: #8c5d00;
-            border: 1px solid rgba(245, 158, 11, 0.2);
-        }
-        code, pre {
-            direction: ltr;
-            text-align: left;
-        }
-        @media (max-width: 1200px) {
-            .sidebar {
-                width: 290px;
-            }
-            .context-panel {
-                width: 320px;
-            }
-            .composer-shell {
-                width: calc(100% - 24px);
-            }
-        }
-        @media (max-width: 980px) {
-            .context-panel {
-                display: none;
-            }
-            .composer-shell {
-                width: calc(100% - 16px);
-            }
-            .composer-toolbar,
-            .composer-actions {
-                flex-wrap: wrap;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <div class="brand-row">
-                <div class="logo">K</div>
-                <h5>KarzounOS</h5>
-            </div>
-            <small class="brand-subtitle">نظام التشغيل للموظفين الرقميين</small>
-        </div>
-        <div class="sidebar-body" id="conversations-list"></div>
-        <div class="sidebar-footer">
-            <button class="btn btn-sm btn-primary-custom w-100" id="btn-new-chat">
-                <i class="bi bi-plus-lg"></i> محادثة جديدة
-            </button>
-        </div>
-    </div>
 
-    <div class="main-content">
-        <div class="chat-header">
-            <div class="chat-header-main">
-                <div class="chat-header-title-block">
-            <h5 id="chat-title" class="mb-0">محادثة جديدة</h5>
-            <div class="chat-header-meta">
-                <span class="badge queued-badge" id="queue-badge">0 queued</span>
-            </div>
-                </div>
-            </div>
-            <div class="chat-header-side">
-                <div class="employee-chip" id="employee-chip" title="Employee identity">
-                    <span class="employee-name" id="employee-name">Unknown employee</span>
-                    <span class="employee-meta" id="employee-meta">Desktop employee account</span>
-                </div>
-                <span class="badge bg-secondary" id="profile-badge">default</span>
-            <button class="header-action-btn lang-toggle" id="btn-language-toggle" title="تبديل اللغة">AR</button>
-            <button class="header-action-btn" id="btn-settings" title="الإعدادات">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 7H14M18 7H20M10 17H20M4 17H6M8 7C8 8.1 7.1 9 6 9C4.9 9 4 8.1 4 7C4 5.9 4.9 5 6 5C7.1 5 8 5.9 8 7ZM20 17C20 18.1 19.1 19 18 19C16.9 19 16 18.1 16 17C16 15.9 16.9 15 18 15C19.1 15 20 15.9 20 17Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                </svg>
-            </button>
-            </div>
-        </div>
-        <div class="chat-body" id="chat-body">
-            <div class="text-center text-muted mt-5" id="welcome-screen">
-                <i class="bi bi-robot display-1"></i>
-                <h5 class="mt-3">مرحباً بك في KarzounOS</h5>
-                <p>ابدأ محادثة جديدة أو اختر محادثة سابقة.</p>
-            </div>
-        </div>
-        <div class="chat-input-area">
-            <div class="composer-shell">
-                <textarea id="message-input" class="form-control chat-input w-100" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
-                <div class="composer-toolbar">
-                    <div class="composer-status" id="composer-status"></div>
-                    <div class="composer-actions">
-                        <button class="btn btn-send" id="btn-send" title="إرسال">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                <path d="M4 12L20 4L13 20L11 13L4 12Z" fill="currentColor"></path>
-                            </svg>
-                            <span id="btn-send-label">إرسال</span>
-                        </button>
-                        <button class="btn btn-mic" id="btn-mic" title="تسجيل صوتي">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                <path d="M12 15C9.79 15 8 13.21 8 11V7C8 4.79 9.79 3 12 3C14.21 3 16 4.79 16 7V11C16 13.21 14.21 15 12 15Z" fill="currentColor"></path>
-                                <path d="M19 11C19 14.53 16.39 17.43 13 17.92V21H11V17.92C7.61 17.43 5 14.53 5 11H7C7 13.76 9.24 16 12 16C14.76 16 17 13.76 17 11H19Z" fill="currentColor"></path>
-                            </svg>
-                        </button>
-                        <select class="form-select composer-select" id="composer-command-select">
-                            <option value="queue">queue</option>
-                            <option value="goal">goal</option>
-                            <option value="plan">plan</option>
-                        </select>
-                        <select class="form-select composer-select" id="composer-approval-select">
-                            <option value="ask_for_approval">ask for approval</option>
-                            <option value="approve_for_me">approve for me</option>
-                            <option value="full_access">full access</option>
-                        </select>
-                        <select class="form-select agent-select" id="composer-profile-select">
-                            <option value="">الملف الافتراضي المخصص</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <aside class="context-panel" id="context-panel">
-        <div class="context-panel-header">
-            <div class="context-panel-title" id="context-panel-title">سياق المشروع</div>
-            <div class="context-panel-subtitle" id="context-panel-subtitle">شاهد الملفات والأنشطة المتعلقة بالمحادثة الحالية.</div>
-        </div>
-        <div class="context-section-card">
-            <h6>ملفات المشروع</h6>
-            <div class="project-files" id="context-project-files"></div>
-        </div>
-        <div class="context-summary-card">
-            <h6>التعديلات والمخرجات</h6>
-            <button class="btn btn-sm btn-outline-secondary w-100 mb-2" id="btn-open-folder-live" type="button">فتح مشروع جديد</button>
-            <div id="context-project-path" class="text-muted small mb-2"></div>
-            <div id="context-selected-files-status" class="small text-muted mb-2"></div>
-            <div class="status-box" id="context-status-live"></div>
-        </div>
-    </aside>
-
-    <div class="settings-panel" id="settings-panel" style="display:none;">
-        <div class="settings-header">
-            <div class="settings-inline-note">إعدادات الاتصال والوكيل ومساحة العمل والمزامنة.</div>
-            <button class="header-action-btn" id="btn-close-settings" title="إغلاق الإعدادات" type="button">
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-        <h6><i class="bi bi-gear"></i> الإعدادات</h6>
-        <hr class="border-secondary">
-        <div class="mb-3">
-            <label class="form-label">رابط API</label>
-            <input type="text" class="form-control form-control-sm" id="setting-api-url" value="http://localhost:8002/api">
-        </div>
-        <div class="mb-3">
-            <label class="form-label">رمز الدخول (JWT)</label>
-            <input type="password" class="form-control form-control-sm" id="setting-token" placeholder="أدخل رمز Bearer">
-        </div>
-        <div class="mb-3">
-            <label class="form-label">القالب</label>
-            <select class="form-select form-select-sm" id="setting-template">
-                <option value="default">افتراضي</option>
-                <option value="it">IT</option>
-                <option value="marketing">Marketing</option>
-                <option value="hr">HR</option>
-            </select>
-        </div>
-        <div class="mb-3">
-            <label class="form-label">بروفايل Hermes</label>
-            <label class="form-label">اللغة</label>
-            <select class="form-select form-select-sm mb-3" id="setting-language">
-                <option value="ar">العربية</option>
-                <option value="en">English</option>
-            </select>
-            <select class="form-select form-select-sm" id="setting-profile">
-                <option value="">الملف الافتراضي المخصص</option>
-            </select>
-            <div class="small text-muted mt-1" id="setting-profile-status">ستظهر البروفايلات المخصصة بعد تسجيل الدخول.</div>
-        </div>
-
-        <hr class="border-secondary">
-        <h6><i class="bi bi-telegram"></i> ربط التلجرام</h6>
-        <!-- legacy-test-marker: Ø±Ø¨Ø· Ø§Ù„ØªÙ„Ø¬Ø±Ø§Ù… -->
-        <div class="mb-2 small text-muted">
-            1. اضغط "توليد كود"<br>
-            2. أرسل الكود للبوت بصيغة: <code>/bind &lt;code&gt;</code><br>
-            3. اضغط "تأكيد الربط"
-        </div>
-        <div class="input-group input-group-sm mb-2">
-            <input type="text" class="form-control" id="tg-bind-code" placeholder="الكود يظهر هنا" readonly>
-            <button class="btn btn-outline-secondary" id="btn-tg-gen-code" type="button">توليد كود</button>
-        </div>
-        <div class="input-group input-group-sm mb-2">
-            <button class="btn btn-primary-custom w-100" id="btn-tg-bind" type="button">تأكيد الربط</button>
-        </div>
-        <div id="tg-bind-status" class="small"></div>
-
-        <hr class="border-secondary">
-        <h6><i class="bi bi-folder"></i> سياق المشروع</h6>
-        <div class="d-flex gap-2 mb-2">
-            <button class="btn btn-sm btn-outline-secondary" id="btn-open-folder">
-                <i class="bi bi-folder2-open"></i> اختيار مجلد
-            </button>
-        </div>
-        <div id="project-path" class="text-muted small mb-2"></div>
-        <div id="selected-files-status" class="small text-muted mb-2"></div>
-        <div class="project-files" id="project-files"></div>
-        <div class="status-box" id="context-status"></div>
-
-        <hr class="border-secondary">
-        <h6><i class="bi bi-cloud-slash"></i> قائمة الانتظار غير المتصلة</h6>
-        <div id="queue-status" class="small text-muted mb-2"></div>
-        <button class="btn btn-sm btn-outline-warning w-100 mb-2" id="btn-clear-queue">مسح الرسائل المعلقة</button>
-
-        <hr class="border-secondary">
-        <h6><i class="bi bi-arrow-repeat"></i> تحديثات التطبيق</h6>
-        <div id="update-status" class="small text-muted mb-2">لم يتم التحقق من حالة التحديث بعد.</div>
-        <button class="btn btn-sm btn-outline-secondary w-100 mb-2" id="btn-check-updates">التحقق من التحديثات</button>
-
-        <hr class="border-secondary">
-        <h6><i class="bi bi-pencil-square"></i> معاينة تعديل الملف</h6>
-        <div id="current-file-path" class="small text-muted mb-2">لم يتم اختيار ملف</div>
-        <textarea id="file-editor" class="form-control editor-box mb-2" placeholder="اختر ملفاً من القائمة لعرضه أو تعديله"></textarea>
-        <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-outline-secondary flex-fill" id="btn-prepare-write">معاينة الحفظ</button>
-            <button class="btn btn-sm btn-primary-custom flex-fill" id="btn-apply-write" disabled>تطبيق الحفظ</button>
-        </div>
-        <div id="write-preview-status" class="status-box"></div>
-
-        <hr class="border-secondary">
-        <button class="btn btn-sm btn-outline-secondary w-100 mb-2" id="btn-close-settings-footer" type="button">إغلاق</button>
-        <button class="btn btn-sm btn-primary-custom w-100" id="btn-save-settings">
-            <i class="bi bi-check-lg"></i> حفظ الإعدادات
-        </button>
-    </div>
-
-    <div id="activation-panel">
-        <div class="card" style="max-width:420px; width:90%; background:var(--bg-secondary); border-color:var(--border); color:var(--text-primary);">
-            <div class="card-body text-center">
-                <i class="bi bi-person-plus display-1 text-info"></i>
-                <h4 class="mt-3">تفعيل الحساب</h4>
-                <!-- legacy-test-marker: ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø­Ø³Ø§Ø¨ -->
-                <p class="text-muted small">أدخل كود الدعوة من المدير وحدد كلمة مرور.</p>
-                <div class="text-start mb-2">
-                    <label class="form-label small">كود الدعوة</label>
-                    <input type="text" class="form-control form-control-sm" id="act-token" placeholder="Invite token">
-                </div>
-                <div class="text-start mb-2">
-                    <label class="form-label small">كلمة المرور</label>
-                    <input type="password" class="form-control form-control-sm" id="act-password" placeholder="حدد كلمة مرور">
-                </div>
-                <div class="text-start mb-3">
-                    <label class="form-label small">رابط API</label>
-                    <input type="text" class="form-control form-control-sm" id="act-api-url" value="http://localhost:8002/api">
-                </div>
-                <button class="btn btn-primary-custom w-100" id="btn-activate">تفعيل الحساب</button>
-                <div id="act-status" class="mt-2 small"></div>
-            </div>
-        </div>
-    </div>
-
-    <script>
         const MAX_VISIBLE_PROJECT_SESSIONS = 5;
         const MAX_VISIBLE_GENERAL_SESSIONS = 6;
 
@@ -1434,6 +29,7 @@
             speechRecognitionActive: false,
             swipedProjectId: null,
             projectSwipeTracker: null,
+            savedArtifactKeys: new Set(),
         };
 
         const els = {
@@ -1676,7 +272,7 @@
                 els.employeeName.textContent = employeeName;
             }
             if (els.employeeMeta) {
-                els.employeeMeta.textContent = metaParts.join(" • ") || fallbackMeta;
+                els.employeeMeta.textContent = metaParts.join(" â€¢ ") || fallbackMeta;
             }
             if (els.profileBadge) {
                 els.profileBadge.textContent = selectedProfile;
@@ -1708,7 +304,7 @@
 
         function renderAssignedProfiles() {
             const selectedProfileName = state.settings.profileName || "";
-            const optionsHtml = [`<option value="">${getLocale() === "en" ? "Default assigned profile" : "الملف الافتراضي المخصص"}</option>`]
+            const optionsHtml = [`<option value="">${getLocale() === "en" ? "Default assigned profile" : "Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ Ø§Ù„Ù…Ø®ØµØµ"}</option>`]
                 .concat(state.assignedProfiles.map((profile) => `
                     <option value="${escapeHtml(profile.name)}" ${selectedProfileName === profile.name ? "selected" : ""}>
                         ${escapeHtml(profile.name)}
@@ -1889,7 +485,7 @@
             state.settings.token = "";
             els.settingToken.value = "";
             document.getElementById("activation-panel").style.display = "flex";
-            document.getElementById("act-status").innerHTML = `<span class="text-danger">${escapeHtml(message || "انتهت الجلسة الحالية. فعّل الحساب أو سجّل الدخول من جديد.")}</span>`;
+            document.getElementById("act-status").innerHTML = `<span class="text-danger">${escapeHtml(message || "Ø§Ù†ØªÙ‡Øª Ø§Ù„Ø¬Ù„Ø³Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©. ÙØ¹Ù‘Ù„ Ø§Ù„Ø­Ø³Ø§Ø¨ Ø£Ùˆ Ø³Ø¬Ù‘Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ù† Ø¬Ø¯ÙŠØ¯.")}</span>`;
             await window.electronAPI.setSettings({
                 ...state.settings,
                 token: "",
@@ -1901,8 +497,8 @@
             const queue = getOfflineQueue();
             els.queueBadge.textContent = `${queue.length} ${t("queueSuffix")}`;
             els.queueStatus.textContent = queue.length > 0
-                ? `يوجد ${queue.length} رسالة بانتظار عودة الاتصال.`
-                : "لا توجد رسائل معلقة.";
+                ? `ÙŠÙˆØ¬Ø¯ ${queue.length} Ø±Ø³Ø§Ù„Ø© Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø¹ÙˆØ¯Ø© Ø§Ù„Ø§ØªØµØ§Ù„.`
+                : "Ù„Ø§ ØªÙˆØ¬Ø¯ Ø±Ø³Ø§Ø¦Ù„ Ù…Ø¹Ù„Ù‚Ø©.";
         }
 
         async function setOfflineQueue(queue) {
@@ -1933,7 +529,7 @@
                     await sendWebSocketMessage(item.content, item.profileName || "");
                 } catch (error) {
                     remaining.push(item);
-                    appendSystemMessage(`تعذر إرسال رسالة معلقة: ${error.message}`);
+                    appendSystemMessage(`ØªØ¹Ø°Ø± Ø¥Ø±Ø³Ø§Ù„ Ø±Ø³Ø§Ù„Ø© Ù…Ø¹Ù„Ù‚Ø©: ${error.message}`);
                 }
             }
             await setOfflineQueue(remaining);
@@ -2021,10 +617,12 @@
                 const data = await apiRequest("/chat/conversations");
                 state.conversations = data.conversations || [];
                 renderConversations();
+                ensureConversationSidebarRendered();
             } catch (error) {
                 console.error("Failed to load conversations:", error);
                 state.conversations = [];
                 renderConversations();
+                ensureConversationSidebarRendered();
             }
         }
 
@@ -2035,6 +633,25 @@
         function toggleSettingsPanel(forceState) {
             const shouldOpen = typeof forceState === "boolean" ? forceState : !getSettingsPanelOpen();
             els.settingsPanel.style.display = shouldOpen ? "block" : "none";
+        }
+
+        function applyActivationSettings(activation) {
+            if (!activation || typeof activation !== "object") {
+                return;
+            }
+            const tokenInput = document.getElementById("act-token");
+            const apiUrlInput = document.getElementById("act-api-url");
+            const statusEl = document.getElementById("act-status");
+            if (tokenInput && activation.token) {
+                tokenInput.value = activation.token;
+            }
+            if (apiUrlInput && activation.apiUrl) {
+                apiUrlInput.value = activation.apiUrl;
+            }
+            document.getElementById("activation-panel").style.display = "flex";
+            if (statusEl) {
+                statusEl.innerHTML = '<span class="text-info">ØªÙ… Ø§Ø³ØªÙ„Ø§Ù… Ø±Ø§Ø¨Ø· Ø§Ù„ØªÙØ¹ÙŠÙ„. Ø£ÙƒÙ…Ù„ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ù† Ù‡Ù†Ø§.</span>';
+            }
         }
 
         async function toggleChatsCollapsed() {
@@ -2096,7 +713,7 @@
         function renderConversations() {
             els.conversationsList.innerHTML = state.conversations.map((conversation) => `
                 <div class="conversation-item ${state.currentConversation === conversation.conversation_id ? "active" : ""}" data-id="${conversation.conversation_id}">
-                    <div class="text-truncate">${conversation.title || "محادثة"}</div>
+                    <div class="text-truncate">${conversation.title || "Ù…Ø­Ø§Ø¯Ø«Ø©"}</div>
                     <small class="text-muted" style="font-size:0.7rem">${new Date(conversation.created_at).toLocaleDateString("ar")}</small>
                 </div>
             `).join("");
@@ -2295,7 +912,7 @@
             state.currentMessages = [];
             els.chatBody.innerHTML = "";
             els.welcomeScreen.style.display = "block";
-            els.chatTitle.textContent = "محادثة جديدة";
+            els.chatTitle.textContent = "Ù…Ø­Ø§Ø¯Ø«Ø© Ø¬Ø¯ÙŠØ¯Ø©";
             resetStreamingState();
             renderConversations();
         }
@@ -2332,7 +949,7 @@
                                     <i class="bi bi-plus-lg"></i>
                                 </button>
                                 <button class="project-action-btn" data-project-toggle="${project.id}" type="button" title="${project.expanded ? t("hideSessions") : t("showSessions")}">
-                                    <span class="collapse-arrow">${project.expanded ? "▾" : "▸"}</span>
+                                    <span class="collapse-arrow">${project.expanded ? "â–¾" : "â–¸"}</span>
                                 </button>
                                 <button class="project-action-btn" data-project-delete="${project.id}" type="button" title="${t("deleteProject")}">
                                     <i class="bi bi-trash"></i>
@@ -2362,7 +979,7 @@
                     <div class="section-toggle-row">
                         <button class="section-toggle-btn" id="toggle-chats-section" type="button">
                             <span>${t("chats")}</span>
-                            <span class="collapse-arrow">${state.settings.chatsCollapsed ? "▸" : "▾"}</span>
+                            <span class="collapse-arrow">${state.settings.chatsCollapsed ? "â–¸" : "â–¾"}</span>
                         </button>
                     </div>
                     ${state.settings.chatsCollapsed ? "" : `
@@ -2379,7 +996,7 @@
                 <div class="section-toggle-row">
                     <button class="section-toggle-btn" id="toggle-projects-section" type="button">
                         <span>${t("projects")}</span>
-                        <span class="collapse-arrow">${state.settings.projectsCollapsed ? "▸" : "▾"}</span>
+                        <span class="collapse-arrow">${state.settings.projectsCollapsed ? "â–¸" : "â–¾"}</span>
                     </button>
                     <button class="project-action-btn" id="btn-add-project" type="button" title="${t("openDirectory")}">
                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2501,7 +1118,7 @@
             state.currentMessages = [];
             els.chatBody.innerHTML = "";
             els.welcomeScreen.style.display = "block";
-            els.chatTitle.textContent = getCurrentProject()?.name || "محادثة مشروع";
+            els.chatTitle.textContent = getCurrentProject()?.name || "Ù…Ø­Ø§Ø¯Ø«Ø© Ù…Ø´Ø±ÙˆØ¹";
             resetStreamingState();
             renderConversations();
         }
@@ -2529,7 +1146,7 @@
             if (!project) {
                 return;
             }
-            const confirmed = window.confirm(`حذف المشروع ${project.name} من قائمة الديسكتوب؟ لن يتم حذف ملفات المجلد.`);
+            const confirmed = window.confirm(`Ø­Ø°Ù Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ ${project.name} Ù…Ù† Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¯ÙŠØ³ÙƒØªÙˆØ¨ØŸ Ù„Ù† ÙŠØªÙ… Ø­Ø°Ù Ù…Ù„ÙØ§Øª Ø§Ù„Ù…Ø¬Ù„Ø¯.`);
             if (!confirmed) {
                 return;
             }
@@ -2553,7 +1170,7 @@
             if (!project) {
                 return;
             }
-            const confirmed = window.confirm(`هل أنت متأكد من حذف المشروع ${project.name} من قائمة البرنامج؟ لن يتم حذف أي ملف من جهاز الكمبيوتر.`);
+            const confirmed = window.confirm(`Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ ${project.name} Ù…Ù† Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¨Ø±Ù†Ø§Ù…Ø¬ØŸ Ù„Ù† ÙŠØªÙ… Ø­Ø°Ù Ø£ÙŠ Ù…Ù„Ù Ù…Ù† Ø¬Ù‡Ø§Ø² Ø§Ù„ÙƒÙ…Ø¨ÙŠÙˆØªØ±.`);
             if (!confirmed) {
                 state.swipedProjectId = null;
                 renderConversations();
@@ -2602,7 +1219,7 @@
             syncCurrentProjectContext();
             await saveProjectState();
             await refreshProjectFiles();
-            updateComposerStatus(`تم فتح المشروع: ${project.name}`);
+            updateComposerStatus(`ØªÙ… ÙØªØ­ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹: ${project.name}`);
         }
 
         async function getWebSocketToken() {
@@ -2612,7 +1229,7 @@
                 return data.access_token || state.settings.token;
             } catch (error) {
                 if (/Invalid or expired token|Token has been revoked|Missing auth token|inactive/i.test(error.message || "")) {
-                    await handleAuthFailure("الجلسة منتهية أو غير صالحة. أعد التفعيل أو حدّث رمز الدخول أولاً.");
+                    await handleAuthFailure("Ø§Ù„Ø¬Ù„Ø³Ø© Ù…Ù†ØªÙ‡ÙŠØ© Ø£Ùˆ ØºÙŠØ± ØµØ§Ù„Ø­Ø©. Ø£Ø¹Ø¯ Ø§Ù„ØªÙØ¹ÙŠÙ„ Ø£Ùˆ Ø­Ø¯Ù‘Ø« Ø±Ù…Ø² Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹.");
                     throw error;
                 }
                 console.warn("Failed to create a WebSocket token:", error.message);
@@ -2686,7 +1303,7 @@
                 }
                 state.ws = null;
                 if (event.code === 4001 || event.code === 1008 || /Authentication failed/i.test(event.reason || "")) {
-                    void handleAuthFailure("فشل اتصال الدسكتوب لأن جلسة الدخول لم تعد صالحة.");
+                    void handleAuthFailure("ÙØ´Ù„ Ø§ØªØµØ§Ù„ Ø§Ù„Ø¯Ø³ÙƒØªÙˆØ¨ Ù„Ø£Ù† Ø¬Ù„Ø³Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ù… ØªØ¹Ø¯ ØµØ§Ù„Ø­Ø©.");
                     return;
                 }
                 setTimeout(() => {
@@ -2702,9 +1319,7 @@
         function buildWorkspaceDescriptor() {
             return {
                 root_name: state.projectPath ? state.projectPath.split(/[\\/]/).pop() : "",
-                root_path: state.projectPath || "",
                 selected_files: Array.from(state.selectedProjectFiles),
-                file_paths: state.projectFiles.map((file) => file.path).slice(0, 200),
             };
         }
 
@@ -2769,14 +1384,14 @@
 
                 if (result && result.error) {
                     await sendToolResult(data.request_id, data.tool, false, null, result.error);
-                    appendSystemMessage(`فشل تنفيذ ${data.tool}: ${result.error}`);
+                    appendSystemMessage(`ÙØ´Ù„ ØªÙ†ÙÙŠØ° ${data.tool}: ${result.error}`);
                     return;
                 }
 
                 await sendToolResult(data.request_id, data.tool, true, result, "");
             } catch (error) {
                 await sendToolResult(data.request_id, data.tool, false, null, error.message);
-                appendSystemMessage(`فشل تنفيذ ${data.tool}: ${error.message}`);
+                appendSystemMessage(`ÙØ´Ù„ ØªÙ†ÙÙŠØ° ${data.tool}: ${error.message}`);
             }
         }
 
@@ -2790,7 +1405,7 @@
                 const preview = await window.electronAPI.prepareWorkspaceChanges(state.projectPath, data.changes || []);
                 if (preview.error) {
                     await sendApplyResult(data.request_id, false, null, preview.error);
-                    appendSystemMessage(`تعذر تجهيز التعديلات: ${preview.error}`);
+                    appendSystemMessage(`ØªØ¹Ø°Ø± ØªØ¬Ù‡ÙŠØ² Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª: ${preview.error}`);
                     return;
                 }
 
@@ -2810,14 +1425,14 @@
                 const approved = window.confirm(details);
                 if (!approved) {
                     await sendApplyResult(data.request_id, false, { approved: false }, "User rejected the proposed workspace changes.");
-                    appendSystemMessage("تم رفض التعديلات المحلية المقترحة.");
+                    appendSystemMessage("ØªÙ… Ø±ÙØ¶ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ© Ø§Ù„Ù…Ù‚ØªØ±Ø­Ø©.");
                     return;
                 }
 
                 const applied = await window.electronAPI.applyWorkspaceChanges(preview.previewToken);
                 if (applied.error) {
                     await sendApplyResult(data.request_id, false, null, applied.error);
-                    appendSystemMessage(`فشل تطبيق التعديلات: ${applied.error}`);
+                    appendSystemMessage(`ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª: ${applied.error}`);
                     return;
                 }
 
@@ -2827,13 +1442,103 @@
                     changed_files: applied.changedFiles || [],
                     summary,
                 }, "");
-                appendSystemMessage("تم تطبيق التعديلات المحلية بعد الموافقة.");
+                appendSystemMessage("ØªÙ… ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ© Ø¨Ø¹Ø¯ Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø©.");
             } catch (error) {
                 await sendApplyResult(data.request_id, false, null, error.message);
-                appendSystemMessage(`فشل تطبيق التعديلات: ${error.message}`);
+                appendSystemMessage(`ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª: ${error.message}`);
             }
         }
 
+        function extractInlineArtifact(content) {
+            const text = String(content || "");
+            const fencedMatch = text.match(/(?:^|\r?\n)\s*Filename:\s*([^\r\n]+)\s*\r?\n\s*\r?\n?\s*```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)\r?\n```/);
+            if (fencedMatch) {
+                return {
+                    fileName: fencedMatch[1].trim(),
+                    body: fencedMatch[3],
+                };
+            }
+            const markdownMatch = text.match(/(?:^|\r?\n)\s*(?:\*\*)?(?:Filename|اسم الملف|الملف)(?:\*\*)?\s*:\s*`?([^\r\n`]+)`?[\s\S]*?```(?:[a-zA-Z0-9_-]*)?\r?\n([\s\S]*?)\r?\n```/i);
+            if (markdownMatch) {
+                return {
+                    fileName: markdownMatch[1].trim(),
+                    body: markdownMatch[2],
+                };
+            }
+            const inlineMatch = text.match(/inline:([^\r\n:]+):\r?\n([\s\S]*?)\r?\n:end:inline:/i);
+            if (inlineMatch) {
+                return {
+                    fileName: inlineMatch[1].trim(),
+                    body: inlineMatch[2],
+                };
+            }
+            const sectionMatch = text.match(/(?:^|\r?\n)\s*(?:Filename|اسم الملف)\s*:\s*([^\r\n]+)[\s\S]*?(?:Content|المحتوى)\s*:\s*\r?\n\r?\n?([\s\S]*?)(?:\r?\n(?:\r?\n)?---|\s*$)/i);
+            if (sectionMatch) {
+                return {
+                    fileName: sectionMatch[1].trim(),
+                    body: sectionMatch[2].trimEnd(),
+                };
+            }
+            return null;
+        }
+        function normalizeArtifactFileName(fileName) {
+            return String(fileName || "")
+                .replace(/[*`]+/g, "")
+                .replace(/^[:\-\s]+|[:\-\s]+$/g, "")
+                .trim();
+        }
+
+        function normalizeArtifactBody(body) {
+            const text = String(body || "").replace(/\r\n/g, "\n");
+            const advisorySplit = text.split(/\n{2,}(?=To proceed|To actually save|You can copy|If you want|للمتابعة|لحفظ الملف|يمكنك النسخ|إذا أردت)/i);
+            return advisorySplit[0].trimEnd();
+        }
+        function unwrapAssistantFinalEnvelope(content) {
+            const text = String(content || "").trim();
+            if (!text.startsWith("{")) {
+                return text;
+            }
+            try {
+                const parsed = JSON.parse(text);
+                if (parsed && parsed.type === "assistant_final" && typeof parsed.content === "string" && parsed.content.trim()) {
+                    return parsed.content.trim();
+                }
+            } catch {}
+            return text;
+        }
+
+        async function saveInlineArtifactFromAssistant(content) {
+            if (!window.electronAPI?.saveConversationArtifact || state.projectPath) {
+                return;
+            }
+            const artifact = extractInlineArtifact(content);
+            if (!artifact || !artifact.fileName) {
+                return;
+            }
+            const normalizedFileName = normalizeArtifactFileName(artifact.fileName);
+            const normalizedBody = normalizeArtifactBody(artifact.body);
+            if (!normalizedFileName || !normalizedBody) {
+                return;
+            }
+            const artifactKey = `${normalizedFileName}
+${normalizedBody}`;
+            if (state.savedArtifactKeys.has(artifactKey)) {
+                return;
+            }
+            const result = await window.electronAPI.saveConversationArtifact(normalizedFileName, normalizedBody);
+            if (!result?.ok) {
+                appendSystemMessage(`???? ??? ????? ??????: ${result?.error || "Unknown error"}`);
+                return;
+            }
+            state.savedArtifactKeys.add(artifactKey);
+            appendSystemMessage(`?? ??? ????? ???????? ?? ${result.path}`);
+        }
+
+        function getLatestAssistantMessageText() {
+            const assistantMessages = Array.from(document.querySelectorAll(".message.assistant"));
+            const latest = assistantMessages[assistantMessages.length - 1];
+            return latest ? latest.innerText.replace(/\n\d{1,2}:\d{2}:\d{2}\s*[^\n]*$/u, "").trim() : "";
+        }
         function handleWsMessage(data) {
             switch (data.type) {
                 case "start":
@@ -2881,7 +1586,7 @@
 
         async function buildProjectContextForMessage(text) {
             if (!state.projectPath) {
-                els.contextStatus.textContent = "لا يوجد مجلد مشروع محدد.";
+                els.contextStatus.textContent = "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø¬Ù„Ø¯ Ù…Ø´Ø±ÙˆØ¹ Ù…Ø­Ø¯Ø¯.";
                 return "";
             }
 
@@ -2897,8 +1602,8 @@
             }
 
             els.contextStatus.textContent = result.files.length > 0
-                ? `تم إرفاق ${result.files.length} ملف/مقطع مناسب مع الرسالة.`
-                : "لم يتم العثور على مقاطع مناسبة من المشروع.";
+                ? `ØªÙ… Ø¥Ø±ÙØ§Ù‚ ${result.files.length} Ù…Ù„Ù/Ù…Ù‚Ø·Ø¹ Ù…Ù†Ø§Ø³Ø¨ Ù…Ø¹ Ø§Ù„Ø±Ø³Ø§Ù„Ø©.`
+                : "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ù…Ù‚Ø§Ø·Ø¹ Ù…Ù†Ø§Ø³Ø¨Ø© Ù…Ù† Ø§Ù„Ù…Ø´Ø±ÙˆØ¹.";
             return result.context || "";
         }
 
@@ -2916,7 +1621,7 @@
             state.ws.send(JSON.stringify(payload));
         }
 
-        async function waitForWebSocketOpen(timeoutMs = 15000) {
+        async function waitForWebSocketOpen(timeoutMs = 4000) {
             if (state.authRequired || !state.settings.token) {
                 return false;
             }
@@ -2963,7 +1668,7 @@
                 return;
             }
             if (state.authRequired || !state.settings.token) {
-                await handleAuthFailure("لا يمكن إرسال الرسالة لأن جلسة الدسكتوب غير صالحة.");
+                await handleAuthFailure("Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ù„Ø£Ù† Ø¬Ù„Ø³Ø© Ø§Ù„Ø¯Ø³ÙƒØªÙˆØ¨ ØºÙŠØ± ØµØ§Ù„Ø­Ø©.");
                 return;
             }
 
@@ -2996,12 +1701,12 @@
             } catch (error) {
                 resetStreamingState();
                 await enqueueMessage(text, profileName);
-                appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
+                appendSystemMessage(`ØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø¥Ù„Ù‰ queue Ø¨Ø¹Ø¯ ÙØ´Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„: ${error.message}`);
             }
         }
 
         function renderProjectFiles() {
-            els.selectedFilesStatus.textContent = `${state.selectedProjectFiles.size} ملف محدد كأولوية للسياق`;
+            els.selectedFilesStatus.textContent = `${state.selectedProjectFiles.size} Ù…Ù„Ù Ù…Ø­Ø¯Ø¯ ÙƒØ£ÙˆÙ„ÙˆÙŠØ© Ù„Ù„Ø³ÙŠØ§Ù‚`;
             els.projectFiles.innerHTML = state.projectFiles.map((file) => `
                 <div class="file-item ${state.selectedProjectFiles.has(file.path) ? "selected" : ""}" data-file-path="${file.path}">
                     <div class="d-flex justify-content-between align-items-start gap-2">
@@ -3073,12 +1778,12 @@
             els.btnApplyWrite.disabled = true;
             els.currentFilePath.textContent = filePath;
             els.fileEditor.value = result.content;
-            els.writePreviewStatus.textContent = `تم تحميل الملف (${(result.size / 1024).toFixed(1)} KB)`;
+            els.writePreviewStatus.textContent = `ØªÙ… ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù (${(result.size / 1024).toFixed(1)} KB)`;
         }
 
         async function prepareFileWrite() {
             if (!state.projectPath || !state.currentFilePath) {
-                els.writePreviewStatus.textContent = "اختر ملفاً أولاً.";
+                els.writePreviewStatus.textContent = "Ø§Ø®ØªØ± Ù…Ù„ÙØ§Ù‹ Ø£ÙˆÙ„Ø§Ù‹.";
                 return;
             }
 
@@ -3111,7 +1816,7 @@
 
             state.pendingWriteToken = null;
             els.btnApplyWrite.disabled = true;
-            els.writePreviewStatus.textContent = "تم حفظ التعديل بعد الموافقة.";
+            els.writePreviewStatus.textContent = "ØªÙ… Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ø¨Ø¹Ø¯ Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø©.";
             await refreshProjectFiles();
         }
 
@@ -3229,15 +1934,15 @@
                 resetStreamingState();
                 state.pendingConversationProjectId = null;
                 await enqueueMessage(text, profileName);
-                appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
+                appendSystemMessage(`ØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø¥Ù„Ù‰ queue Ø¨Ø¹Ø¯ ÙØ´Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„: ${error.message}`);
             }
         }
 
         function renderProjectFiles() {
             const currentProject = getCurrentProject();
             els.selectedFilesStatus.textContent = currentProject
-                ? `${state.selectedProjectFiles.size} ملف محدد للمشروع ${currentProject.name}`
-                : `${state.selectedProjectFiles.size} ملف محدد كأولوية للسياق`;
+                ? `${state.selectedProjectFiles.size} Ù…Ù„Ù Ù…Ø­Ø¯Ø¯ Ù„Ù„Ù…Ø´Ø±ÙˆØ¹ ${currentProject.name}`
+                : `${state.selectedProjectFiles.size} Ù…Ù„Ù Ù…Ø­Ø¯Ø¯ ÙƒØ£ÙˆÙ„ÙˆÙŠØ© Ù„Ù„Ø³ÙŠØ§Ù‚`;
             els.projectFiles.innerHTML = state.projectFiles.map((file) => `
                 <div class="file-item ${state.selectedProjectFiles.has(file.path) ? "selected" : ""}" data-file-path="${file.path}">
                     <div class="d-flex justify-content-between align-items-start gap-2">
@@ -3354,7 +2059,7 @@
             els.conversationsList.innerHTML = `
                 <div class="section-toggle-row">
                     <button class="section-toggle-btn" id="toggle-chats-section" type="button">
-                        <span style="display:inline-flex;align-items:center;gap:8px;"><span>💬</span><span>${t("chats")}</span></span>
+                        <span style="display:inline-flex;align-items:center;gap:8px;"><span>ðŸ’¬</span><span>${t("chats")}</span></span>
                         <span data-sidebar-action="new-chat" style="margin-inline-start:auto;color:var(--accent);font-weight:800;padding:2px 8px;border-radius:999px;background:rgba(88,118,244,0.08);">${t("sectionNew")}</span>
                         <span class="collapse-arrow">${renderChevron(!state.settings.chatsCollapsed)}</span>
                     </button>
@@ -3372,7 +2077,7 @@
                 <div class="section-divider"></div>
                 <div class="section-toggle-row">
                     <button class="section-toggle-btn" id="toggle-projects-section" type="button">
-                        <span style="display:inline-flex;align-items:center;gap:8px;"><span>📁</span><span>${t("projects")}</span></span>
+                        <span style="display:inline-flex;align-items:center;gap:8px;"><span>ðŸ“</span><span>${t("projects")}</span></span>
                         <span data-sidebar-action="new-project" style="margin-inline-start:auto;color:var(--accent);font-weight:800;padding:2px 8px;border-radius:999px;background:rgba(88,118,244,0.08);">${t("sectionNew")}</span>
                         <span class="collapse-arrow">${renderChevron(!state.settings.projectsCollapsed)}</span>
                     </button>
@@ -3436,6 +2141,17 @@
         };
         renderConversations = renderConversationsFixed;
 
+        function ensureConversationSidebarRendered() {
+            if (!els.conversationsList) {
+                return;
+            }
+            const hasStructure = els.conversationsList.querySelector("#toggle-chats-section, #toggle-projects-section");
+            const hasContent = els.conversationsList.textContent.trim().length > 0;
+            if (!hasStructure || !hasContent) {
+                renderConversationsFixed();
+            }
+        }
+
         async function toggleMicrophone() {
             if (state.speechRecognitionActive && state.speechRecognition) {
                 state.speechRecognition.stop();
@@ -3444,7 +2160,7 @@
 
             const SpeechRecognitionCtor = getSpeechRecognitionCtor();
             if (!SpeechRecognitionCtor) {
-                updateComposerStatus("التسجيل الصوتي غير مدعوم في هذا الجهاز.");
+                updateComposerStatus("Ø§Ù„ØªØ³Ø¬ÙŠÙ„ Ø§Ù„ØµÙˆØªÙŠ ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ… ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø².");
                 return;
             }
 
@@ -3452,7 +2168,7 @@
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 stream.getTracks().forEach((track) => track.stop());
             } catch (error) {
-                updateComposerStatus(`فشل الوصول إلى الميكروفون: ${error.message}`);
+                updateComposerStatus(`ÙØ´Ù„ Ø§Ù„ÙˆØµÙˆÙ„ Ø¥Ù„Ù‰ Ø§Ù„Ù…ÙŠÙƒØ±ÙˆÙÙˆÙ†: ${error.message}`);
                 return;
             }
 
@@ -3465,18 +2181,18 @@
                 state.speechRecognition = recognition;
                 state.speechRecognitionActive = true;
                 els.btnMic.classList.add("recording");
-                updateComposerStatus("جاري الاستماع...");
+                updateComposerStatus("Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø§Ø³ØªÙ…Ø§Ø¹...");
             };
             recognition.onresult = (event) => {
                 const transcript = Array.from(event.results).map((result) => result[0]?.transcript || "").join(" ").trim();
                 if (transcript) {
                     els.messageInput.value = `${els.messageInput.value} ${transcript}`.trim();
                     els.messageInput.dispatchEvent(new Event("input"));
-                    updateComposerStatus("تم إدراج النص الصوتي في المحادثة.");
+                    updateComposerStatus("ØªÙ… Ø¥Ø¯Ø±Ø§Ø¬ Ø§Ù„Ù†Øµ Ø§Ù„ØµÙˆØªÙŠ ÙÙŠ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©.");
                 }
             };
             recognition.onerror = (event) => {
-                updateComposerStatus(`خطأ في التسجيل الصوتي: ${event.error || "unknown"}`);
+                updateComposerStatus(`Ø®Ø·Ø£ ÙÙŠ Ø§Ù„ØªØ³Ø¬ÙŠÙ„ Ø§Ù„ØµÙˆØªÙŠ: ${event.error || "unknown"}`);
             };
             recognition.onend = () => {
                 state.speechRecognitionActive = false;
@@ -3575,11 +2291,11 @@
             const statusEl = document.getElementById("act-status");
 
             if (!token || !password) {
-                statusEl.innerHTML = "<span class=\"text-danger\">أدخل كود الدعوة وكلمة المرور</span>";
+                statusEl.innerHTML = "<span class=\"text-danger\">Ø£Ø¯Ø®Ù„ ÙƒÙˆØ¯ Ø§Ù„Ø¯Ø¹ÙˆØ© ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</span>";
                 return;
             }
 
-            statusEl.innerHTML = "<span class=\"text-info\">جارٍ التفعيل...</span>";
+            statusEl.innerHTML = "<span class=\"text-info\">Ø¬Ø§Ø±Ù Ø§Ù„ØªÙØ¹ÙŠÙ„...</span>";
 
             try {
                 const response = await fetch(`${apiUrl}/auth/activate`, {
@@ -3599,7 +2315,7 @@
                     template: "default",
                 });
 
-                statusEl.innerHTML = "<span class=\"text-success\">تم التفعيل بنجاح</span>";
+                statusEl.innerHTML = "<span class=\"text-success\">ØªÙ… Ø§Ù„ØªÙØ¹ÙŠÙ„ Ø¨Ù†Ø¬Ø§Ø­</span>";
                 setTimeout(async () => {
                     document.getElementById("activation-panel").style.display = "none";
                     await loadSettings();
@@ -3611,18 +2327,22 @@
             }
         });
 
+        window.electronAPI.onActivationLink?.((activation) => {
+            applyActivationSettings(activation);
+        });
+
         document.getElementById("btn-tg-gen-code").addEventListener("click", async () => {
             const codeInput = document.getElementById("tg-bind-code");
             const statusEl = document.getElementById("tg-bind-status");
-            statusEl.innerHTML = "<span class=\"text-info\">جارٍ التوليد...</span>";
+            statusEl.innerHTML = "<span class=\"text-info\">Ø¬Ø§Ø±Ù Ø§Ù„ØªÙˆÙ„ÙŠØ¯...</span>";
 
             try {
                 const data = await apiRequest("/telegram/generate-bind-code", { method: "POST" });
                 if (data.bind_code) {
                     codeInput.value = data.bind_code;
-                    statusEl.innerHTML = "<span class=\"text-success\">تم توليد الكود. أرسله للبوت ثم اضغط تأكيد الربط.</span>";
+                    statusEl.innerHTML = "<span class=\"text-success\">ØªÙ… ØªÙˆÙ„ÙŠØ¯ Ø§Ù„ÙƒÙˆØ¯. Ø£Ø±Ø³Ù„Ù‡ Ù„Ù„Ø¨ÙˆØª Ø«Ù… Ø§Ø¶ØºØ· ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø±Ø¨Ø·.</span>";
                 } else {
-                    statusEl.innerHTML = "<span class=\"text-warning\">الحساب مربوط بالفعل.</span>";
+                    statusEl.innerHTML = "<span class=\"text-warning\">Ø§Ù„Ø­Ø³Ø§Ø¨ Ù…Ø±Ø¨ÙˆØ· Ø¨Ø§Ù„ÙØ¹Ù„.</span>";
                 }
             } catch (error) {
                 statusEl.innerHTML = `<span class="text-danger">خطأ: ${escapeHtml(error.message)}</span>`;
@@ -3634,18 +2354,18 @@
             const statusEl = document.getElementById("tg-bind-status");
 
             if (!bindCode) {
-                statusEl.innerHTML = "<span class=\"text-danger\">ولّد الكود أولاً</span>";
+                statusEl.innerHTML = "<span class=\"text-danger\">ÙˆÙ„Ù‘Ø¯ Ø§Ù„ÙƒÙˆØ¯ Ø£ÙˆÙ„Ø§Ù‹</span>";
                 return;
             }
 
-            statusEl.innerHTML = "<span class=\"text-info\">جارٍ التأكيد...</span>";
+            statusEl.innerHTML = "<span class=\"text-info\">Ø¬Ø§Ø±Ù Ø§Ù„ØªØ£ÙƒÙŠØ¯...</span>";
 
             try {
                 await apiRequest("/telegram/bind-with-code", {
                     method: "POST",
                     body: JSON.stringify({ binding_code: bindCode }),
                 });
-                statusEl.innerHTML = "<span class=\"text-success\">تم الربط بنجاح.</span>";
+                statusEl.innerHTML = "<span class=\"text-success\">ØªÙ… Ø§Ù„Ø±Ø¨Ø· Ø¨Ù†Ø¬Ø§Ø­.</span>";
             } catch (error) {
                 statusEl.innerHTML = `<span class="text-danger">خطأ: ${escapeHtml(error.message)}</span>`;
             }
@@ -3692,6 +2412,11 @@
                 event.stopPropagation();
                 await copyTextToClipboard(content);
             });
+            if (role === "assistant" && content) {
+                queueMicrotask(() => {
+                    void saveInlineArtifactFromAssistant(element.innerText || content);
+                });
+            }
         }
 
         function renderActivityFeed() {
@@ -3716,10 +2441,10 @@
             document.getElementById("context-panel-title")?.replaceChildren(currentProject ? `${t("projectContext")} - ${currentProject.name}` : t("projectContext"));
             document.getElementById("context-panel-subtitle")?.replaceChildren(
                 currentProject
-                    ? (getLocale() === "en" ? "Selected project files and recent activity are shown here." : "تظهر هنا ملفات المشروع المختارة وآخر الأنشطة.")
-                    : (getLocale() === "en" ? "Open a project to inspect files, or stay in chat mode and follow activity." : "افتح مشروعاً لعرض ملفاته، أو ابق في وضع المحادثة وتابع النشاط.")
+                    ? (getLocale() === "en" ? "Selected project files and recent activity are shown here." : "ØªØ¸Ù‡Ø± Ù‡Ù†Ø§ Ù…Ù„ÙØ§Øª Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© ÙˆØ¢Ø®Ø± Ø§Ù„Ø£Ù†Ø´Ø·Ø©.")
+                    : (getLocale() === "en" ? "Open a project to inspect files, or stay in chat mode and follow activity." : "Ø§ÙØªØ­ Ù…Ø´Ø±ÙˆØ¹Ø§Ù‹ Ù„Ø¹Ø±Ø¶ Ù…Ù„ÙØ§ØªÙ‡ØŒ Ø£Ùˆ Ø§Ø¨Ù‚ ÙÙŠ ÙˆØ¶Ø¹ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø© ÙˆØªØ§Ø¨Ø¹ Ø§Ù„Ù†Ø´Ø§Ø·.")
             );
-            els.projectPath.textContent = currentProject?.path || (getLocale() === "en" ? "No project selected" : "لا يوجد مشروع محدد");
+            els.projectPath.textContent = currentProject?.path || (getLocale() === "en" ? "No project selected" : "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø´Ø±ÙˆØ¹ Ù…Ø­Ø¯Ø¯");
             els.selectedFilesStatus.textContent = currentProject
                 ? `${state.selectedProjectFiles.size} ${t("filesCount")}`
                 : `${t("regularChat")} - ${t("noProject")}`;
@@ -3735,13 +2460,13 @@
             const toggle = document.createElement("button");
             toggle.className = "settings-category-toggle";
             toggle.type = "button";
-            toggle.innerHTML = `<span>${escapeHtml(title)}</span><span class="collapse-arrow">${section.classList.contains("collapsed") ? "›" : "⌄"}</span>`;
+            toggle.innerHTML = `<span>${escapeHtml(title)}</span><span class="collapse-arrow">${section.classList.contains("collapsed") ? "â€º" : "âŒ„"}</span>`;
             const body = document.createElement("div");
             body.className = "settings-category-body";
             nodes.filter(Boolean).forEach((node) => body.appendChild(node));
             toggle.addEventListener("click", async () => {
                 section.classList.toggle("collapsed");
-                toggle.querySelector(".collapse-arrow").textContent = section.classList.contains("collapsed") ? "›" : "⌄";
+                toggle.querySelector(".collapse-arrow").textContent = section.classList.contains("collapsed") ? "â€º" : "âŒ„";
                 state.settings.settingsCategories[key] = section.classList.contains("collapsed");
                 await persistSettings();
             });
@@ -3795,15 +2520,15 @@
             const modalHeader = document.createElement("div");
             modalHeader.className = "settings-modal-header";
             const headerText = document.createElement("div");
-            headerText.innerHTML = `<h5>${getLocale() === "en" ? "Settings" : "الإعدادات"}</h5><div class="settings-inline-note">${getLocale() === "en" ? "Grouped controls with collapsible categories." : "إعدادات مرتبة ضمن أقسام قابلة للطي."}</div>`;
+            headerText.innerHTML = `<h5>${getLocale() === "en" ? "Settings" : "Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª"}</h5><div class="settings-inline-note">${getLocale() === "en" ? "Grouped controls with collapsible categories." : "Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ù…Ø±ØªØ¨Ø© Ø¶Ù…Ù† Ø£Ù‚Ø³Ø§Ù… Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„Ø·ÙŠ."}</div>`;
             modalHeader.append(headerText, els.btnCloseSettings);
 
             const container = document.createElement("div");
             container.append(
-                buildSettingsCategory(getLocale() === "en" ? "General" : "عام", "general", generalNodes),
-                buildSettingsCategory(getLocale() === "en" ? "Telegram" : "ربط التلجرام", "telegram", telegramNodes),
-                buildSettingsCategory(getLocale() === "en" ? "Files and changes" : "الملفات والتعديلات", "workspace", workspaceNodes),
-                buildSettingsCategory(getLocale() === "en" ? "System and execution" : "النظام والتنفيذ", "system", systemNodes),
+                buildSettingsCategory(getLocale() === "en" ? "General" : "Ø¹Ø§Ù…", "general", generalNodes),
+                buildSettingsCategory(getLocale() === "en" ? "Telegram" : "Ø±Ø¨Ø· Ø§Ù„ØªÙ„Ø¬Ø±Ø§Ù…", "telegram", telegramNodes),
+                buildSettingsCategory(getLocale() === "en" ? "Files and changes" : "Ø§Ù„Ù…Ù„ÙØ§Øª ÙˆØ§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª", "workspace", workspaceNodes),
+                buildSettingsCategory(getLocale() === "en" ? "System and execution" : "Ø§Ù„Ù†Ø¸Ø§Ù… ÙˆØ§Ù„ØªÙ†ÙÙŠØ°", "system", systemNodes),
             );
 
             els.settingsPanel.innerHTML = "";
@@ -3853,6 +2578,7 @@
             els.settingLanguage && (els.settingLanguage.value = state.settings.locale || "ar");
             els.composerCommandSelect && (els.composerCommandSelect.value = state.settings.commandMode || "queue");
             els.composerApprovalSelect && (els.composerApprovalSelect.value = state.settings.approvalMode || "ask_for_approval");
+            document.getElementById("act-api-url").value = state.settings.activationApiUrl || state.settings.apiUrl || "http://localhost:8002/api";
             state.projects = normalizeProjects(state.settings.projects);
             state.conversationProjectMap = state.settings.conversationProjectMap && typeof state.settings.conversationProjectMap === "object"
                 ? state.settings.conversationProjectMap
@@ -3863,6 +2589,7 @@
             applyLocale();
             updateComposerStatus(getCurrentProject() ? `${t("contextPrefix")} ${getCurrentProject().name}` : `${t("contextPrefix")} ${t("regularChat")} - ${t("noProject")}`);
             renderConversations();
+            ensureConversationSidebarRendered();
             renderQueueStatus();
             await refreshUpdateStatus();
             await loadCurrentUser();
@@ -3921,7 +2648,7 @@
                 ? `${state.selectedProjectFiles.size} ${t("filesCount")}`
                 : `${t("regularChat")} - ${t("noProject")}`;
             if (!state.projectFiles.length) {
-                els.projectFiles.innerHTML = `<div class="activity-empty">${currentProject ? (getLocale() === "en" ? "No files were loaded for this project." : "لم يتم تحميل ملفات لهذا المشروع بعد.") : t("noActivity")}</div>`;
+                els.projectFiles.innerHTML = `<div class="activity-empty">${currentProject ? (getLocale() === "en" ? "No files were loaded for this project." : "Ù„Ù… ÙŠØªÙ… ØªØ­Ù…ÙŠÙ„ Ù…Ù„ÙØ§Øª Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø¨Ø¹Ø¯.") : t("noActivity")}</div>`;
                 renderContextSidebar();
                 return;
             }
@@ -3932,14 +2659,14 @@
                             <div class="small fw-semibold">${escapeHtml(file.path)}</div>
                             <div class="text-muted" style="font-size:11px">${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())}</div>
                             <div class="file-badges">
-                                <span class="file-badge ${file.status === "new" ? "new" : "modified"}">${file.status === "new" ? (getLocale() === "en" ? "New" : "جديد") : (getLocale() === "en" ? "Modified" : "معدل")}</span>
-                                ${state.selectedProjectFiles.has(file.path) ? `<span class="file-badge selected">${getLocale() === "en" ? "Context" : "ضمن السياق"}</span>` : ""}
+                                <span class="file-badge ${file.status === "new" ? "new" : "modified"}">${file.status === "new" ? (getLocale() === "en" ? "New" : "Ø¬Ø¯ÙŠØ¯") : (getLocale() === "en" ? "Modified" : "Ù…Ø¹Ø¯Ù„")}</span>
+                                ${state.selectedProjectFiles.has(file.path) ? `<span class="file-badge selected">${getLocale() === "en" ? "Context" : "Ø¶Ù…Ù† Ø§Ù„Ø³ÙŠØ§Ù‚"}</span>` : ""}
                             </div>
                         </div>
                         <div class="d-flex gap-1">
                             <button class="btn btn-sm btn-outline-secondary btn-open-file" data-file-path="${file.path}" type="button">${getLocale() === "en" ? "Open" : "فتح"}</button>
                             <button class="btn btn-sm ${state.selectedProjectFiles.has(file.path) ? "btn-primary-custom" : "btn-outline-secondary"} btn-select-file" data-file-path="${file.path}" type="button">
-                                ${state.selectedProjectFiles.has(file.path) ? (getLocale() === "en" ? "Selected" : "محدد") : (getLocale() === "en" ? "Select" : "تحديد")}
+                                ${state.selectedProjectFiles.has(file.path) ? (getLocale() === "en" ? "Selected" : "Ù…Ø­Ø¯Ø¯") : (getLocale() === "en" ? "Select" : "ØªØ­Ø¯ÙŠØ¯")}
                             </button>
                         </div>
                     </div>
@@ -3986,9 +2713,7 @@
         function buildWorkspaceDescriptor() {
             return {
                 root_name: state.projectPath ? state.projectPath.split(/[\\/]/).pop() : "",
-                root_path: state.projectPath || "",
                 selected_files: Array.from(state.selectedProjectFiles),
-                file_paths: state.projectFiles.map((file) => file.path).slice(0, 200),
                 command_mode: els.composerCommandSelect?.value || state.settings.commandMode || "queue",
                 approval_mode: els.composerApprovalSelect?.value || state.settings.approvalMode || "ask_for_approval",
             };
@@ -4063,12 +2788,7 @@
                 case "error":
                     resetStreamingState();
                     state.pendingConversationProjectId = null;
-                    if (/Conversation not found/i.test(data.detail || "")) {
-                        state.currentConversation = null;
-                        state.conversationResetPending = false;
-                        void persistSettings();
-                    }
-                    appendSystemMessage(`Ø®Ø·Ø£: ${data.detail}`);
+                    appendSystemMessage(`Ã˜Â®Ã˜Â·Ã˜Â£: ${data.detail}`);
                     break;
                 default:
                     break;
@@ -4107,9 +2827,9 @@
                 || value === "new chat"
                 || value === "chat"
                 || value === "project chat"
-                || value === "محادثة"
-                || value === "محادثة جديدة"
-                || value === "محادثة مشروع";
+                || value === "Ù…Ø­Ø§Ø¯Ø«Ø©"
+                || value === "Ù…Ø­Ø§Ø¯Ø«Ø© Ø¬Ø¯ÙŠØ¯Ø©"
+                || value === "Ù…Ø­Ø§Ø¯Ø«Ø© Ù…Ø´Ø±ÙˆØ¹";
         }
 
         function deriveTitleFromMessages(messages) {
@@ -4150,13 +2870,13 @@
         function getToolRequestMessage(toolName) {
             const key = String(toolName || "").toLowerCase();
             const messages = {
-                list_files: getLocale() === "en" ? "Reading project files..." : "جاري قراءة ملفات المشروع...",
-                read_file: getLocale() === "en" ? "Opening the requested file..." : "جاري فتح الملف المطلوب...",
-                search_files: getLocale() === "en" ? "Searching inside project files..." : "جاري البحث داخل ملفات المشروع...",
-                run_command: getLocale() === "en" ? "Running a local command..." : "جاري تنفيذ أمر محلي...",
-                list_directory: getLocale() === "en" ? "Reading project folders..." : "جاري قراءة مجلدات المشروع...",
+                list_files: getLocale() === "en" ? "Reading project files..." : "Ø¬Ø§Ø±ÙŠ Ù‚Ø±Ø§Ø¡Ø© Ù…Ù„ÙØ§Øª Ø§Ù„Ù…Ø´Ø±ÙˆØ¹...",
+                read_file: getLocale() === "en" ? "Opening the requested file..." : "Ø¬Ø§Ø±ÙŠ ÙØªØ­ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ù…Ø·Ù„ÙˆØ¨...",
+                search_files: getLocale() === "en" ? "Searching inside project files..." : "Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¨Ø­Ø« Ø¯Ø§Ø®Ù„ Ù…Ù„ÙØ§Øª Ø§Ù„Ù…Ø´Ø±ÙˆØ¹...",
+                run_command: getLocale() === "en" ? "Running a local command..." : "Ø¬Ø§Ø±ÙŠ ØªÙ†ÙÙŠØ° Ø£Ù…Ø± Ù…Ø­Ù„ÙŠ...",
+                list_directory: getLocale() === "en" ? "Reading project folders..." : "Ø¬Ø§Ø±ÙŠ Ù‚Ø±Ø§Ø¡Ø© Ù…Ø¬Ù„Ø¯Ø§Øª Ø§Ù„Ù…Ø´Ø±ÙˆØ¹...",
             };
-            return messages[key] || (getLocale() === "en" ? "Processing a local workspace action..." : "جاري تنفيذ إجراء محلي على مساحة العمل...");
+            return messages[key] || (getLocale() === "en" ? "Processing a local workspace action..." : "Ø¬Ø§Ø±ÙŠ ØªÙ†ÙÙŠØ° Ø¥Ø¬Ø±Ø§Ø¡ Ù…Ø­Ù„ÙŠ Ø¹Ù„Ù‰ Ù…Ø³Ø§Ø­Ø© Ø§Ù„Ø¹Ù…Ù„...");
         }
 
         function clearTransientSystemMessage() {
@@ -4229,7 +2949,7 @@
                 .sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt))
                 .slice(0, 10);
             if (!outputFiles.length) {
-                tree.innerHTML = `<div class="context-tree-folder"><div class="context-tree-folder-files">${getLocale() === "en" ? "No created or modified files yet." : "لا توجد ملفات جديدة أو معدلة بعد."}</div></div>`;
+                tree.innerHTML = `<div class="context-tree-folder"><div class="context-tree-folder-files">${getLocale() === "en" ? "No created or modified files yet." : "Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù„ÙØ§Øª Ø¬Ø¯ÙŠØ¯Ø© Ø£Ùˆ Ù…Ø¹Ø¯Ù„Ø© Ø¨Ø¹Ø¯."}</div></div>`;
                 return;
             }
             const markup = outputFiles
@@ -4237,7 +2957,7 @@
                     <div class="context-tree-folder">
                         <div class="context-tree-folder-name">${escapeHtml(file.path.split(/[\\/]+/).pop() || file.path)}</div>
                         <div class="context-tree-folder-files">
-                            ${escapeHtml(file.path)} · ${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())} · ${file.status === "new" ? (getLocale() === "en" ? "New" : "جديد") : (getLocale() === "en" ? "Modified" : "معدل")}
+                            ${escapeHtml(file.path)} · ${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())} · ${file.status === "new" ? (getLocale() === "en" ? "New" : "Ø¬Ø¯ÙŠØ¯") : (getLocale() === "en" ? "Modified" : "Ù…Ø¹Ø¯Ù„")}
                         </div>
                     </div>
                 `)
@@ -4278,7 +2998,7 @@
             const currentProject = getCurrentProject();
             document.getElementById("context-panel-title")?.replaceChildren(t("projectContext"));
             document.getElementById("context-panel-subtitle")?.replaceChildren(currentProject?.path || "/");
-            els.projectPath.textContent = currentProject?.path || (getLocale() === "en" ? "No project selected" : "لا يوجد مشروع محدد");
+            els.projectPath.textContent = currentProject?.path || (getLocale() === "en" ? "No project selected" : "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø´Ø±ÙˆØ¹ Ù…Ø­Ø¯Ø¯");
             els.selectedFilesStatus.textContent = currentProject
                 ? `${state.selectedProjectFiles.size} ${t("filesCount")}`
                 : `${t("regularChat")} - ${t("noProject")}`;
@@ -4291,7 +3011,7 @@
                 ? `${state.selectedProjectFiles.size} ${t("filesCount")}`
                 : `${t("regularChat")} - ${t("noProject")}`;
             if (!state.projectFiles.length) {
-                els.projectFiles.innerHTML = `<div class="activity-empty">${currentProject ? (getLocale() === "en" ? "No files were loaded for this project." : "لم يتم تحميل ملفات لهذا المشروع بعد.") : t("noActivity")}</div>`;
+                els.projectFiles.innerHTML = `<div class="activity-empty">${currentProject ? (getLocale() === "en" ? "No files were loaded for this project." : "Ù„Ù… ÙŠØªÙ… ØªØ­Ù…ÙŠÙ„ Ù…Ù„ÙØ§Øª Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø¨Ø¹Ø¯.") : t("noActivity")}</div>`;
                 renderContextSidebar();
                 return;
             }
@@ -4322,14 +3042,14 @@
                         <div class="file-meta-group">
                             <span class="file-meta-text">${(file.size / 1024).toFixed(1)} KB · ${new Date(file.modifiedAt).toLocaleDateString(getLocale())}</span>
                             <div class="file-badges">
-                                <span class="file-badge ${file.status === "new" ? "new" : "modified"}">${file.status === "new" ? (getLocale() === "en" ? "New" : "جديد") : (getLocale() === "en" ? "Modified" : "معدل")}</span>
-                                ${state.selectedProjectFiles.has(file.path) ? `<span class="file-badge selected">${getLocale() === "en" ? "Context" : "ضمن السياق"}</span>` : ""}
+                                <span class="file-badge ${file.status === "new" ? "new" : "modified"}">${file.status === "new" ? (getLocale() === "en" ? "New" : "Ø¬Ø¯ÙŠØ¯") : (getLocale() === "en" ? "Modified" : "Ù…Ø¹Ø¯Ù„")}</span>
+                                ${state.selectedProjectFiles.has(file.path) ? `<span class="file-badge selected">${getLocale() === "en" ? "Context" : "Ø¶Ù…Ù† Ø§Ù„Ø³ÙŠØ§Ù‚"}</span>` : ""}
                             </div>
                         </div>
                         <div class="file-action-group">
                             <button class="btn btn-sm btn-outline-secondary btn-open-file" data-file-path="${escapeHtml(file.path)}" type="button">${getLocale() === "en" ? "Open" : "فتح"}</button>
                             <button class="btn btn-sm ${state.selectedProjectFiles.has(file.path) ? "btn-primary-custom" : "btn-outline-secondary"} btn-select-file" data-file-path="${escapeHtml(file.path)}" type="button">
-                                ${state.selectedProjectFiles.has(file.path) ? (getLocale() === "en" ? "Selected" : "محدد") : (getLocale() === "en" ? "Select" : "تحديد")}
+                                ${state.selectedProjectFiles.has(file.path) ? (getLocale() === "en" ? "Selected" : "Ù…Ø­Ø¯Ø¯") : (getLocale() === "en" ? "Select" : "ØªØ­Ø¯ÙŠØ¯")}
                             </button>
                         </div>
                     </div>
@@ -4345,7 +3065,7 @@
                         return `
                             <div class="project-tree-node">
                                 <button class="project-tree-folder-toggle" data-folder-toggle="${escapeHtml(folderPath)}" type="button">
-                                    <span class="project-tree-chevron">${isExpanded ? "▾" : "▸"}</span>
+                                    <span class="project-tree-chevron">${isExpanded ? "â–¾" : "â–¸"}</span>
                                     <span>${escapeHtml(folderName)}</span>
                                 </button>
                                 ${isExpanded ? `<div class="project-tree-children">${renderTreeNode(folderNode, folderPath)}</div>` : ""}
@@ -4361,7 +3081,7 @@
                 <div class="project-file-tree">
                     <div class="project-tree-root">
                         <div class="project-tree-root-label">
-                            <span class="project-tree-chevron">▾</span>
+                            <span class="project-tree-chevron">â–¾</span>
                             <span>${projectLabel}</span>
                         </div>
                         <div class="project-tree-children">${renderTreeNode(tree)}</div>
@@ -4526,7 +3246,7 @@
                 return;
             }
             if (state.authRequired || !state.settings.token) {
-                await handleAuthFailure("لا يمكن إرسال الرسالة لأن جلسة الدسكتوب غير صالحة.");
+                await handleAuthFailure("Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ù„Ø£Ù† Ø¬Ù„Ø³Ø© Ø§Ù„Ø¯Ø³ÙƒØªÙˆØ¨ ØºÙŠØ± ØµØ§Ù„Ø­Ø©.");
                 return;
             }
             const wsReady = await waitForWebSocketOpen();
@@ -4567,7 +3287,7 @@
                 resetStreamingState();
                 state.pendingConversationProjectId = null;
                 await enqueueMessage(text, profileName);
-                appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
+                appendSystemMessage(`ØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø¥Ù„Ù‰ queue Ø¨Ø¹Ø¯ ÙØ´Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„: ${error.message}`);
             }
         }
 
@@ -4612,6 +3332,28 @@
                 case "done":
                     clearTransientSystemMessage();
                     resetStreamingState();
+                    {
+                        const lastMessage = state.currentMessages[state.currentMessages.length - 1];
+                        const rawAssistantContent = data.content
+                            || (lastMessage?.role === "assistant" ? (lastMessage.content || "") : "")
+                            || getLatestAssistantMessageText();
+                        const assistantContent = unwrapAssistantFinalEnvelope(rawAssistantContent);
+                        if (lastMessage?.role === "assistant" && assistantContent && assistantContent !== lastMessage.content) {
+                            lastMessage.content = assistantContent;
+                            if (state.streamingAssistantElement) {
+                                setMessageElementContent(state.streamingAssistantElement, "assistant", assistantContent);
+                            } else {
+                                const assistantMessages = Array.from(document.querySelectorAll(".message.assistant"));
+                                const latestAssistant = assistantMessages[assistantMessages.length - 1];
+                                if (latestAssistant) {
+                                    setMessageElementContent(latestAssistant, "assistant", assistantContent);
+                                }
+                            }
+                        }
+                        if (assistantContent) {
+                            void saveInlineArtifactFromAssistant(assistantContent);
+                        }
+                    }
                     if (data.conversation_id) {
                         if (!(state.conversationResetPending && state.pendingConversationProjectId === null)) {
                             state.currentConversation = data.conversation_id;
@@ -4631,6 +3373,11 @@
                     clearTransientSystemMessage();
                     resetStreamingState();
                     state.pendingConversationProjectId = null;
+                    if (/Conversation not found/i.test(data.detail || "")) {
+                        state.currentConversation = null;
+                        state.conversationResetPending = false;
+                        void persistSettings();
+                    }
                     appendSystemMessage(`خطأ: ${data.detail}`);
                     break;
                 default:
@@ -4662,7 +3409,9 @@
         });
 
         (async () => {
+            renderConversations = renderConversationsFixed;
             await loadSettings();
+            ensureConversationSidebarRendered();
 
             if (!state.settings.token) {
                 document.getElementById("activation-panel").style.display = "flex";
@@ -4670,8 +3419,7 @@
             }
 
             await loadConversations();
+            ensureConversationSidebarRendered();
             connectWebSocket();
         })();
-    </script>
-</body>
-</html>
+    

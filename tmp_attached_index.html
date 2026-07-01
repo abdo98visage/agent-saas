@@ -2702,9 +2702,7 @@
         function buildWorkspaceDescriptor() {
             return {
                 root_name: state.projectPath ? state.projectPath.split(/[\\/]/).pop() : "",
-                root_path: state.projectPath || "",
                 selected_files: Array.from(state.selectedProjectFiles),
-                file_paths: state.projectFiles.map((file) => file.path).slice(0, 200),
             };
         }
 
@@ -2916,7 +2914,7 @@
             state.ws.send(JSON.stringify(payload));
         }
 
-        async function waitForWebSocketOpen(timeoutMs = 15000) {
+        async function waitForWebSocketOpen(timeoutMs = 4000) {
             if (state.authRequired || !state.settings.token) {
                 return false;
             }
@@ -3986,9 +3984,7 @@
         function buildWorkspaceDescriptor() {
             return {
                 root_name: state.projectPath ? state.projectPath.split(/[\\/]/).pop() : "",
-                root_path: state.projectPath || "",
                 selected_files: Array.from(state.selectedProjectFiles),
-                file_paths: state.projectFiles.map((file) => file.path).slice(0, 200),
                 command_mode: els.composerCommandSelect?.value || state.settings.commandMode || "queue",
                 approval_mode: els.composerApprovalSelect?.value || state.settings.approvalMode || "ask_for_approval",
             };
@@ -4063,11 +4059,6 @@
                 case "error":
                     resetStreamingState();
                     state.pendingConversationProjectId = null;
-                    if (/Conversation not found/i.test(data.detail || "")) {
-                        state.currentConversation = null;
-                        state.conversationResetPending = false;
-                        void persistSettings();
-                    }
                     appendSystemMessage(`Ø®Ø·Ø£: ${data.detail}`);
                     break;
                 default:

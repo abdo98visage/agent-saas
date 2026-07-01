@@ -1,8 +1,10 @@
 import asyncio
 from dataclasses import dataclass
 
+from cryptography.fernet import Fernet
 from sqlalchemy import delete, func, select
 
+from app.core.config import settings
 from app.core.db import async_session
 from app.core.security import get_password_hash
 from app.models.agent_run import AgentRun, AgentRunEvent
@@ -46,6 +48,9 @@ class EmployeeSeed:
     full_name: str
     department: str
     profile_slug: str
+
+
+DEFAULT_EMPLOYEE_PASSWORD = "default123"
 
 
 SKILLS = [
@@ -274,6 +279,21 @@ Use this skill for repeatable office workflows and process hygiene.
 - Reduce dependency on memory and ad hoc execution.
 """,
     ),
+    SkillSeed(
+        name="Arabic English Translation",
+        slug="arabic-english-translation",
+        description="Translates accurately between Arabic and English while preserving meaning and tone.",
+        instructions_md="""# Arabic English Translation
+
+Use this skill when the task is translation between Arabic and English.
+
+## Rules
+- Preserve meaning before stylistic preference.
+- Keep names, numbers, dates, and file content exact.
+- Avoid adding interpretation unless explicitly requested.
+- If the request asks for a file, keep the output clean and ready to save.
+""",
+    ),
 ]
 
 
@@ -338,13 +358,30 @@ PROFILES = [
         ],
         allowed_tools=["documents", "spreadsheets"],
     ),
+    ProfileSeed(
+        name="ايجنت الترجمة",
+        slug="translator-agent",
+        soul_md="أنت وكيل ترجمة متخصص بين العربية والإنجليزية، دقيق في المعنى وتحافظ على النبرة والمصطلحات.",
+        agents_md="""# AGENTS.md
+- Translate accurately between Arabic and English.
+- Preserve meaning, tone, names, numbers, and formatting.
+- Keep outputs clean and directly usable.
+- When a desktop project is attached and the task requests file changes, prefer applying them to the project.
+""",
+        system_prompt="Act as a specialist Arabic-English translator. Be precise, concise, and faithful to the original meaning.",
+        skill_slugs=[
+            "arabic-english-translation",
+            "document-drafting",
+        ],
+        allowed_tools=["documents"],
+    ),
 ]
 
 
 EMPLOYEES = [
     EmployeeSeed(
         email="ahmad.helou@example.com",
-        full_name="احمد الحلو",
+        full_name="أحمد الحلو",
         department="Marketing",
         profile_slug="marketing-agent",
     ),
@@ -356,11 +393,180 @@ EMPLOYEES = [
     ),
     EmployeeSeed(
         email="mustafa.ahmad@example.com",
-        full_name="مصطفى احمد",
+        full_name="مصطفى أحمد",
         department="Office",
         profile_slug="office-agent",
     ),
+    EmployeeSeed(
+        email="rafael@example.com",
+        full_name="رافاييل",
+        department="Translation",
+        profile_slug="translator-agent",
+    ),
 ]
+
+
+def _seed_allowed_providers() -> list[str]:
+    if settings.llm_provider in {"openai", "minimax", "ollama"}:
+        return [settings.llm_provider]
+    return []
+
+
+def _platform_provider_and_key() -> tuple[str, str] | None:
+    if settings.openai_api_key:
+        return ("openai", settings.openai_api_key)
+    if settings.minimax_api_key:
+        return ("minimax", settings.minimax_api_key)
+    return None
+
+
+async def ensure_platform_api_key(db) -> str:
+    provider_and_key = _platform_provider_and_key()
+    if provider_and_key is None:
+        return "missing"
+
+    provider, api_key = provider_and_key
+    result = await db.execute(
+        select(UserApiKey).where(
+            UserApiKey.owner_type == "platform",
+            UserApiKey.user_id.is_(None),
+            UserApiKey.profile_id.is_(None),
+            UserApiKey.provider == provider,
+        )
+    )
+    existing_keys = result.scalars().all()
+    key_obj = existing_keys[0] if existing_keys else None
+    for duplicate in existing_keys[1:]:
+        await db.delete(duplicate)
+    encrypted = Fernet(settings.fernet_key.encode()).encrypt(api_key.encode()).decode()
+
+    if key_obj is not None:
+        key_obj.encrypted_key = encrypted
+        key_obj.key_prefix = api_key[:6]
+        key_obj.daily_budget = 10_000_000
+        key_obj.is_active = True
+        return "updated"
+
+    db.add(
+        UserApiKey(
+            owner_type="platform",
+            user_id=None,
+            profile_id=None,
+            provider=provider,
+            encrypted_key=encrypted,
+            key_prefix=api_key[:6],
+            is_active=True,
+            daily_budget=10_000_000,
+        )
+    )
+    return "created"
+
+
+async def seed_defaults(db) -> dict[str, int | str]:
+    skills: list[SkillDefinition] = []
+    for item in SKILLS:
+        result = await db.execute(select(SkillDefinition).where(SkillDefinition.slug == item.slug))
+        skill = result.scalar_one_or_none()
+        if skill is None:
+            skill = SkillDefinition(
+                name=item.name,
+                slug=item.slug,
+                description=item.description,
+                instructions_md=item.instructions_md,
+                is_active=True,
+            )
+            db.add(skill)
+            await db.flush()
+        else:
+            skill.name = item.name
+            skill.description = item.description
+            skill.instructions_md = item.instructions_md
+            skill.is_active = True
+        skills.append(skill)
+
+    skill_map = {skill.slug: skill for skill in skills}
+    profile_map: dict[str, Profile] = {}
+    allowed_providers = _seed_allowed_providers()
+
+    for item in PROFILES:
+        result = await db.execute(select(Profile).where(Profile.slug == item.slug))
+        profile = result.scalar_one_or_none()
+        if profile is None:
+            profile = Profile(
+                name=item.name,
+                slug=item.slug,
+                is_active=True,
+                runtime_type="hermes",
+            )
+            db.add(profile)
+            await db.flush()
+
+        profile.name = item.name
+        profile.soul_md = item.soul_md
+        profile.agents_md = item.agents_md
+        profile.skills = item.skill_slugs
+        profile.system_prompt = item.system_prompt
+        profile.is_active = True
+        profile.runtime_type = "hermes"
+        profile.max_tokens_per_day = 150000
+        profile.max_requests_per_day = 1000
+        profile.daily_cost_budget = 500
+        profile.allowed_providers = allowed_providers
+        profile.allowed_mcp_servers = []
+        profile.allowed_tools = item.allowed_tools
+        profile.approval_required_tools = []
+        profile.memory_settings = {}
+        await db.flush()
+        await hermes_profile_sync_service.sync(profile, [skill_map[slug] for slug in item.skill_slugs])
+        profile_map[item.slug] = profile
+
+    for item in EMPLOYEES:
+        result = await db.execute(select(User).where(User.email == item.email))
+        user = result.scalar_one_or_none()
+        if user is None:
+            user = User(
+                email=item.email,
+                hashed_password=get_password_hash(DEFAULT_EMPLOYEE_PASSWORD),
+                role="employee",
+            )
+            db.add(user)
+            await db.flush()
+
+        user.full_name = item.full_name
+        user.department = item.department
+        user.role = "employee"
+        user.is_active = True
+        user.is_activated = True
+        user.invite_token = None
+        user.invite_token_expires_at = None
+        user.max_tokens_per_day = 100000
+        user.max_requests_per_day = 500
+
+        assignment_result = await db.execute(
+            select(ProfileUser).where(
+                ProfileUser.user_id == user.id,
+                ProfileUser.profile_id == profile_map[item.profile_slug].id,
+            )
+        )
+        assignment = assignment_result.scalar_one_or_none()
+        if assignment is None:
+            db.add(
+                ProfileUser(
+                    user_id=user.id,
+                    profile_id=profile_map[item.profile_slug].id,
+                    priority=0,
+                )
+            )
+
+    platform_key_status = await ensure_platform_api_key(db)
+    await db.commit()
+
+    return {
+        "employees": await db.scalar(select(func.count(User.id)).where(User.role == "employee")),
+        "profiles": await db.scalar(select(func.count(Profile.id))),
+        "skills": await db.scalar(select(func.count(SkillDefinition.id))),
+        "platform_key": platform_key_status,
+    }
 
 
 async def reset_database() -> None:
@@ -384,78 +590,9 @@ async def reset_database() -> None:
 
 async def seed_database() -> None:
     async with async_session() as db:
-        skills: list[SkillDefinition] = []
-        for item in SKILLS:
-            skill = SkillDefinition(
-                name=item.name,
-                slug=item.slug,
-                description=item.description,
-                instructions_md=item.instructions_md,
-                is_active=True,
-            )
-            db.add(skill)
-            skills.append(skill)
-        await db.flush()
-        skill_map = {skill.slug: skill for skill in skills}
-
-        profile_map: dict[str, Profile] = {}
-        for item in PROFILES:
-            profile = Profile(
-                name=item.name,
-                slug=item.slug,
-                soul_md=item.soul_md,
-                agents_md=item.agents_md,
-                skills=item.skill_slugs,
-                system_prompt=item.system_prompt,
-                is_active=True,
-                runtime_type="hermes",
-                max_tokens_per_day=150000,
-                max_requests_per_day=1000,
-                daily_cost_budget=500,
-                allowed_providers=["openai"],
-                allowed_mcp_servers=[],
-                allowed_tools=item.allowed_tools,
-                approval_required_tools=[],
-                memory_settings={},
-            )
-            db.add(profile)
-            await db.flush()
-            await hermes_profile_sync_service.sync(profile, [skill_map[slug] for slug in item.skill_slugs])
-            profile_map[item.slug] = profile
-
-        for item in EMPLOYEES:
-            user = User(
-                email=item.email,
-                hashed_password=get_password_hash("default123"),
-                full_name=item.full_name,
-                department=item.department,
-                role="employee",
-                is_active=True,
-                is_activated=True,
-                invite_token=None,
-                invite_token_expires_at=None,
-                max_tokens_per_day=100000,
-                max_requests_per_day=500,
-            )
-            db.add(user)
-            await db.flush()
-            db.add(
-                ProfileUser(
-                    user_id=user.id,
-                    profile_id=profile_map[item.profile_slug].id,
-                    priority=0,
-                )
-            )
-
-        await db.commit()
-
-        stats = {
-            "employees": await db.scalar(select(func.count(User.id)).where(User.role == "employee")),
-            "profiles": await db.scalar(select(func.count(Profile.id))),
-            "skills": await db.scalar(select(func.count(SkillDefinition.id))),
-            "sessions": await db.scalar(select(func.count(Session.id))),
-            "audit_logs": await db.scalar(select(func.count(AuditLog.id))),
-        }
+        stats = await seed_defaults(db)
+        stats["sessions"] = await db.scalar(select(func.count(Session.id)))
+        stats["audit_logs"] = await db.scalar(select(func.count(AuditLog.id)))
         print(stats)
 
 

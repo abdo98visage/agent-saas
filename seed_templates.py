@@ -23,6 +23,12 @@ from app.core.security import create_access_token, get_password_hash
 from app.models.agent_template import AgentTemplate
 from app.models.skill_definition import SkillDefinition
 from app.models.user import User
+from scripts.reset_seed_clean_workspace import (
+    DEFAULT_EMPLOYEE_PASSWORD,
+    EMPLOYEES,
+    PROFILES,
+    seed_defaults,
+)
 
 
 DEFAULT_TEMPLATES = [
@@ -137,8 +143,22 @@ async def seed() -> None:
             session.add(SkillDefinition(**skill_data))
             print(f"  [ok] Skill: {skill_data['slug']}")
 
-        print("  [info] Default profiles seeding is disabled")
         await session.commit()
+        seed_stats = await seed_defaults(session)
+        print(
+            "  [ok] Default workspace seeded:"
+            f" {seed_stats['profiles']} profiles,"
+            f" {seed_stats['employees']} employees,"
+            f" password={DEFAULT_EMPLOYEE_PASSWORD}"
+        )
+        print(
+            "  [info] Profiles: "
+            + ", ".join(profile.slug for profile in PROFILES)
+        )
+        print(
+            "  [info] Employees: "
+            + ", ".join(employee.email for employee in EMPLOYEES)
+        )
 
     print()
     print("=" * 50)

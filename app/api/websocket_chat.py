@@ -125,17 +125,58 @@ async def update_last_seen(user_id: UUID):
 def _normalize_workspace_payload(msg: dict) -> dict:
     workspace = msg.get("workspace") or {}
     root_name = str(workspace.get("root_name") or "").strip()
+    root_path = str(workspace.get("root_path") or "").strip()
     selected_files = workspace.get("selected_files") or []
+    file_paths = workspace.get("file_paths") or []
     if not isinstance(selected_files, list):
         selected_files = []
+    if not isinstance(file_paths, list):
+        file_paths = []
     return {
         "root_name": root_name[:200],
+        "root_path": root_path[:1000],
         "selected_files": [str(item)[:500] for item in selected_files[:100] if item],
+        "file_paths": [str(item)[:500] for item in file_paths[:200] if item],
     }
 
 
 def _has_workspace_context(workspace: dict) -> bool:
-    return bool(workspace.get("root_name") or workspace.get("selected_files"))
+    return bool(workspace.get("root_name") or workspace.get("root_path") or workspace.get("selected_files") or workspace.get("file_paths"))
+
+
+def _effective_project_context(project_context: Optional[str], workspace: dict, workspace_supplied: bool) -> Optional[str]:
+    parts: list[str] = []
+    if workspace_supplied:
+        root_name = str(workspace.get("root_name") or "").strip()
+        root_path = str(workspace.get("root_path") or "").strip()
+        selected_files = workspace.get("selected_files") or []
+        file_paths = workspace.get("file_paths") or []
+        if root_name:
+            workspace_lines = [
+                f"Desktop active project root: {root_name}",
+                "Treat this desktop project as the employee's current project.",
+                "Do not substitute Hermes runtime folders or internal agent directories for the employee's project.",
+            ]
+            if root_path:
+                workspace_lines.insert(1, f"Desktop active project path: {root_path}")
+            parts.append("\n".join(workspace_lines))
+        else:
+            parts.append(
+                "\n".join(
+                    [
+                        "No desktop project is currently selected.",
+                        "If asked where you are or what project is open, state that no desktop project is attached instead of inspecting Hermes internal folders.",
+                    ]
+                )
+            )
+        if selected_files:
+            parts.append(f"Desktop selected files: {json.dumps(selected_files, ensure_ascii=False)}")
+        if file_paths:
+            parts.append(f"Desktop visible project files snapshot: {json.dumps(file_paths, ensure_ascii=False)}")
+    if project_context:
+        parts.append(project_context)
+    merged = "\n\n".join(part for part in parts if part)
+    return merged or None
 
 
 async def _save_run_event(db, run_id: UUID, event_type: str, payload: dict):
@@ -536,6 +577,11 @@ async def websocket_chat(
             project_context = msg.get("project_context")
             effective_profile_name = msg.get("profile_name") or profile_name
             workspace = _normalize_workspace_payload(msg)
+            effective_project_context = _effective_project_context(
+                project_context=project_context,
+                workspace=workspace,
+                workspace_supplied="workspace" in msg,
+            )
 
             if not user_message:
                 await websocket.send_json({"type": "error", "detail": "Empty message"})
@@ -573,7 +619,7 @@ async def websocket_chat(
                         active_conversation_id=active_conversation_id,
                         agent_template_name=agent_template_name,
                         user_message=user_message,
-                        project_context=project_context,
+                        project_context=effective_project_context,
                         effective_profile_name=effective_profile_name,
                         workspace=workspace,
                     )
@@ -632,7 +678,7 @@ async def websocket_chat(
                         conversation_id=active_conversation_id,
                         user_message=user_message,
                         agent_template_name=agent_template_name,
-                        project_context=project_context,
+                        project_context=effective_project_context,
                         profile_name=effective_profile_name,
                     )
                     try:

@@ -48,6 +48,7 @@ def test_preload_exposes_reviewed_write_flow():
     assert "applyWorkspaceChanges" in content
     assert "readMultipleFiles" in content
     assert "searchFiles" in content
+    assert "saveConversationArtifact" in content
 
 
 def test_renderer_uses_local_assets_and_csp():
@@ -112,3 +113,53 @@ def test_desktop_main_process_has_local_cowork_tools():
     assert "readMultipleWorkspaceFiles" in content
     assert "prepareWorkspaceChanges" in content
     assert "applyWorkspaceChanges" in content
+    assert "save-conversation-artifact" in content
+    assert "KarzounOS" in content
+
+
+def test_desktop_saves_conversation_artifacts_under_system_downloads():
+    with open("desktop/src/main/main.js", encoding="utf-8") as file:
+        content = file.read()
+
+    assert 'app.getPath("downloads")' in content
+    assert 'path.join(downloadsRoot, "KarzounOS")' in content
+    assert 'path.join(os.homedir(), "Downloads")' in content
+
+
+def test_desktop_workspace_writes_are_applied_inside_selected_project():
+    with open("desktop/src/main/main.js", encoding="utf-8") as file:
+        main_content = file.read()
+    with open("desktop/src/renderer/index.html", encoding="utf-8") as file:
+        renderer_content = file.read()
+
+    assert "resolveWorkspaceFile(rootPath" in main_content
+    assert "prepareWorkspaceChanges(rootPath, changes = [])" in main_content
+    assert "applyWorkspaceChanges(previewToken)" in main_content
+    assert "window.electronAPI.prepareWorkspaceChanges(state.projectPath, data.changes || [])" in renderer_content
+    assert "window.electronAPI.applyWorkspaceChanges(preview.previewToken)" in renderer_content
+
+
+def test_renderer_inline_artifact_parser_supports_section_format():
+    with open("desktop/src/renderer/index.html", encoding="utf-8") as file:
+        content = file.read()
+
+    assert "(?:Filename|اسم الملف)" in content
+    assert "(?:Content|المحتوى)" in content
+    assert "(?:\\r?\\n(?:\\r?\\n)?---|\\s*$)" in content
+    assert "(?:^|\\r?\\n)\\s*Filename:" in content
+
+
+def test_renderer_resets_stale_conversation_after_not_found_error():
+    with open("desktop/src/renderer/index.html", encoding="utf-8") as file:
+        content = file.read()
+
+    assert 'if (/Conversation not found/i.test(data.detail || ""))' in content
+    assert "state.currentConversation = null;" in content
+
+
+def test_renderer_unwraps_assistant_final_json_envelopes():
+    with open("desktop/src/renderer/index.html", encoding="utf-8") as file:
+        content = file.read()
+
+    assert "function unwrapAssistantFinalEnvelope(content)" in content
+    assert 'parsed.type === "assistant_final"' in content

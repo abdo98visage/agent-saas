@@ -56,13 +56,20 @@ class AgentService:
             .where(ProfileUser.user_id == user_id, Profile.is_active == True)
         )
         if profile_name:
-            query = query.where(Profile.name == profile_name)
+            normalized_profile_name = profile_name.strip()
+            query = query.where(
+                (Profile.name == normalized_profile_name) | (Profile.slug == normalized_profile_name)
+            )
         result = await db.execute(query)
         rows = result.all()
         if not rows:
             if profile_name and user.role == "admin":
+                normalized_profile_name = profile_name.strip()
                 admin_profile_result = await db.execute(
-                    select(Profile).where(Profile.name == profile_name, Profile.is_active == True)
+                    select(Profile).where(
+                        ((Profile.name == normalized_profile_name) | (Profile.slug == normalized_profile_name)),
+                        Profile.is_active == True,
+                    )
                 )
                 admin_profile = admin_profile_result.scalar_one_or_none()
                 if admin_profile:
@@ -72,8 +79,8 @@ class AgentService:
             return None
         if profile_name:
             return rows[0][1]
-        # Return highest priority profile
-        rows.sort(key=lambda r: r[0].priority, reverse=True)
+        # Lower numeric priority means higher precedence.
+        rows.sort(key=lambda r: r[0].priority)
         return rows[0][1]
 
     async def resolve_user_api_key(
