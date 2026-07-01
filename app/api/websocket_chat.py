@@ -37,6 +37,32 @@ ALL_COWORK_TOOLS = READ_ONLY_COWORK_TOOLS | {"propose_patch"}
 MAX_COWORK_STEPS = 8
 
 
+def _canonicalize_apply_changes(changes: list[dict] | None) -> str:
+    normalized: list[dict] = []
+    for change in changes or []:
+        normalized.append(
+            {
+                "action": str(change.get("action") or ""),
+                "path": str(change.get("path") or ""),
+                "new_path": str(change.get("new_path") or ""),
+                "content": str(change.get("content") or ""),
+            }
+        )
+    return json.dumps(normalized, ensure_ascii=False, sort_keys=True)
+
+
+def _last_successful_apply_signature(transcript: list[dict]) -> str | None:
+    for index in range(len(transcript) - 1, 0, -1):
+        current = transcript[index]
+        previous = transcript[index - 1]
+        if current.get("type") != "apply_result" or previous.get("type") != "apply_request":
+            continue
+        if not current.get("ok"):
+            continue
+        return _canonicalize_apply_changes(previous.get("changes") or [])
+    return None
+
+
 @dataclass(frozen=True)
 class WebSocketUser:
     id: UUID
@@ -220,6 +246,7 @@ async def _run_cowork_loop(
     project_context: Optional[str],
     effective_profile_name: Optional[str],
     workspace: dict,
+    approval_mode: str,
 ) -> dict:
     async with async_session() as db:
         user_obj = await agent_service._get_user(db, user.id)
@@ -270,6 +297,7 @@ async def _run_cowork_loop(
         total_cost = 0.0
         output_tokens = 0
         input_tokens = 0
+        approval_granted_for_message = approval_mode in {"approve_for_me", "full_access"}
 
         for _step in range(MAX_COWORK_STEPS):
             payload = {
@@ -341,37 +369,64 @@ async def _run_cowork_loop(
 
             if event_type == "apply_request":
                 request_id = result.get("request_id") or str(uuid4())
-                approval_event = {
-                    "type": "approval_required",
-                    "request_id": request_id,
-                    "title": "Apply proposed workspace changes?",
-                    "summary": result.get("summary") or "The smart agent proposed local workspace changes.",
-                }
-                await websocket.send_json(approval_event)
-                apply_event = {
-                    "type": "apply_request",
-                    "request_id": request_id,
-                    "mode": result.get("mode") or "workspace_changes",
-                    "summary": result.get("summary") or "Apply proposed workspace changes",
-                    "changes": result.get("changes") or [],
-                }
-                await websocket.send_json(apply_event)
-                apply_result = await _wait_for_client_event(websocket, user, {"apply_result"})
-                if apply_result.get("request_id") != request_id:
-                    raise RuntimeError("Apply result request_id mismatch")
-                transcript.append(apply_event)
-                transcript.append({
-                    "type": "apply_result",
-                    "request_id": request_id,
-                    "ok": bool(apply_result.get("ok")),
-                    "result": apply_result.get("result"),
-                    "error": apply_result.get("error"),
-                })
-                async with async_session() as event_db:
-                    await _save_run_event(event_db, run.id, "approval_required", approval_event)
-                    await _save_run_event(event_db, run.id, "apply_result", transcript[-1])
-                    await event_db.commit()
-                continue
+                current_apply_signature = _canonicalize_apply_changes(result.get("changes") or [])
+                previous_apply_signature = _last_successful_apply_signature(transcript)
+                if previous_apply_signature and previous_apply_signature == current_apply_signature:
+                    final_content = result.get("summary") or "تم تطبيق التعديلات المحلية المطلوبة بنجاح."
+                    async with async_session() as event_db:
+                        await _save_run_event(
+                            event_db,
+                            run.id,
+                            "assistant_final",
+                            {
+                                "type": "assistant_final",
+                                "content": final_content,
+                                "deduplicated_repeated_apply_request": True,
+                            },
+                        )
+                        await event_db.commit()
+                    result = {"type": "assistant_final", "content": final_content}
+                    event_type = "assistant_final"
+                else:
+                    require_approval = approval_mode == "ask_for_approval" and not approval_granted_for_message
+                    approval_event = None
+                    if require_approval:
+                        approval_event = {
+                            "type": "approval_required",
+                            "request_id": request_id,
+                            "title": "Apply proposed workspace changes?",
+                            "summary": result.get("summary") or "The smart agent proposed local workspace changes.",
+                        }
+                        await websocket.send_json(approval_event)
+                    apply_event = {
+                        "type": "apply_request",
+                        "request_id": request_id,
+                        "mode": result.get("mode") or "workspace_changes",
+                        "summary": result.get("summary") or "Apply proposed workspace changes",
+                        "changes": result.get("changes") or [],
+                        "require_approval": require_approval,
+                        "approval_mode": approval_mode,
+                    }
+                    await websocket.send_json(apply_event)
+                    apply_result = await _wait_for_client_event(websocket, user, {"apply_result"})
+                    if apply_result.get("request_id") != request_id:
+                        raise RuntimeError("Apply result request_id mismatch")
+                    if bool(apply_result.get("ok")) and require_approval and bool((apply_result.get("result") or {}).get("approved")):
+                        approval_granted_for_message = True
+                    transcript.append(apply_event)
+                    transcript.append({
+                        "type": "apply_result",
+                        "request_id": request_id,
+                        "ok": bool(apply_result.get("ok")),
+                        "result": apply_result.get("result"),
+                        "error": apply_result.get("error"),
+                    })
+                    async with async_session() as event_db:
+                        if approval_event:
+                            await _save_run_event(event_db, run.id, "approval_required", approval_event)
+                        await _save_run_event(event_db, run.id, "apply_result", transcript[-1])
+                        await event_db.commit()
+                    continue
 
             final_content = (result.get("content") or "").strip()
             if final_content:
@@ -576,6 +631,9 @@ async def websocket_chat(
             user_message = msg.get("content", "").strip()
             project_context = msg.get("project_context")
             effective_profile_name = msg.get("profile_name") or profile_name
+            approval_mode = str(msg.get("approval_mode") or "ask_for_approval").strip()
+            if approval_mode not in {"ask_for_approval", "approve_for_me", "full_access"}:
+                approval_mode = "ask_for_approval"
             workspace = _normalize_workspace_payload(msg)
             effective_project_context = _effective_project_context(
                 project_context=project_context,
@@ -622,6 +680,7 @@ async def websocket_chat(
                         project_context=effective_project_context,
                         effective_profile_name=effective_profile_name,
                         workspace=workspace,
+                        approval_mode=approval_mode,
                     )
                 except asyncio.CancelledError:
                     raise

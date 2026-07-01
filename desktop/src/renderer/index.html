@@ -1434,6 +1434,7 @@
             speechRecognitionActive: false,
             swipedProjectId: null,
             projectSwipeTracker: null,
+            messageApprovalGranted: false,
         };
 
         const els = {
@@ -1869,6 +1870,7 @@
             state.isStreaming = false;
             state.streamingAssistantElement = null;
             removeTypingIndicator();
+            state.messageApprovalGranted = false;
         }
 
         async function handleAuthFailure(message = "") {
@@ -2795,23 +2797,27 @@
                 }
 
                 const summary = data.summary || "Hermes proposed workspace changes.";
-                const details = [
-                    summary,
-                    `Operations: ${preview.summary.totalOperations || 0}`,
-                    `Changed lines: ${preview.summary.changedLines || 0}`,
-                    `Changed files: ${(preview.summary.changedFiles || []).join(", ") || "-"}`,
-                    `Created files: ${(preview.summary.createdFiles || []).join(", ") || "-"}`,
-                    `Renamed files: ${(preview.summary.renamedFiles || []).map((item) => `${item.from} -> ${item.to}`).join(", ") || "-"}`,
-                    `Deleted files: ${(preview.summary.deletedFiles || []).join(", ") || "-"}`,
-                    "",
-                    "Approve these local changes?",
-                ].join("\n");
+                const requireApproval = Boolean(data.require_approval) && !state.messageApprovalGranted;
+                if (requireApproval) {
+                    const details = [
+                        summary,
+                        `Operations: ${preview.summary.totalOperations || 0}`,
+                        `Changed lines: ${preview.summary.changedLines || 0}`,
+                        `Changed files: ${(preview.summary.changedFiles || []).join(", ") || "-"}`,
+                        `Created files: ${(preview.summary.createdFiles || []).join(", ") || "-"}`,
+                        `Renamed files: ${(preview.summary.renamedFiles || []).map((item) => `${item.from} -> ${item.to}`).join(", ") || "-"}`,
+                        `Deleted files: ${(preview.summary.deletedFiles || []).join(", ") || "-"}`,
+                        "",
+                        "Approve these local changes?",
+                    ].join("\n");
 
-                const approved = window.confirm(details);
-                if (!approved) {
-                    await sendApplyResult(data.request_id, false, { approved: false }, "User rejected the proposed workspace changes.");
-                    appendSystemMessage("تم رفض التعديلات المحلية المقترحة.");
-                    return;
+                    const approved = window.confirm(details);
+                    if (!approved) {
+                        await sendApplyResult(data.request_id, false, { approved: false }, "User rejected the proposed workspace changes.");
+                        appendSystemMessage("تم رفض التعديلات المحلية المقترحة.");
+                        return;
+                    }
+                    state.messageApprovalGranted = true;
                 }
 
                 const applied = await window.electronAPI.applyWorkspaceChanges(preview.previewToken);
@@ -2827,7 +2833,9 @@
                     changed_files: applied.changedFiles || [],
                     summary,
                 }, "");
-                appendSystemMessage("تم تطبيق التعديلات المحلية بعد الموافقة.");
+                if (requireApproval) {
+                    appendSystemMessage("تم تطبيق التعديلات المحلية بعد الموافقة.");
+                }
             } catch (error) {
                 await sendApplyResult(data.request_id, false, null, error.message);
                 appendSystemMessage(`فشل تطبيق التعديلات: ${error.message}`);
@@ -2858,7 +2866,9 @@
                     void executeToolRequest(data);
                     break;
                 case "approval_required":
-                    appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    if (data.request_id && !state.messageApprovalGranted) {
+                        appendSystemMessage(data.summary || data.title || "Hermes requested approval for local changes.");
+                    }
                     break;
                 case "apply_request":
                     void executeApplyRequest(data);
