@@ -201,9 +201,12 @@
 
         function renderConversationButton(conversation, className = "general-session-item") {
             const activeClass = state.currentConversation === conversation.conversation_id ? "active" : "";
+            const title = typeof getConversationDisplayTitle === "function"
+                ? getConversationDisplayTitle(conversation)
+                : (conversation.title || t("newChat"));
             return `
                 <button class="${className} ${activeClass}" data-conversation-id="${conversation.conversation_id}" type="button">
-                    <div class="text-truncate">${escapeHtml(conversation.title || t("newChat"))}</div>
+                    <div class="text-truncate">${escapeHtml(title)}</div>
                     <span class="project-session-meta">${new Date(conversation.created_at).toLocaleDateString("ar")}</span>
                 </button>
             `;
@@ -221,24 +224,24 @@
                         ? projectSessions
                         : projectSessions.slice(0, MAX_VISIBLE_PROJECT_SESSIONS);
                     return `
-                        <div class="project-item">
-                            <div class="project-header">
-                                <button class="project-title-btn ${state.currentProjectId === project.id ? "active" : ""}" data-project-id="${project.id}" type="button">
-                                    <div class="project-name text-truncate">${escapeHtml(project.name)}</div>
-                                    <span class="project-path">${escapeHtml(project.path)}</span>
-                                </button>
-                                <button class="project-action-btn" data-project-session="${project.id}" type="button" title="${t("projectNewSession")}">
-                                    <i class="bi bi-plus-lg"></i>
-                                </button>
-                                <button class="project-action-btn" data-project-toggle="${project.id}" type="button" title="${project.expanded ? t("hideSessions") : t("showSessions")}">
-                                    <span class="collapse-arrow">${project.expanded ? "▾" : "▸"}</span>
-                                </button>
-                                <button class="project-action-btn" data-project-delete="${project.id}" type="button" title="${t("deleteProject")}">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </div>
+                        <div class="project-item project-item-static">
+                            <div class="project-card project-card-static ${state.currentProjectId === project.id ? "project-card-current" : ""}">
+                                <div class="project-card-head">
+                                    <button class="project-action-btn compact project-inline-add" data-project-session="${project.id}" type="button" title="${t("projectNewSession")}">
+                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                            <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                                        </svg>
+                                    </button>
+                                    <button class="project-title-stack ${state.currentProjectId === project.id ? "active" : ""}" data-project-id="${project.id}" type="button">
+                                        <div class="project-name text-truncate">${escapeHtml(project.name)}</div>
+                                        <span class="project-path">${escapeHtml(project.path)}</span>
+                                    </button>
+                                    <button class="project-inline-chevron" data-project-toggle="${project.id}" type="button" title="${project.expanded ? t("hideSessions") : t("showSessions")}">
+                                        <span class="collapse-arrow">${renderChevron(project.expanded)}</span>
+                                    </button>
+                                </div>
                             ${project.expanded ? `
-                                <div class="project-sessions">
+                                <div class="project-sessions project-sessions-embedded">
                                     ${visibleSessions.map((conversation) => renderConversationButton(conversation, "project-session-item")).join("")}
                                     ${projectSessions.length === 0 ? `<button class="empty-project-btn" data-project-session="${project.id}" type="button">${t("startFirstSession")}</button>` : ""}
                                     ${projectSessions.length > MAX_VISIBLE_PROJECT_SESSIONS ? `
@@ -254,16 +257,23 @@
                 : `<button class="empty-project-btn" id="btn-add-project-empty" type="button">${t("projects")} (${t("addProject")})</button>`;
 
             els.conversationsList.innerHTML = `
-                <div class="section-toggle-row">
-                    <button class="section-toggle-btn" id="toggle-chats-section" type="button">
-                        <span>${t("chats")}</span>
-                        <span class="collapse-arrow">${renderChevron(!state.settings.chatsCollapsed)}</span>
-                    </button>
-                    <button class="section-add-btn" id="sidebar-new-chat" type="button" title="${t("newChat")}">
-                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                        </svg>
-                        <span>${t("newChat")}</span>
+                <div class="section-toggle-row sidebar-section-row">
+                    <button class="section-toggle-btn sidebar-section-btn" id="toggle-chats-section" type="button">
+                        <span class="sidebar-section-title-wrap">
+                            <span class="sidebar-section-title">${t("chats")}</span>
+                            <span class="sidebar-section-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M7 8.5C7 6.57 8.57 5 10.5 5H15.5C17.43 5 19 6.57 19 8.5C19 10.43 17.43 12 15.5 12H13.7L11 14.2V12H10.5C8.57 12 7 10.43 7 8.5Z" fill="currentColor" opacity="0.35"></path>
+                                    <circle cx="11" cy="8.5" r="0.9" fill="currentColor"></circle>
+                                    <circle cx="13" cy="8.5" r="0.9" fill="currentColor"></circle>
+                                    <circle cx="15" cy="8.5" r="0.9" fill="currentColor"></circle>
+                                </svg>
+                            </span>
+                        </span>
+                        <span class="sidebar-section-actions">
+                            <span class="sidebar-mini-pill" data-sidebar-action="new-chat">${t("sectionNew")}</span>
+                            <span class="collapse-arrow sidebar-leading-arrow">${renderChevron(!state.settings.chatsCollapsed)}</span>
+                        </span>
                     </button>
                 </div>
                 ${generalSessions.length > 0 ? `
@@ -279,35 +289,41 @@
                     `}
                 ` : ""}
                 <div class="section-divider"></div>
-                <div class="section-toggle-row">
-                    <button class="section-toggle-btn" id="toggle-projects-section" type="button">
-                        <span>${t("projects")}</span>
-                        <span class="collapse-arrow">${renderChevron(!state.settings.projectsCollapsed)}</span>
-                    </button>
-                    <button class="section-add-btn" id="btn-add-project" type="button" title="${t("openDirectory")}">
-                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M3 7.5C3 6.12 4.12 5 5.5 5H9L11 7H18.5C19.88 7 21 8.12 21 9.5V16.5C21 17.88 19.88 19 18.5 19H5.5C4.12 19 3 17.88 3 16.5V7.5Z" fill="currentColor"></path>
-                        </svg>
-                        <span>${t("openDirectory")}</span>
+                <div class="section-toggle-row sidebar-section-row">
+                    <button class="section-toggle-btn sidebar-section-btn" id="toggle-projects-section" type="button">
+                        <span class="sidebar-section-title-wrap">
+                            <span class="sidebar-section-title">${t("projects")}</span>
+                            <span class="sidebar-section-icon sidebar-section-icon-folder" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M4 8.2C4 6.98 4.98 6 6.2 6H9.2L10.7 7.5H17.8C19.02 7.5 20 8.48 20 9.7V15.8C20 17.02 19.02 18 17.8 18H6.2C4.98 18 4 17.02 4 15.8V8.2Z" fill="currentColor"></path>
+                                </svg>
+                            </span>
+                        </span>
+                        <span class="sidebar-section-actions">
+                            <span class="sidebar-mini-pill" data-sidebar-action="new-project">${t("sectionNew")}</span>
+                            <span class="collapse-arrow sidebar-leading-arrow">${renderChevron(!state.settings.projectsCollapsed)}</span>
+                        </span>
                     </button>
                 </div>
                 ${state.settings.projectsCollapsed ? "" : `<div class="sidebar-group">${projectsHtml}</div>`}
             `;
 
-            document.getElementById("sidebar-new-chat")?.addEventListener("click", () => {
-                newConversation();
-            });
-            document.getElementById("toggle-chats-section")?.addEventListener("click", () => {
+            document.getElementById("toggle-chats-section")?.addEventListener("click", (event) => {
+                if (event.target?.closest?.('[data-sidebar-action="new-chat"]')) {
+                    newConversation();
+                    return;
+                }
                 void toggleChatsCollapsed();
             });
-            document.getElementById("toggle-projects-section")?.addEventListener("click", () => {
+            document.getElementById("toggle-projects-section")?.addEventListener("click", (event) => {
+                if (event.target?.closest?.('[data-sidebar-action="new-project"]')) {
+                    void promptAndAddProject();
+                    return;
+                }
                 void toggleProjectsCollapsed();
             });
             document.getElementById("btn-toggle-all-chats")?.addEventListener("click", () => {
                 void toggleShowAllChats();
-            });
-            document.getElementById("btn-add-project")?.addEventListener("click", () => {
-                void promptAndAddProject();
             });
             document.getElementById("btn-add-project-empty")?.addEventListener("click", () => {
                 void promptAndAddProject();
