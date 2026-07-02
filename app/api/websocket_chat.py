@@ -37,6 +37,10 @@ ALL_COWORK_TOOLS = READ_ONLY_COWORK_TOOLS | {"propose_patch"}
 MAX_COWORK_STEPS = 8
 
 
+def _debug_log(event: str, **payload):
+    print(json.dumps({"debug_event": event, **payload}, ensure_ascii=False), flush=True)
+
+
 def _canonicalize_apply_changes(changes: list[dict] | None) -> str:
     normalized: list[dict] = []
     for change in changes or []:
@@ -170,8 +174,44 @@ def _has_workspace_context(workspace: dict) -> bool:
     return bool(workspace.get("root_name") or workspace.get("root_path") or workspace.get("selected_files") or workspace.get("file_paths"))
 
 
+def _cowork_match_phrases(user_message: str, workspace: dict) -> list[str]:
+    if not _has_workspace_context(workspace):
+        return []
+
+    normalized = str(user_message or "").strip().lower()
+    if not normalized:
+        return []
+
+    explicit_file_operations = [
+        "create file", "edit file", "update file", "rewrite file", "append to file",
+        "rename file", "delete file", "save file", "write file", "read file",
+        "list files", "show files", "what files", "what folders", "open file",
+        "file", "files", "folder", "folders", "directory",
+        "انشئ ملف", "أنشئ ملف", "عدل ملف", "عدّل ملف", "حدث ملف", "حدّث ملف",
+        "احذف ملف", "غيّر اسم", "غير اسم", "اقرأ ملف", "افتح ملف",
+        "اعرض الملفات", "أعرض الملفات", "ما هي الملفات", "ما الملفات",
+        "قائمة الملفات", "ملفات المشروع", "ما الموجود في المجلد",
+        "ملف", "ملفات", "مجلد", "مجلدات",
+    ]
+
+    return [phrase for phrase in explicit_file_operations if phrase in normalized]
+
+
+def _should_use_cowork_mode(user_message: str, workspace: dict) -> bool:
+    return bool(_cowork_match_phrases(user_message, workspace))
+
+
 def _effective_project_context(project_context: Optional[str], workspace: dict, workspace_supplied: bool) -> Optional[str]:
-    parts: list[str] = []
+    parts: list[str] = [
+        "\n".join(
+            [
+                "Desktop messaging rule:",
+                "The employee's latest user message is the primary request and may be written in Arabic or English.",
+                "Treat that message as valid text unless it visibly contains broken replacement characters such as � or obvious mojibake.",
+                "Do not claim that the message is garbled, encoded incorrectly, or unreadable unless those broken characters are actually present.",
+            ]
+        )
+    ]
     if workspace_supplied:
         root_name = str(workspace.get("root_name") or "").strip()
         root_path = str(workspace.get("root_path") or "").strip()
@@ -196,9 +236,16 @@ def _effective_project_context(project_context: Optional[str], workspace: dict, 
                 )
             )
         if selected_files:
-            parts.append(f"Desktop selected files: {json.dumps(selected_files, ensure_ascii=False)}")
+            parts.append(
+                "Desktop selected files (highest-priority context): "
+                f"{json.dumps(selected_files[:20], ensure_ascii=False)}"
+            )
         if file_paths:
-            parts.append(f"Desktop visible project files snapshot: {json.dumps(file_paths, ensure_ascii=False)}")
+            limited_paths = file_paths[:20]
+            parts.append(
+                "Desktop visible project files snapshot (truncated): "
+                f"{json.dumps(limited_paths, ensure_ascii=False)}"
+            )
     if project_context:
         parts.append(project_context)
     merged = "\n\n".join(part for part in parts if part)
@@ -635,6 +682,8 @@ async def websocket_chat(
             if approval_mode not in {"ask_for_approval", "approve_for_me", "full_access"}:
                 approval_mode = "ask_for_approval"
             workspace = _normalize_workspace_payload(msg)
+            cowork_matches = _cowork_match_phrases(user_message, workspace)
+            has_workspace = _has_workspace_context(workspace)
             effective_project_context = _effective_project_context(
                 project_context=project_context,
                 workspace=workspace,
@@ -665,11 +714,26 @@ async def websocket_chat(
                     profile_name=effective_profile_name,
                 )
 
-            if (
+            use_cowork = bool(
                 resolved_profile_obj
                 and resolved_profile_obj.runtime_type == "hermes"
-                and _has_workspace_context(workspace)
-            ):
+                and has_workspace
+            )
+            force_direct_runtime = False
+            _debug_log(
+                "ws_route_decision",
+                user_id=str(user.id),
+                conversation_id=active_conversation_id,
+                runtime_type=getattr(resolved_profile_obj, "runtime_type", None),
+                profile_name=effective_profile_name,
+                has_workspace=has_workspace,
+                cowork_matches=cowork_matches,
+                use_cowork=use_cowork,
+                force_direct_runtime=force_direct_runtime,
+                user_message_preview=user_message[:200],
+            )
+
+            if use_cowork:
                 try:
                     cowork_done_payload = await _run_cowork_loop(
                         websocket=websocket,
@@ -739,6 +803,7 @@ async def websocket_chat(
                         agent_template_name=agent_template_name,
                         project_context=effective_project_context,
                         profile_name=effective_profile_name,
+                        force_direct_runtime=force_direct_runtime,
                     )
                     try:
                         async for chunk in stream:

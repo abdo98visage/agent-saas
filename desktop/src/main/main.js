@@ -57,6 +57,20 @@ function buildRendererSettings() {
   };
 }
 
+function stripUndefinedValues(value) {
+  if (Array.isArray(value)) {
+    return value.map(stripUndefinedValues);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, stripUndefinedValues(entryValue)])
+  );
+}
+
 function normalizeApiUrl(serverUrl) {
   const parsed = new URL(serverUrl);
   if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -290,6 +304,10 @@ function ensureArtifactDownloadsDir() {
   return targetDir;
 }
 
+function getConversationWorkspaceRoot() {
+  return toRealDir(ensureArtifactDownloadsDir());
+}
+
 function saveConversationArtifact(fileName, content) {
   const artifactDir = ensureArtifactDownloadsDir();
   const safeName = sanitizeArtifactFileName(fileName);
@@ -338,6 +356,27 @@ function sanitizeSnippet(content) {
   return content.slice(0, MAX_SNIPPET_LENGTH).replace(/\0/g, "");
 }
 
+function readTextFileWithFallback(filePath) {
+  const encodings = ["utf-8", "utf8", "latin1"];
+
+  for (const encoding of encodings) {
+    try {
+      const content = fs.readFileSync(filePath, { encoding });
+      if (typeof content === "string" && content.length > 0) {
+        return content;
+      }
+    } catch {
+      // Continue to the next fallback.
+    }
+  }
+
+  try {
+    return fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
 function scanWorkspace(rootPath) {
   const root = toRealDir(rootPath);
   const files = [];
@@ -362,7 +401,7 @@ function scanWorkspace(rootPath) {
       }
 
       const stat = fs.statSync(fullPath);
-      const content = fs.readFileSync(fullPath, "utf-8");
+      const content = readTextFileWithFallback(fullPath);
       const createdAt = stat.birthtime instanceof Date ? stat.birthtime : stat.mtime;
       const status = Math.abs(stat.mtimeMs - stat.birthtimeMs) < 60_000
         ? "new"
@@ -418,7 +457,7 @@ function buildProjectContext(rootPath, query, selectedPaths = []) {
 
   for (const file of scored) {
     const { target } = resolveWorkspaceFile(root, file.path);
-    const content = fs.readFileSync(target, "utf-8").slice(0, MAX_CONTEXT_FILE_CHARS);
+    const content = readTextFileWithFallback(target).slice(0, MAX_CONTEXT_FILE_CHARS);
     const block = `${file.path}:\n${content}`;
     if (totalChars + block.length > MAX_CONTEXT_TOTAL_CHARS) {
       break;
@@ -484,7 +523,7 @@ function searchWorkspaceFiles(rootPath, query, limit = 20) {
       break;
     }
     const { target } = resolveWorkspaceFile(rootPath, file.path);
-    const content = fs.readFileSync(target, "utf-8");
+    const content = readTextFileWithFallback(target);
     const lines = content.split(/\r?\n/);
     for (let index = 0; index < lines.length; index += 1) {
       if (lines[index].toLowerCase().includes(normalizedQuery)) {
@@ -514,7 +553,7 @@ function readMultipleWorkspaceFiles(rootPath, filePaths = []) {
     }
     files.push({
       path: filePath,
-      content: fs.readFileSync(target, "utf-8"),
+      content: readTextFileWithFallback(target),
       size: stat.size,
       modifiedAt: stat.mtime.toISOString(),
     });
@@ -551,7 +590,7 @@ function prepareWorkspaceChanges(rootPath, changes = []) {
     }
 
     const targetPath = resolveWorkspaceFile(rootPath, change.path).target;
-    const previousContent = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, "utf-8") : "";
+    const previousContent = fs.existsSync(targetPath) ? readTextFileWithFallback(targetPath) : "";
     const nextContent = String(change.content || "");
     const diff = buildDiffSummary(previousContent, nextContent);
     operations.push({
@@ -652,7 +691,7 @@ ipcMain.handle("get-settings", () => ({
 }));
 
 ipcMain.handle("set-settings", (_, settings) => {
-  const nextSettings = { ...settings };
+  const nextSettings = stripUndefinedValues({ ...settings });
   if (Object.prototype.hasOwnProperty.call(nextSettings, "token")) {
     nextSettings.token = encryptToken(String(nextSettings.token || ""));
   }
@@ -704,6 +743,14 @@ ipcMain.handle("scan-folder", async (_, folderPath) => {
   }
 });
 
+ipcMain.handle("get-default-workspace-root", async () => {
+  try {
+    return { path: getConversationWorkspaceRoot() };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
 ipcMain.handle("list-files", async (_, rootPath, options) => {
   try {
     return listWorkspaceFiles(rootPath, options || {});
@@ -729,7 +776,7 @@ ipcMain.handle("read-file", async (_, rootPath, filePath) => {
     }
 
     return {
-      content: fs.readFileSync(target, "utf-8"),
+      content: readTextFileWithFallback(target),
       size: stat.size,
       modifiedAt: stat.mtime.toISOString(),
     };

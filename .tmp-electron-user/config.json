@@ -1,0 +1,24 @@
+{
+  "apiUrl": "http://127.0.0.1:8002/api",
+  "token": "",
+  "offlineQueue": [],
+  "selectedProjectFiles": [],
+  "projects": [],
+  "conversationProjectMap": {},
+  "currentProjectId": null,
+  "chatsCollapsed": false,
+  "projectsCollapsed": false,
+  "showAllChats": false,
+  "locale": "ar",
+  "commandMode": "queue",
+  "approvalMode": "ask_for_approval",
+  "settingsCategories": {},
+  "projectOutputFilesMap": {},
+  "conversationTitleMap": {
+    "0ea5c380-93b0-4c44-a5d1-27c6ed0c0129": "Reply in one short sentence",
+    "56f00539-0963-4858-911e-79cd225e14b7": "????? ??? txt ???? ??? ???? ???? ???????"
+  },
+  "template": "default",
+  "profileName": "ايجنت التسويق",
+  "projectPath": null
+}

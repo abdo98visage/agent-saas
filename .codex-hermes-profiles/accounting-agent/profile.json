@@ -1,0 +1,21 @@
+{
+  "id": "d97b31cb-07db-49ac-beb8-49da51c2d304",
+  "name": "ايجنت المحاسبة",
+  "slug": "accounting-agent",
+  "version": 1,
+  "runtime_type": "hermes",
+  "provider_key_id": null,
+  "limits": {
+    "max_tokens_per_day": 150000,
+    "max_requests_per_day": 1000,
+    "daily_cost_budget": 500
+  },
+  "providers": [],
+  "mcp_servers": [],
+  "allowed_tools": [
+    "documents",
+    "spreadsheets"
+  ],
+  "approval_required_tools": [],
+  "memory_settings": {}
+}

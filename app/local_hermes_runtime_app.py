@@ -56,6 +56,26 @@ def _profile_skill_names(profile_home: Path) -> list[str]:
     return sorted(entry.name for entry in skills_dir.iterdir() if entry.is_dir() and (entry / "SKILL.md").exists())
 
 
+def _mock_runtime_response(payload: dict[str, Any]) -> str:
+    profile = payload.get("profile") or {}
+    employee = payload.get("employee") or {}
+    profile_name = profile.get("name") or profile.get("slug") or "default"
+    employee_name = employee.get("full_name") or employee.get("email") or "employee"
+    user_message = (payload.get("message") or "").strip()
+    if not user_message:
+        content = f"Mock agent ready for {employee_name} on profile {profile_name}."
+    else:
+        content = (
+            f"Mock agent for {profile_name} received your request. "
+            f"Employee: {employee_name}. "
+            f"Summary: {user_message[:160]}"
+        )
+    cowork = payload.get("cowork") or {}
+    if cowork.get("protocol") == "cowork_v1":
+        return json.dumps({"type": "assistant_final", "content": content}, ensure_ascii=False)
+    return content
+
+
 def _provider_name(provider: str) -> str:
     if provider == "openai":
         return "custom"
@@ -132,7 +152,12 @@ def _stage_runtime_profile(source_profile_home: Path, runtime_profile_home: Path
 def _build_prompt(payload: dict[str, Any]) -> str:
     profile_home = _profile_home(payload)
     employee = payload.get("employee") or {}
+    user_request = (payload.get("message") or "").strip()
     parts = [
+        "Primary user request (verbatim; may be Arabic or English):",
+        user_request or "[empty request]",
+        "Interpret the user request literally.",
+        "Do not claim encoding or readability problems unless the user request itself visibly contains broken replacement characters such as �.",
         f"Employee: {employee.get('full_name') or employee.get('email') or 'Unknown'}",
         f"Employee email: {employee.get('email') or 'Unknown'}",
     ]
@@ -169,8 +194,33 @@ def _build_prompt(payload: dict[str, Any]) -> str:
         )
     if cowork.get("protocol") == "cowork_v1":
         parts.append(_cowork_protocol_block(workspace, cowork))
-    parts.append(f"User request:\n{payload.get('message') or ''}")
     return "\n\n".join(parts)
+
+
+def _log_runtime_prompt(payload: dict[str, Any], prompt: str) -> None:
+    profile = payload.get("profile") or {}
+    employee = payload.get("employee") or {}
+    cowork = payload.get("cowork") or {}
+    workspace = payload.get("workspace") or {}
+    print(
+        json.dumps(
+            {
+                "debug_event": "runtime_prompt",
+                "profile_slug": profile.get("slug"),
+                "profile_name": profile.get("name"),
+                "employee_email": employee.get("email"),
+                "provider": payload.get("provider"),
+                "model": payload.get("model"),
+                "cowork_protocol": cowork.get("protocol"),
+                "workspace_root": workspace.get("root_name"),
+                "message_preview": str(payload.get("message") or "")[:200],
+                "project_context_preview": str(payload.get("project_context") or "")[:500],
+                "prompt_preview": prompt[:2000],
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
 
 
 def _cowork_protocol_block(workspace: dict[str, Any], cowork: dict[str, Any]) -> str:
@@ -198,6 +248,9 @@ def _cowork_protocol_block(workspace: dict[str, Any], cowork: dict[str, Any]) ->
             "Cowork protocol mode is enabled.",
             "You must reply with exactly one JSON object and no markdown fences.",
             'Allowed response types: {"type":"assistant_final","content":"..."}, {"type":"tool_request","tool":"list_files|search_files|read_file|read_multiple_files","args":{...}}, {"type":"apply_request","summary":"...","changes":[...]}',
+            "The employee's latest message is authoritative and may be Arabic or English.",
+            "Do not say the employee message has encoding, garbling, or readability issues unless you literally see broken replacement characters such as � or obvious mojibake inside the employee message itself.",
+            "If the employee asks a general question about the open project, your role, or what help you can provide, answer directly with assistant_final instead of inventing an encoding problem.",
             "The desktop app, not your own runtime filesystem, is the authority for project files.",
             "Never say the workspace path is inaccessible, unavailable, on WSL, or that the user must apply edits manually.",
             "If the employee asks to create, edit, append, rewrite, rename, or delete a file in the open desktop project, you must respond with apply_request.",
@@ -268,7 +321,7 @@ def _sanitize_internal_paths(text: str) -> str:
 
 
 def _extract_response_text(stdout: str) -> str:
-    cleaned = _strip_ansi(stdout).replace("\r", "")
+    cleaned = _strip_ansi(stdout or "").replace("\r", "")
     lines = [line for line in cleaned.splitlines()]
     prefixes = (
         "Detected:",
@@ -307,26 +360,103 @@ def _extract_first_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _is_safe_relative_workspace_path(value: Any) -> bool:
+    path_value = str(value or "").strip().replace("\\", "/")
+    if not path_value:
+        return False
+    if path_value.startswith(("/", "../")) or path_value == "..":
+        return False
+    if re.match(r"^[A-Za-z]:/", path_value):
+        return False
+    parts = [part for part in path_value.split("/") if part not in {"", "."}]
+    return all(part != ".." for part in parts)
+
+
+def _normalize_tool_request_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+    tool_name = str(parsed.get("tool") or "").strip()
+    args = parsed.get("args") or {}
+    if not isinstance(args, dict):
+        args = {}
+
+    normalized_args: dict[str, Any] = {}
+    if tool_name == "list_files":
+        normalized_args["query"] = str(args.get("query") or "")[:500]
+        normalized_args["limit"] = min(max(int(args.get("limit") or 50), 1), 200)
+    elif tool_name == "search_files":
+        normalized_args["query"] = str(args.get("query") or "")[:500]
+        normalized_args["limit"] = min(max(int(args.get("limit") or 20), 1), 100)
+    elif tool_name == "read_file":
+        candidate_path = args.get("path")
+        if not _is_safe_relative_workspace_path(candidate_path):
+            raise ValueError("Invalid read_file path")
+        normalized_args["path"] = str(candidate_path)
+    elif tool_name == "read_multiple_files":
+        paths = args.get("paths") or []
+        if not isinstance(paths, list):
+            raise ValueError("Invalid read_multiple_files paths")
+        safe_paths = []
+        for path_value in paths[:20]:
+            if not _is_safe_relative_workspace_path(path_value):
+                raise ValueError("Invalid read_multiple_files path")
+            safe_paths.append(str(path_value))
+        normalized_args["paths"] = safe_paths
+    else:
+        raise ValueError(f"Unsupported cowork tool: {tool_name}")
+
+    return {
+        "type": "tool_request",
+        "request_id": parsed.get("request_id") or str(uuid4()),
+        "tool": tool_name,
+        "args": normalized_args,
+    }
+
+
+def _normalize_apply_request_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+    normalized_changes: list[dict[str, Any]] = []
+    for raw_change in (parsed.get("changes") or [])[:50]:
+        if not isinstance(raw_change, dict):
+            raise ValueError("Invalid apply_request change entry")
+        action = str(raw_change.get("action") or "update").strip()
+        if action not in {"update", "create", "rename", "delete"}:
+            raise ValueError(f"Unsupported apply_request action: {action}")
+        if not _is_safe_relative_workspace_path(raw_change.get("path")):
+            raise ValueError("Invalid apply_request path")
+        change: dict[str, Any] = {
+            "action": action,
+            "path": str(raw_change.get("path")),
+        }
+        if action == "rename":
+            if not _is_safe_relative_workspace_path(raw_change.get("new_path")):
+                raise ValueError("Invalid apply_request rename target")
+            change["new_path"] = str(raw_change.get("new_path"))
+        elif action in {"update", "create"}:
+            change["content"] = str(raw_change.get("content") or "")
+        normalized_changes.append(change)
+
+    return {
+        "type": "apply_request",
+        "request_id": parsed.get("request_id") or str(uuid4()),
+        "mode": parsed.get("mode") or "workspace_changes",
+        "summary": parsed.get("summary") or "Apply requested workspace changes",
+        "changes": normalized_changes,
+    }
+
+
 def _normalize_cowork_response(raw_text: str) -> dict[str, Any]:
     parsed = _extract_first_json_object(raw_text)
     if not parsed:
         return {"type": "assistant_final", "content": raw_text.strip()}
 
     event_type = parsed.get("type")
-    if event_type == "tool_request":
+    try:
+        if event_type == "tool_request":
+            return _normalize_tool_request_payload(parsed)
+        if event_type == "apply_request":
+            return _normalize_apply_request_payload(parsed)
+    except (TypeError, ValueError):
         return {
-            "type": "tool_request",
-            "request_id": parsed.get("request_id") or str(uuid4()),
-            "tool": parsed.get("tool") or "",
-            "args": parsed.get("args") or {},
-        }
-    if event_type == "apply_request":
-        return {
-            "type": "apply_request",
-            "request_id": parsed.get("request_id") or str(uuid4()),
-            "mode": parsed.get("mode") or "workspace_changes",
-            "summary": parsed.get("summary") or "Apply requested workspace changes",
-            "changes": parsed.get("changes") or [],
+            "type": "assistant_final",
+            "content": "Unable to continue because the agent returned an invalid workspace operation payload.",
         }
     content = parsed.get("content")
     if isinstance(content, str) and content.strip():
@@ -335,6 +465,8 @@ def _normalize_cowork_response(raw_text: str) -> dict[str, Any]:
 
 
 def _run_hermes(payload: dict[str, Any]) -> str:
+    if (payload.get("provider") or "").strip().lower() == "mock":
+        return _mock_runtime_response(payload)
     source_profile_home = _profile_home(payload)
     with tempfile.TemporaryDirectory(prefix="hermes-run-") as temp_root:
         runtime_profile_home = Path(temp_root) / "profile"
@@ -344,10 +476,12 @@ def _run_hermes(payload: dict[str, Any]) -> str:
             encoding="utf-8",
         )
         env = _runtime_env(payload, runtime_profile_home)
+        prompt = _build_prompt(payload)
+        _log_runtime_prompt(payload, prompt)
         command = [
             "hermes",
             "-z",
-            _build_prompt(payload),
+            prompt,
             "--provider",
             _provider_name(payload.get("provider") or "custom"),
             "-m",
@@ -361,6 +495,8 @@ def _run_hermes(payload: dict[str, Any]) -> str:
             cwd=runtime_workspace_path,
             env=env,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=float(os.getenv("HERMES_RUN_TIMEOUT_SECONDS", "300")),
             check=False,

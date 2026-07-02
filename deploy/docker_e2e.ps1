@@ -5,8 +5,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $composeFile = "docker-compose.e2e.yml"
+$envFile = ".env.docker.local"
 
-$upArgs = @("compose", "-f", $composeFile, "up", "-d")
+$upArgs = @("compose", "--env-file", $envFile, "-f", $composeFile, "up", "-d")
 if ($Rebuild) {
   $upArgs += "--build"
 }
@@ -20,7 +21,7 @@ try {
 
 if ($Rebuild) {
   Write-Output "Resetting E2E containers and volumes..."
-  docker compose -f $composeFile down -v --remove-orphans
+  docker compose --env-file $envFile -f $composeFile down -v --remove-orphans
 }
 docker @upArgs
 
@@ -47,7 +48,7 @@ try {
 finally {
   if (-not $KeepRunning) {
     Write-Output "Stopping AgentSaaS Docker E2E stack..."
-    docker compose -f $composeFile down --remove-orphans
+    docker compose --env-file $envFile -f $composeFile down --remove-orphans
   } else {
     Write-Output "E2E stack is still running:"
     Write-Output "  API:   http://localhost:8002"

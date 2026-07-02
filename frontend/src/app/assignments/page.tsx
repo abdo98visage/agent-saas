@@ -220,7 +220,7 @@ export default function AssignmentsPage() {
                         <User className="h-5 w-5 text-emerald-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium">{getUserName(assignment.user_id)}</p>
+                        <p className="text-sm font-medium" dir="auto">{getUserName(assignment.user_id)}</p>
                         <p className="text-xs text-muted-foreground">{t("Employee")}</p>
                       </div>
                     </div>
@@ -230,7 +230,7 @@ export default function AssignmentsPage() {
                         <Bot className="h-5 w-5 text-purple-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium">{safeText(getProfileName(assignment.profile_id))}</p>
+                        <p className="text-sm font-medium" dir="auto">{safeText(getProfileName(assignment.profile_id))}</p>
                         <Badge variant="secondary" className="text-xs kos-badge-purple">
                           {t("Priority")}: {assignment.priority}
                         </Badge>

@@ -1,0 +1,7 @@
+Starting FQ-SaaS v0.1.0
+LLM provider: openai
+Debug mode: False
+Redis rate limiter unavailable, falling back to in-memory limits: Error 10061 connecting to 127.0.0.1:6399. 10061.
+INFO:     127.0.0.1:51880 - "POST /api/auth/ws-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64938 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50621 - "GET /api/chat/conversations HTTP/1.1" 200 OK

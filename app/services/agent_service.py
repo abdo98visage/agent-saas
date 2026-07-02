@@ -331,6 +331,7 @@ class AgentService:
         agent_template_name: str = "default",
         project_context: Optional[str] = None,
         profile_name: Optional[str] = None,
+        force_direct_runtime: bool = False,
     ) -> Dict[str, Any]:
         """Run the agent for a user message (non-streaming)."""
         start_time = time.time()
@@ -389,7 +390,7 @@ class AgentService:
         messages.append({"role": "user", "content": user_message})
 
         # 5. Call selected runtime
-        runtime = self._runtime_router().for_profile(profile)
+        runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
         run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name)
         try:
             if runtime.runtime_type == "hermes":
@@ -506,6 +507,7 @@ class AgentService:
         agent_template_name: str = "default",
         project_context: Optional[str] = None,
         profile_name: Optional[str] = None,
+        force_direct_runtime: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the agent for a user message with SSE streaming."""
         user_uuid = UUID(user_id)
@@ -574,7 +576,7 @@ class AgentService:
         # 6. Stream selected runtime response
         full_response = ""
         assistant_msg_id = str(uuid4())
-        runtime = self._runtime_router().for_profile(profile)
+        runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
         run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name)
         start_time = time.time()
         tools_used: list = []

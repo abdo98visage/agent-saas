@@ -1,10 +1,15 @@
 .git
 .history
+.codex-hermes-profiles
+.tmp-*
 .pytest_cache
 .venv
 .venv*
 __pycache__
 *.pyc
+*.log
+*.err
+run_backend_win.py
 
 .env
 .env.*

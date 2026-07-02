@@ -1,0 +1,146 @@
+services:
+  api:
+    image: agentsaas-api:latest
+    ports:
+      - "8002:8000"
+    env_file:
+      - .env.docker.local
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
+      HERMES_ORCHESTRATOR_SECRET: ${HERMES_ORCHESTRATOR_SECRET}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hermes-orchestrator:
+        condition: service_healthy
+    command: sh -c "alembic upgrade head && python seed_templates.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=5)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  admin:
+    image: agentsaas-admin:latest
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env.docker.local
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  worker:
+    image: agentsaas-api:latest
+    env_file:
+      - .env.docker.local
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info --pool=solo
+
+  beat:
+    image: agentsaas-api:latest
+    env_file:
+      - .env.docker.local
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app beat --loglevel=info
+
+  hermes-orchestrator:
+    image: agentsaas-api:latest
+    env_file:
+      - .env.docker.local
+    environment:
+      HERMES_WORKSPACE_ROOT: /data/hermes/profiles
+      HERMES_PORT: 8787
+      HERMES_INTERNAL_URL: http://hermes-runtime:8787
+      HERMES_ORCHESTRATOR_SECRET: ${HERMES_ORCHESTRATOR_SECRET}
+      HERMES_ORCHESTRATOR_REQUIRE_SECRET: "true"
+      HERMES_MANAGED_EXTERNALLY: "true"
+      HERMES_RUN_PATH: /runs
+      HERMES_RUN_STREAM_PATH: /runs/stream
+      HERMES_HEALTH_PATH: /health
+    volumes:
+      - hermes_profiles:/data/hermes/profiles
+    depends_on:
+      hermes-runtime:
+        condition: service_healthy
+    command: uvicorn app.hermes_orchestrator_app:app --host 0.0.0.0 --port 8788
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/healthz', timeout=5)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  hermes-runtime:
+    image: agentsaas-api:latest
+    env_file:
+      - .env.docker.local
+    environment:
+      OPENAI_BASE_URL: http://host.docker.internal:60000/v1/chat/completions
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DEFAULT_MODEL: ${DEFAULT_MODEL}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
+    volumes:
+      - hermes_profiles:/data/hermes/profiles:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "55434:5432"
+    volumes:
+      - postgres_data_e2e:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data_e2e:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  postgres_data_e2e:
+  redis_data_e2e:
+  hermes_profiles:

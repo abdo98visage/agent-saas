@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Cairo, Inter, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -10,6 +10,11 @@ import { LanguageProvider } from "@/lib/i18n";
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+});
+
+const cairo = Cairo({
+  variable: "--font-cairo",
+  subsets: ["arabic", "latin"],
 });
 
 const jetBrainsMono = JetBrains_Mono({
@@ -31,7 +36,7 @@ export default function RootLayout({
     <html
       lang="ar"
       dir="rtl"
-      className={`${inter.variable} ${jetBrainsMono.variable} h-full antialiased`}
+      className={`${cairo.variable} ${inter.variable} ${jetBrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex bg-gray-50">
         <Script id="admin-language-bootstrap" strategy="beforeInteractive">{`

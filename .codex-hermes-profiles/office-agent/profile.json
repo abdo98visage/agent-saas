@@ -1,0 +1,21 @@
+{
+  "id": "f4d5f1e0-578c-4f21-9b7b-8b6168bbfecc",
+  "name": "ايجنت المكتب",
+  "slug": "office-agent",
+  "version": 1,
+  "runtime_type": "hermes",
+  "provider_key_id": null,
+  "limits": {
+    "max_tokens_per_day": 150000,
+    "max_requests_per_day": 1000,
+    "daily_cost_budget": 500
+  },
+  "providers": [],
+  "mcp_servers": [],
+  "allowed_tools": [
+    "documents",
+    "spreadsheets"
+  ],
+  "approval_required_tools": [],
+  "memory_settings": {}
+}

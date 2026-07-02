@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSettings: () => ipcRenderer.invoke("get-settings"),
   setSettings: (settings) => ipcRenderer.invoke("set-settings", settings),
   openFolder: () => ipcRenderer.invoke("open-folder"),
+  getDefaultWorkspaceRoot: () => ipcRenderer.invoke("get-default-workspace-root"),
   scanFolder: (folderPath) => ipcRenderer.invoke("scan-folder", folderPath),
   listFiles: (rootPath, options) => ipcRenderer.invoke("list-files", rootPath, options),
   searchFiles: (rootPath, query, limit) => ipcRenderer.invoke("search-files", rootPath, query, limit),
