@@ -17,8 +17,8 @@ class EmployeeCreate(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=100)
     department: Optional[str] = Field(None, max_length=50)
     role: str = Field("employee", pattern="^(employee|admin)$")
-    max_tokens_per_day: int = Field(50000, ge=1000, le=10000000)
-    max_requests_per_day: int = Field(200, ge=10, le=100000)
+    max_tokens_per_day: int = Field(56666666, ge=1000, le=1700000000)
+    max_requests_per_day: int = Field(2000, ge=10, le=100000)
 
 
 class EmployeeUpdate(BaseModel):
@@ -26,12 +26,12 @@ class EmployeeUpdate(BaseModel):
     department: Optional[str] = Field(None, max_length=50)
     role: Optional[str] = Field(None, pattern="^(employee|admin)$")
     is_active: Optional[bool] = None
-    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=10000000)
+    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=1700000000)
     max_requests_per_day: Optional[int] = Field(None, ge=10, le=100000)
 
 
 class EmployeeQuotas(BaseModel):
-    max_tokens_per_day: int = Field(..., ge=1000, le=10000000)
+    max_tokens_per_day: int = Field(..., ge=1000, le=1700000000)
     max_requests_per_day: int = Field(..., ge=10, le=100000)
 
 
@@ -46,7 +46,7 @@ class ProfileCreate(BaseModel):
     system_prompt: str = Field("", max_length=20000)
     runtime_type: str = Field("hermes", pattern="^(hermes|direct_llm)$")
     provider_key_id: Optional[UUID] = None
-    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=10000000)
+    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=1700000000)
     max_requests_per_day: Optional[int] = Field(None, ge=10, le=100000)
     daily_cost_budget: Optional[int] = Field(None, ge=0, le=10000000)
     allowed_providers: list[str] = Field(default_factory=list)
@@ -65,7 +65,7 @@ class ProfileUpdate(BaseModel):
     is_active: Optional[bool] = None
     runtime_type: Optional[str] = Field(None, pattern="^(hermes|direct_llm)$")
     provider_key_id: Optional[UUID] = None
-    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=10000000)
+    max_tokens_per_day: Optional[int] = Field(None, ge=1000, le=1700000000)
     max_requests_per_day: Optional[int] = Field(None, ge=10, le=100000)
     daily_cost_budget: Optional[int] = Field(None, ge=0, le=10000000)
     allowed_providers: Optional[list[str]] = None
@@ -128,14 +128,20 @@ class ApiKeyCreate(BaseModel):
     owner_type: str = Field("user", pattern="^(user|profile|platform)$")
     user_id: Optional[UUID] = None
     profile_id: Optional[UUID] = None
+    profile_ids: list[UUID] = Field(default_factory=list)
     provider: str = Field(..., pattern="^(minimax|openai|ollama)$")
     api_key: str = Field(..., min_length=10, max_length=500)
-    daily_budget: int = Field(50000, ge=1000, le=10000000)
+    daily_budget: int = Field(50000, ge=1000, le=1700000000)
 
 
 class ApiKeyUpdate(BaseModel):
+    owner_type: Optional[str] = Field(None, pattern="^(user|profile|platform)$")
+    user_id: Optional[UUID] = None
+    profile_id: Optional[UUID] = None
+    profile_ids: Optional[list[UUID]] = None
+    provider: Optional[str] = Field(None, pattern="^(minimax|openai|ollama)$")
     is_active: Optional[bool] = None
-    daily_budget: Optional[int] = Field(None, ge=1000, le=10000000)
+    daily_budget: Optional[int] = Field(None, ge=1000, le=1700000000)
     api_key: Optional[str] = Field(None, min_length=10, max_length=500)
 
 

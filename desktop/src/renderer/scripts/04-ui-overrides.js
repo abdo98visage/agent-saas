@@ -200,7 +200,7 @@
                 ? defaultWorkspace.path || ""
                 : "";
             ensureUiSettings();
-            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8002/api";
+            els.settingApiUrl.value = state.settings.apiUrl || "http://localhost:8001/api";
             els.settingToken.value = state.settings.token || "";
             els.settingTemplate.value = state.settings.template || "default";
             els.settingLanguage && (els.settingLanguage.value = state.settings.locale || "ar");

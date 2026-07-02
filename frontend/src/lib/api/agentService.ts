@@ -188,6 +188,8 @@ export interface UserApiKey {
   owner_type: "user" | "profile" | "platform";
   user_id: string | null;
   profile_id: string | null;
+  profile_ids?: string[];
+  profile_names?: string[];
   provider: string;
   key_prefix: string;
   is_active: boolean;
@@ -208,6 +210,7 @@ export interface AdminAgentTestResponse {
   provider: string | null;
   runtime_type: string | null;
   request_url: string | null;
+  upstream_target: string | null;
   profile_name: string | null;
   profile_id: string | null;
   total_cost: number | null;
@@ -226,6 +229,9 @@ export const adminApi = {
     apiClient.put(`/admin/employees/${userId}`, data),
 
   disableEmployee: (userId: string) =>
+    apiClient.put(`/admin/employees/${userId}`, { is_active: false }),
+
+  deleteEmployee: (userId: string) =>
     apiClient.delete(`/admin/employees/${userId}`),
 
   createDesktopInvite: (userId: string) =>

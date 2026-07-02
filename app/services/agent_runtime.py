@@ -11,13 +11,27 @@ class DirectLLMRuntime:
     def __init__(self, agent_service: Any) -> None:
         self.agent_service = agent_service
 
-    async def complete(self, messages: list, model: str, temperature: float, max_tokens: int, api_key: Optional[str]) -> dict:
-        return await self.agent_service._call_llm(messages, model, temperature, max_tokens, api_key)
+    async def complete(
+        self,
+        messages: list,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        api_key: Optional[str],
+        provider: Optional[str],
+    ) -> dict:
+        return await self.agent_service._call_llm(messages, model, temperature, max_tokens, api_key, provider)
 
     async def stream(
-        self, messages: list, model: str, temperature: float, max_tokens: int, api_key: Optional[str]
+        self,
+        messages: list,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        api_key: Optional[str],
+        provider: Optional[str],
     ) -> AsyncGenerator[str, None]:
-        async for chunk in self.agent_service._call_llm_stream(messages, model, temperature, max_tokens, api_key):
+        async for chunk in self.agent_service._call_llm_stream(messages, model, temperature, max_tokens, api_key, provider):
             yield chunk
 
 

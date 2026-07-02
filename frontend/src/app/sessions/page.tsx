@@ -19,6 +19,7 @@ import { MessageSquare, Eye, Filter } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
 import { formatRiyadhDateKey, formatRiyadhDateTime } from "@/lib/time";
+import { type Employee, type Profile } from "@/lib/api/agentService";
 
 interface Session {
   id: string;
@@ -44,6 +45,8 @@ interface SessionDetail {
 export default function SessionsPage() {
   const { t, safeText } = useI18n();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
   const [filterUserId, setFilterUserId] = useState("");
@@ -56,8 +59,14 @@ export default function SessionsPage() {
     if (filterUserId) params.user_id = filterUserId;
     if (filterProfile) params.profile_name = filterProfile;
     if (filterDateFrom) params.date_from = filterDateFrom;
-    const response = await apiClient.get("/admin/sessions", { params });
-    setSessions(response.data.sessions || []);
+    const [sessionsResponse, employeesResponse, profilesResponse] = await Promise.all([
+      apiClient.get("/admin/sessions", { params }),
+      apiClient.get("/admin/employees"),
+      apiClient.get("/admin/profiles"),
+    ]);
+    setSessions(sessionsResponse.data.sessions || []);
+    setEmployees(employeesResponse.data.employees || []);
+    setProfiles(profilesResponse.data.profiles || []);
     setLoading(false);
   };
 
@@ -69,9 +78,15 @@ export default function SessionsPage() {
       if (filterUserId) params.user_id = filterUserId;
       if (filterProfile) params.profile_name = filterProfile;
       if (filterDateFrom) params.date_from = filterDateFrom;
-      const response = await apiClient.get("/admin/sessions", { params });
+      const [sessionsResponse, employeesResponse, profilesResponse] = await Promise.all([
+        apiClient.get("/admin/sessions", { params }),
+        apiClient.get("/admin/employees"),
+        apiClient.get("/admin/profiles"),
+      ]);
       if (!cancelled) {
-        setSessions(response.data.sessions || []);
+        setSessions(sessionsResponse.data.sessions || []);
+        setEmployees(employeesResponse.data.employees || []);
+        setProfiles(profilesResponse.data.profiles || []);
         setLoading(false);
       }
     };
@@ -89,6 +104,10 @@ export default function SessionsPage() {
   };
 
   const today = formatRiyadhDateKey(new Date());
+  const getEmployeeName = (userId: string) => {
+    const employee = employees.find((item) => item.id === userId);
+    return employee ? employee.full_name || employee.email : userId;
+  };
 
   return (
     <div className="p-8 space-y-6 kos-animate-in">
@@ -101,12 +120,34 @@ export default function SessionsPage() {
         <div className="card-gradient-top" style={{ background: "linear-gradient(90deg, #3B82F6, #2563EB)" }} />
         <CardContent className="pt-6 grid gap-4 md:grid-cols-4">
           <div className="space-y-2">
-            <Label>{t("User")}</Label>
-            <Input value={filterUserId} onChange={(event) => setFilterUserId(event.target.value)} className="kos-input" />
+            <Label>{t("Employee")}</Label>
+            <select
+              value={filterUserId}
+              onChange={(event) => setFilterUserId(event.target.value)}
+              className="w-full p-2 border rounded-xl text-sm kos-input"
+            >
+              <option value="">{t("Select employee...")}</option>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.full_name || employee.email}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <Label>{t("Profile")}</Label>
-            <Input value={filterProfile} onChange={(event) => setFilterProfile(event.target.value)} className="kos-input" />
+            <select
+              value={filterProfile}
+              onChange={(event) => setFilterProfile(event.target.value)}
+              className="w-full p-2 border rounded-xl text-sm kos-input"
+            >
+              <option value="">{t("Select profile...")}</option>
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.name}>
+                  {safeText(profile.name)}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <Label>{t("From Date")}</Label>
@@ -159,7 +200,7 @@ export default function SessionsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("Title")}</TableHead>
-                  <TableHead>{t("User")}</TableHead>
+                  <TableHead>{t("Employee")}</TableHead>
                   <TableHead>{t("Profile")}</TableHead>
                   <TableHead>{t("Created")}</TableHead>
                   <TableHead className="text-right">{t("Actions")}</TableHead>
@@ -169,7 +210,7 @@ export default function SessionsPage() {
                 {sessions.map((session) => (
                   <TableRow key={session.id}>
                     <TableCell className="font-medium max-w-[200px] truncate">{safeText(session.title || t("Untitled"))}</TableCell>
-                    <TableCell className="text-xs font-mono max-w-[150px] truncate">{session.user_id}</TableCell>
+                    <TableCell className="text-xs max-w-[180px] truncate" dir="auto">{getEmployeeName(session.user_id)}</TableCell>
                     <TableCell>{session.profile_name ? safeText(session.profile_name) : <Badge variant="secondary">{t("default")}</Badge>}</TableCell>
                     <TableCell className="text-xs">{formatRiyadhDateTime(session.created_at)}</TableCell>
                     <TableCell className="text-right">

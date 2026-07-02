@@ -11,13 +11,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { adminApi, type Profile, type SkillDefinition } from "@/lib/api/agentService";
 import { useI18n } from "@/lib/i18n";
 import { toast } from "sonner";
-import { Plus, Trash2, Eye, Edit, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Eye, Edit, RefreshCw, Ban } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { getErrorMessage } from "@/lib/api/errors";
 
 const parseCsv = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
 const getSelectedValues = (event: ChangeEvent<HTMLSelectElement>) =>
   Array.from(event.target.selectedOptions, (option) => option.value);
+const defaultCreateFormData = {
+  name: "",
+  slug: "",
+  soul_md: "",
+  agents_md: "",
+  skills: [] as string[],
+  system_prompt: "",
+  max_tokens_per_day: "56666666",
+  max_requests_per_day: "2000",
+  daily_cost_budget: "20",
+  allowed_providers: "",
+  allowed_mcp_servers: "",
+  allowed_tools: "",
+  approval_required_tools: "",
+};
+const disabledFieldClassName = "kos-input bg-muted text-muted-foreground";
 const buildSkillOptions = (catalogSkills: SkillDefinition[], selectedSkills: string[]) => {
   const knownSlugs = new Set(catalogSkills.map((skill) => skill.slug));
   const legacySkills = selectedSkills
@@ -44,19 +60,7 @@ export default function ProfilesPage() {
   const [editProfile, setEditProfile] = useState<Profile | null>(null);
   const [viewMd, setViewMd] = useState("");
   const [formData, setFormData] = useState({
-    name: "",
-    slug: "",
-    soul_md: "",
-    agents_md: "",
-    skills: [] as string[],
-    system_prompt: "",
-    max_tokens_per_day: "",
-    max_requests_per_day: "",
-    daily_cost_budget: "",
-    allowed_providers: "minimax",
-    allowed_mcp_servers: "",
-    allowed_tools: "",
-    approval_required_tools: "",
+    ...defaultCreateFormData,
   });
   const [editFormData, setEditFormData] = useState({
     name: "",
@@ -109,6 +113,11 @@ export default function ProfilesPage() {
   }, []);
 
   const handleCreate = async () => {
+    if (!formData.name.trim()) {
+      toast.error(t("Name is required"));
+      return;
+    }
+
     try {
       await apiClient.post("/admin/profiles", {
         ...formData,
@@ -124,21 +133,7 @@ export default function ProfilesPage() {
       });
       toast.success(t("Profile created"));
       setShowDialog(false);
-      setFormData({
-        name: "",
-        slug: "",
-        soul_md: "",
-        agents_md: "",
-        skills: [],
-        system_prompt: "",
-        max_tokens_per_day: "",
-        max_requests_per_day: "",
-        daily_cost_budget: "",
-        allowed_providers: "minimax",
-        allowed_mcp_servers: "",
-        allowed_tools: "",
-        approval_required_tools: "",
-      });
+      setFormData({ ...defaultCreateFormData });
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, t("Failed to create profile")));
@@ -205,6 +200,18 @@ export default function ProfilesPage() {
     }
   };
 
+  const handleDisable = async (id: string) => {
+    if (!confirm(t("Disable this profile?"))) return;
+
+    try {
+      await adminApi.updateProfile(id, { is_active: false });
+      toast.success(t("Profile disabled"));
+      await load();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t("Failed to disable profile")));
+    }
+  };
+
   const handleSync = async (id: string) => {
     try {
       await apiClient.post(`/admin/profiles/${id}/sync`);
@@ -236,15 +243,15 @@ export default function ProfilesPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>{t("Name")}</Label>
-                <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="kos-input" />
+                <Input required placeholder="مثال: كاتب محتوى عربي" value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
                 <Label>{t("Slug")}</Label>
-                <Input value={formData.slug} onChange={(event) => setFormData({ ...formData, slug: event.target.value })} className="kos-input" />
+                <Input placeholder="مثال: arabic-copywriter" value={formData.slug} onChange={(event) => setFormData({ ...formData, slug: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
                 <Label>{t("SOUL.md")}</Label>
-                <Input value={formData.soul_md} onChange={(event) => setFormData({ ...formData, soul_md: event.target.value })} className="kos-input" />
+                <Input placeholder="مثال: هذا البروفايل متخصص في كتابة المحتوى التسويقي العربي بنبرة واضحة ومقنعة." value={formData.soul_md} onChange={(event) => setFormData({ ...formData, soul_md: event.target.value })} className="kos-input" />
               </div>
               <div className="space-y-2">
                 <Label>{t("Skills")}</Label>
@@ -266,13 +273,14 @@ export default function ProfilesPage() {
                 <Label>AGENTS.md</Label>
                 <textarea
                   className="w-full min-h-[200px] p-3 border rounded-xl text-sm font-mono bg-gray-50"
+                  placeholder={"مثال:\n- اكتب بالعربية افتراضياً.\n- ركز على التسويق والمبيعات.\n- اسأل سؤال توضيحي واحد فقط عند الحاجة.\n- اجعل الرد مختصراً وعملياً."}
                   value={formData.agents_md}
                   onChange={(event) => setFormData({ ...formData, agents_md: event.target.value })}
                 />
               </div>
               <div className="space-y-2">
                 <Label>{t("System Prompt")}</Label>
-                <Input value={formData.system_prompt} onChange={(event) => setFormData({ ...formData, system_prompt: event.target.value })} className="kos-input" />
+                <Input placeholder="مثال: أنت مساعد متخصص في كتابة الإعلانات التسويقية العربية بشكل مباشر ومقنع." value={formData.system_prompt} onChange={(event) => setFormData({ ...formData, system_prompt: event.target.value })} className="kos-input" />
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-2">
@@ -291,19 +299,19 @@ export default function ProfilesPage() {
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t("Allowed Providers")}</Label>
-                  <Input value={formData.allowed_providers} onChange={(event) => setFormData({ ...formData, allowed_providers: event.target.value })} className="kos-input" />
+                  <Input disabled value={formData.allowed_providers} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("MCP Servers")}</Label>
-                  <Input value={formData.allowed_mcp_servers} onChange={(event) => setFormData({ ...formData, allowed_mcp_servers: event.target.value })} className="kos-input" />
+                  <Input disabled value={formData.allowed_mcp_servers} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("Allowed Tools")}</Label>
-                  <Input value={formData.allowed_tools} onChange={(event) => setFormData({ ...formData, allowed_tools: event.target.value })} className="kos-input" />
+                  <Input disabled value={formData.allowed_tools} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("Approval Tools")}</Label>
-                  <Input value={formData.approval_required_tools} onChange={(event) => setFormData({ ...formData, approval_required_tools: event.target.value })} className="kos-input" />
+                  <Input disabled value={formData.approval_required_tools} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
                 </div>
               </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
@@ -382,7 +390,10 @@ export default function ProfilesPage() {
                         <RefreshCw className="h-3 w-3 mr-1" />
                         {t("Sync")}
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDelete(profile.id)}>
+                      <Button aria-label={t("Disable")} title={t("Disable")} variant="outline" size="sm" onClick={() => handleDisable(profile.id)} disabled={!profile.is_active}>
+                        <Ban className="h-3 w-3 text-amber-500" />
+                      </Button>
+                      <Button aria-label={t("Delete")} title={t("Delete")} variant="outline" size="sm" onClick={() => handleDelete(profile.id)}>
                         <Trash2 className="h-3 w-3 text-red-500" />
                       </Button>
                     </div>
@@ -416,11 +427,11 @@ export default function ProfilesPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>{t("Name")}</Label>
-              <Input value={editFormData.name} onChange={(event) => setEditFormData({ ...editFormData, name: event.target.value })} className="kos-input" />
+              <Input placeholder="مثال: كاتب محتوى عربي" value={editFormData.name} onChange={(event) => setEditFormData({ ...editFormData, name: event.target.value })} className="kos-input" />
             </div>
             <div className="space-y-2">
               <Label>{t("SOUL.md")}</Label>
-              <Input value={editFormData.soul_md} onChange={(event) => setEditFormData({ ...editFormData, soul_md: event.target.value })} className="kos-input" />
+              <Input placeholder="مثال: هذا البروفايل متخصص في كتابة المحتوى التسويقي العربي بنبرة واضحة ومقنعة." value={editFormData.soul_md} onChange={(event) => setEditFormData({ ...editFormData, soul_md: event.target.value })} className="kos-input" />
             </div>
             <div className="space-y-2">
               <Label>{t("Skills")}</Label>
@@ -442,13 +453,14 @@ export default function ProfilesPage() {
               <Label>AGENTS.md</Label>
               <textarea
                 className="w-full min-h-[200px] p-3 border rounded-xl text-sm font-mono bg-gray-50"
+                placeholder={"مثال:\n- اكتب بالعربية افتراضياً.\n- ركز على التسويق والمبيعات.\n- اسأل سؤال توضيحي واحد فقط عند الحاجة.\n- اجعل الرد مختصراً وعملياً."}
                 value={editFormData.agents_md}
                 onChange={(event) => setEditFormData({ ...editFormData, agents_md: event.target.value })}
               />
             </div>
             <div className="space-y-2">
               <Label>{t("System Prompt")}</Label>
-              <Input value={editFormData.system_prompt} onChange={(event) => setEditFormData({ ...editFormData, system_prompt: event.target.value })} className="kos-input" />
+              <Input placeholder="مثال: أنت مساعد متخصص في كتابة الإعلانات التسويقية العربية بشكل مباشر ومقنع." value={editFormData.system_prompt} onChange={(event) => setEditFormData({ ...editFormData, system_prompt: event.target.value })} className="kos-input" />
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
@@ -467,19 +479,19 @@ export default function ProfilesPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t("Allowed Providers")}</Label>
-                <Input value={editFormData.allowed_providers} onChange={(event) => setEditFormData({ ...editFormData, allowed_providers: event.target.value })} className="kos-input" />
+                <Input disabled value={editFormData.allowed_providers} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
               </div>
               <div className="space-y-2">
                 <Label>{t("MCP Servers")}</Label>
-                <Input value={editFormData.allowed_mcp_servers} onChange={(event) => setEditFormData({ ...editFormData, allowed_mcp_servers: event.target.value })} className="kos-input" />
+                <Input disabled value={editFormData.allowed_mcp_servers} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
               </div>
               <div className="space-y-2">
                 <Label>{t("Allowed Tools")}</Label>
-                <Input value={editFormData.allowed_tools} onChange={(event) => setEditFormData({ ...editFormData, allowed_tools: event.target.value })} className="kos-input" />
+                <Input disabled value={editFormData.allowed_tools} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
               </div>
               <div className="space-y-2">
                 <Label>{t("Approval Tools")}</Label>
-                <Input value={editFormData.approval_required_tools} onChange={(event) => setEditFormData({ ...editFormData, approval_required_tools: event.target.value })} className="kos-input" />
+                <Input disabled value={editFormData.approval_required_tools} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
               </div>
             </div>
             <div className="flex items-center justify-between">

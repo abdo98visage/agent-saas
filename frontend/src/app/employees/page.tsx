@@ -18,7 +18,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { adminApi, type Employee, type EmployeeCreatePayload, type EmployeeUpdatePayload } from "@/lib/api/agentService";
 import { toast } from "sonner";
-import { Trash2, Edit, UserPlus, Users, UserCheck, UserX, Copy, Download } from "lucide-react";
+import { Trash2, Edit, UserPlus, Users, UserCheck, UserX, Copy, Download, Ban } from "lucide-react";
 import { getErrorMessage } from "@/lib/api/errors";
 import { useI18n } from "@/lib/i18n";
 
@@ -35,16 +35,16 @@ export default function EmployeesPage() {
     full_name: "",
     department: "",
     role: "employee",
-    max_tokens_per_day: 50000,
-    max_requests_per_day: 200,
+    max_tokens_per_day: 56666666,
+    max_requests_per_day: 2000,
   });
   const [editFormData, setEditFormData] = useState<EmployeeUpdatePayload>({
     full_name: "",
     department: "",
     role: "employee",
     is_active: true,
-    max_tokens_per_day: 50000,
-    max_requests_per_day: 200,
+    max_tokens_per_day: 56666666,
+    max_requests_per_day: 2000,
   });
 
   const getDownloadUrl = (platform: "windows" | "mac") => {
@@ -99,8 +99,8 @@ export default function EmployeesPage() {
         full_name: "",
         department: "",
         role: "employee",
-        max_tokens_per_day: 50000,
-        max_requests_per_day: 200,
+        max_tokens_per_day: 56666666,
+        max_requests_per_day: 2000,
       });
       await load();
     } catch (error: unknown) {
@@ -110,7 +110,21 @@ export default function EmployeesPage() {
 
   const buildActivationLink = (inviteToken: string) => {
     if (typeof window === "undefined") return "";
-    const server = window.location.origin;
+    const fallbackServer = `http://${window.location.hostname}:8001`;
+    const configuredServer = process.env.NEXT_PUBLIC_API_ORIGIN;
+    let server = fallbackServer;
+
+    if (configuredServer) {
+      try {
+        const parsed = new URL(configuredServer);
+        if (!["api", "localhost"].includes(parsed.hostname)) {
+          server = configuredServer;
+        }
+      } catch {
+        server = fallbackServer;
+      }
+    }
+
     return `fqsaas://activate?server=${encodeURIComponent(server)}&token=${encodeURIComponent(inviteToken)}`;
   };
 
@@ -173,6 +187,18 @@ export default function EmployeesPage() {
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, t("Failed to disable employee")));
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm(t("Delete this employee?"))) return;
+
+    try {
+      await adminApi.deleteEmployee(id);
+      toast.success(t("Employee deleted"));
+      await load();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t("Failed to delete employee")));
     }
   };
 
@@ -332,7 +358,10 @@ export default function EmployeesPage() {
                         <Button variant="ghost" size="sm" onClick={() => handleEdit(employee)}>
                           <Edit className="h-4 w-4 text-blue-500" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDisable(employee.id)}>
+                        <Button aria-label={t("Disable")} title={t("Disable")} variant="ghost" size="sm" onClick={() => handleDisable(employee.id)} disabled={!employee.is_active}>
+                          <Ban className="h-4 w-4 text-amber-500" />
+                        </Button>
+                        <Button aria-label={t("Delete")} title={t("Delete")} variant="ghost" size="sm" onClick={() => handleDelete(employee.id)}>
                           <Trash2 className="h-4 w-4 text-red-500" />
                         </Button>
                       </div>

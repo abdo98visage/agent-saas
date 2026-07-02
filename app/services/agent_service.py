@@ -29,15 +29,35 @@ from app.services.pricing_service import pricing_service
 class AgentService:
     """Core agent service: profile resolution, per-user API keys, LLM routing, streaming."""
 
-    def _runtime_request_url(self, profile: Optional[Profile]) -> str:
+    @staticmethod
+    def _resolve_model_for_provider(base_model: str, provider: str) -> str:
+        normalized_provider = (provider or "").strip().lower()
+        normalized_model = (base_model or "").strip()
+        if normalized_provider == "minimax":
+            if not normalized_model or normalized_model == settings.default_model or normalized_model.lower().startswith("qwen"):
+                return settings.minimax_model
+        return normalized_model or settings.default_model
+
+    @staticmethod
+    def _runtime_facts_context(provider: str, model_name: str, runtime_type: str) -> str:
+        return (
+            "Runtime facts for this request:\n"
+            f"- provider: {provider}\n"
+            f"- model: {model_name}\n"
+            f"- runtime: {runtime_type}\n"
+            "If the user asks which model, provider, or runtime is being used, answer strictly from these runtime facts and do not invent a different vendor, model family, or agent identity."
+        )
+
+    def _runtime_request_url(self, profile: Optional[Profile], provider: Optional[str] = None) -> str:
+        resolved_provider = (provider or settings.llm_provider).strip().lower()
         runtime = self._runtime_router().for_profile(profile)
         if runtime.runtime_type == "hermes":
             return f"{settings.hermes_orchestrator_url.rstrip('/')}/runs" if settings.hermes_orchestrator_url else ""
-        if settings.is_openai:
+        if resolved_provider == "openai":
             return settings.openai_base_url
-        if settings.is_minimax:
+        if resolved_provider == "minimax":
             return settings.minimax_base_url
-        if settings.is_ollama:
+        if resolved_provider == "ollama":
             return f"{settings.ollama_base_url.rstrip('/')}/api/chat"
         return ""
 
@@ -83,39 +103,32 @@ class AgentService:
         rows.sort(key=lambda r: r[0].priority)
         return rows[0][1]
 
-    async def resolve_user_api_key(
-        self, db: AsyncSession, user_id: UUID, profile_id: Optional[UUID] = None
-    ) -> Optional[str]:
-        """Resolve active provider key by employee override, profile key, then platform fallback."""
-        return await api_key_resolver.resolve(
-            db,
-            user_id=user_id,
-            provider=settings.llm_provider,
-            profile_id=profile_id,
-        )
-
     @staticmethod
-    def _provider_requires_key() -> bool:
-        return settings.llm_provider in {"minimax", "openai"}
+    def _provider_requires_key(provider: str) -> bool:
+        return provider in {"minimax", "openai"}
 
-    async def _resolve_runtime_api_key(
+    async def _resolve_runtime_provider_and_key(
         self, db: AsyncSession, user_id: UUID, profile: Optional[Profile]
-    ) -> Optional[str]:
+    ) -> tuple[str, Optional[str]]:
         key_obj = await api_key_resolver.resolve_key(
             db,
             user_id=user_id,
-            provider=settings.llm_provider,
             profile_id=profile.id if profile else None,
+            allowed_providers=(profile.allowed_providers or None) if profile else None,
+            preferred_provider=settings.llm_provider,
         )
+        resolved_provider = key_obj.provider if key_obj else settings.llm_provider
+        if profile and profile.allowed_providers and resolved_provider not in profile.allowed_providers:
+            raise RuntimeError(f"Provider {resolved_provider} is not allowed for this profile")
         if not key_obj:
-            if self._provider_requires_key():
+            if self._provider_requires_key(resolved_provider):
                 raise RuntimeError(
                     "No active provider API key is configured for this employee/profile/platform."
                 )
-            return None
+            return resolved_provider, None
         if key_obj.spent_today >= key_obj.daily_budget:
             raise RuntimeError("Provider API key daily budget exceeded")
-        return api_key_resolver.decrypt(key_obj)
+        return resolved_provider, api_key_resolver.decrypt(key_obj)
 
     async def get_system_prompt(
         self,
@@ -199,13 +212,13 @@ class AgentService:
             raise ValueError("Employee not found")
         return user
 
-    async def _enforce_profile_ready(self, profile: Optional[Profile]) -> None:
+    async def _enforce_profile_ready(self, profile: Optional[Profile], provider: Optional[str] = None) -> None:
         if not profile:
             return
         if not profile.is_active:
             raise ValueError("Profile is inactive")
-        if profile.allowed_providers and settings.llm_provider not in profile.allowed_providers:
-            raise RuntimeError(f"Provider {settings.llm_provider} is not allowed for this profile")
+        if provider and profile.allowed_providers and provider not in profile.allowed_providers:
+            raise RuntimeError(f"Provider {provider} is not allowed for this profile")
         if profile.runtime_type == "hermes" and profile.hermes_sync_status != "synced":
             raise RuntimeError(
                 f"Agent profile is not ready: {profile.hermes_sync_status or 'pending'}"
@@ -258,6 +271,7 @@ class AgentService:
         profile: Optional[Profile],
         runtime_type: str,
         model_name: str,
+        provider: str,
     ) -> AgentRun:
         run = AgentRun(
             id=uuid4(),
@@ -269,7 +283,7 @@ class AgentService:
             status="running",
             started_at=datetime.utcnow(),
             model=model_name,
-            provider=settings.llm_provider,
+            provider=provider,
         )
         db.add(run)
         await db.flush()
@@ -348,7 +362,8 @@ class AgentService:
             )
         )
         profile = await self.resolve_user_profile(db, user_uuid, profile_name=profile_name)
-        await self._enforce_profile_ready(profile)
+        effective_provider, user_api_key = await self._resolve_runtime_provider_and_key(db, user_uuid, profile)
+        await self._enforce_profile_ready(profile, effective_provider)
         await self._enforce_profile_request_limit(db, profile)
         await self._enforce_profile_usage_limits(db, profile)
         session_obj = await self._ensure_session(db, user_uuid, conversation_id, agent_template_name)
@@ -357,9 +372,6 @@ class AgentService:
         if profile:
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
-
-        # 2. Resolve provider key by employee override, profile key, then platform fallback.
-        user_api_key = await self._resolve_runtime_api_key(db, user_uuid, profile)
 
         # 3. Load conversation history (last 20 messages)
         history_messages = []
@@ -386,12 +398,19 @@ class AgentService:
                 "content": f"Project Context:\n{project_context}",
             })
 
+        model_name = self._resolve_model_for_provider(model_name, effective_provider)
+        runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
+        runtime_facts_context = self._runtime_facts_context(effective_provider, model_name, runtime.runtime_type)
+        merged_project_context = f"{project_context}\n\n{runtime_facts_context}" if project_context else runtime_facts_context
+        messages.append({
+            "role": "system",
+            "content": runtime_facts_context,
+        })
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_message})
 
         # 5. Call selected runtime
-        runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
-        run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name)
+        run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name, effective_provider)
         try:
             if runtime.runtime_type == "hermes":
                 runtime_result = await runtime.complete(
@@ -399,10 +418,10 @@ class AgentService:
                     profile=profile,
                     session_id=str(session_obj.id),
                     user_message=user_message,
-                    project_context=project_context,
+                    project_context=merged_project_context,
                     api_key=user_api_key,
                     model=model_name,
-                    provider=settings.llm_provider,
+                    provider=effective_provider,
                 )
                 response_text = runtime_result.get("content", "")
                 tools_used = runtime_result.get("tools_used", [])
@@ -416,6 +435,7 @@ class AgentService:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     api_key=user_api_key,
+                    provider=effective_provider,
                 )
                 response_text = runtime_result.get("content", "")
                 tools_used = []
@@ -461,7 +481,7 @@ class AgentService:
         input_tokens, output_tokens = self._resolve_usage_tokens(messages, response_text, usage)
         cost_calc = await pricing_service.calculate_cost(
             db,
-            settings.llm_provider,
+            effective_provider,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             fallback_cost=runtime_cost,
@@ -489,9 +509,10 @@ class AgentService:
             "total_tokens": input_tokens + output_tokens,
             "latency_ms": latency,
             "model": model_name,
-            "provider": settings.llm_provider,
+            "provider": effective_provider,
             "runtime_type": runtime.runtime_type,
-            "request_url": self._runtime_request_url(profile),
+            "request_url": self._runtime_request_url(profile, effective_provider),
+            "upstream_target": runtime_result.get("upstream_target"),
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
             "total_cost": cost_calc.total_cost,
@@ -523,7 +544,8 @@ class AgentService:
             )
         )
         profile = await self.resolve_user_profile(db, user_uuid, profile_name=profile_name)
-        await self._enforce_profile_ready(profile)
+        effective_provider, user_api_key = await self._resolve_runtime_provider_and_key(db, user_uuid, profile)
+        await self._enforce_profile_ready(profile, effective_provider)
         await self._enforce_profile_request_limit(db, profile)
         await self._enforce_profile_usage_limits(db, profile)
         session_obj = await self._ensure_session(db, user_uuid, conversation_id, agent_template_name)
@@ -532,9 +554,6 @@ class AgentService:
         if profile:
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
-
-        # 2. Resolve provider key by employee override, profile key, then platform fallback.
-        user_api_key = await self._resolve_runtime_api_key(db, user_uuid, profile)
 
         # 3. Load conversation history
         history_messages = []
@@ -559,6 +578,14 @@ class AgentService:
                 "role": "system",
                 "content": f"Project Context:\n{project_context}",
             })
+        model_name = self._resolve_model_for_provider(model_name, effective_provider)
+        runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
+        runtime_facts_context = self._runtime_facts_context(effective_provider, model_name, runtime.runtime_type)
+        merged_project_context = f"{project_context}\n\n{runtime_facts_context}" if project_context else runtime_facts_context
+        messages.append({
+            "role": "system",
+            "content": runtime_facts_context,
+        })
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_message})
 
@@ -576,8 +603,7 @@ class AgentService:
         # 6. Stream selected runtime response
         full_response = ""
         assistant_msg_id = str(uuid4())
-        runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
-        run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name)
+        run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name, effective_provider)
         start_time = time.time()
         tools_used: list = []
         mcp_servers_used: list = []
@@ -591,10 +617,10 @@ class AgentService:
                     profile=profile,
                     session_id=str(session_obj.id),
                     user_message=user_message,
-                    project_context=project_context,
+                    project_context=merged_project_context,
                     api_key=user_api_key,
                     model=model_name,
-                    provider=settings.llm_provider,
+                    provider=effective_provider,
                 ):
                     db.add(AgentRunEvent(run_id=run.id, event_type=event.get("type", "event"), payload=event))
                     chunk = event.get("content", "")
@@ -617,6 +643,7 @@ class AgentService:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     api_key=user_api_key,
+                    provider=effective_provider,
                 ):
                     full_response += chunk
                     yield {
@@ -652,7 +679,7 @@ class AgentService:
         input_tokens, output_tokens = self._resolve_usage_tokens(messages, full_response, usage)
         cost_calc = await pricing_service.calculate_cost(
             db,
-            settings.llm_provider,
+            effective_provider,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             fallback_cost=runtime_cost,
@@ -679,9 +706,10 @@ class AgentService:
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
             "model": model_name,
-            "provider": settings.llm_provider,
+            "provider": effective_provider,
             "runtime_type": runtime.runtime_type,
-            "request_url": self._runtime_request_url(profile),
+            "request_url": self._runtime_request_url(profile, effective_provider),
+            "upstream_target": runtime_result.get("upstream_target") if runtime.runtime_type == "hermes" else None,
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
             "total_cost": cost_calc.total_cost,
@@ -696,18 +724,20 @@ class AgentService:
         temperature: float,
         max_tokens: int,
         api_key: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> dict[str, Any]:
         """Call the configured LLM provider."""
-        if settings.is_mock:
+        resolved_provider = (provider or settings.llm_provider).strip().lower()
+        if resolved_provider == "mock":
             return {"content": self._mock_response(messages), "usage": {}}
 
-        if settings.is_minimax:
+        if resolved_provider == "minimax":
             return await self._call_minimax(messages, model, temperature, max_tokens, api_key)
 
-        if settings.is_openai:
+        if resolved_provider == "openai":
             return await self._call_openai(messages, model, temperature, max_tokens, api_key)
 
-        if settings.is_ollama:
+        if resolved_provider == "ollama":
             return await self._call_ollama(messages, model, temperature)
 
         return {"content": self._mock_response(messages), "usage": {}}
@@ -719,25 +749,27 @@ class AgentService:
         temperature: float,
         max_tokens: int,
         api_key: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Call the configured LLM provider with streaming."""
-        if settings.is_mock:
+        resolved_provider = (provider or settings.llm_provider).strip().lower()
+        if resolved_provider == "mock":
             response = self._mock_response(messages)
             for chunk in response:
                 yield chunk
             return
 
-        if settings.is_minimax:
+        if resolved_provider == "minimax":
             async for chunk in self._call_minimax_stream(messages, model, temperature, max_tokens, api_key):
                 yield chunk
             return
 
-        if settings.is_openai:
+        if resolved_provider == "openai":
             async for chunk in self._call_openai_stream(messages, model, temperature, max_tokens, api_key):
                 yield chunk
             return
 
-        if settings.is_ollama:
+        if resolved_provider == "ollama":
             async for chunk in self._call_ollama_stream(messages, model, temperature):
                 yield chunk
             return

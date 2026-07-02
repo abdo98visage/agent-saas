@@ -107,7 +107,12 @@ function SidebarContent() {
 }
 
 export function Sidebar() {
+  const pathname = usePathname();
   const { dir } = useI18n();
+
+  if (pathname === "/login") {
+    return null;
+  }
 
   return (
     <>

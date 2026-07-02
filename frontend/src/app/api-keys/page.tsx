@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,8 @@ interface ApiKey {
   owner_type: "user" | "profile" | "platform";
   user_id: string | null;
   profile_id: string | null;
+  profile_ids: string[];
+  profile_names: string[];
   provider: string;
   key_prefix: string;
   is_active: boolean;
@@ -40,6 +42,9 @@ interface ProfileOption {
   hermes_sync_status?: string;
 }
 
+const getSelectedValues = (event: ChangeEvent<HTMLSelectElement>) =>
+  Array.from(event.target.selectedOptions, (option) => option.value);
+
 export default function ApiKeysPage() {
   const { t, safeText } = useI18n();
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -53,12 +58,16 @@ export default function ApiKeysPage() {
   const [formData, setFormData] = useState({
     owner_type: "profile" as "user" | "profile" | "platform",
     user_id: "",
-    profile_id: "",
+    profile_ids: [] as string[],
     provider: "minimax",
     api_key: "",
     daily_budget: 50000,
   });
   const [editFormData, setEditFormData] = useState({
+    owner_type: "profile" as "user" | "profile" | "platform",
+    user_id: "",
+    profile_ids: [] as string[],
+    provider: "minimax",
     is_active: true,
     daily_budget: 50000,
   });
@@ -136,14 +145,14 @@ export default function ApiKeysPage() {
       await apiClient.post("/admin/api-keys", {
         owner_type: formData.owner_type,
         user_id: formData.owner_type === "user" ? formData.user_id : null,
-        profile_id: formData.owner_type === "profile" ? formData.profile_id : null,
+        profile_ids: formData.owner_type === "profile" ? formData.profile_ids : [],
         provider: formData.provider,
         api_key: formData.api_key,
         daily_budget: formData.daily_budget,
       });
       toast.success("API key created");
       setShowDialog(false);
-      setFormData({ owner_type: "profile", user_id: "", profile_id: "", provider: "minimax", api_key: "", daily_budget: 50000 });
+      setFormData({ owner_type: "profile", user_id: "", profile_ids: [], provider: "minimax", api_key: "", daily_budget: 50000 });
       await load();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Failed to create API key"));
@@ -153,6 +162,10 @@ export default function ApiKeysPage() {
   const handleEdit = (key: ApiKey) => {
     setEditKey(key);
     setEditFormData({
+      owner_type: key.owner_type,
+      user_id: key.user_id || "",
+      profile_ids: key.profile_ids || (key.profile_id ? [key.profile_id] : []),
+      provider: key.provider,
       is_active: key.is_active,
       daily_budget: key.daily_budget,
     });
@@ -163,7 +176,14 @@ export default function ApiKeysPage() {
     if (!editKey) return;
 
     try {
-      await apiClient.put(`/admin/api-keys/${editKey.id}`, editFormData);
+      await apiClient.put(`/admin/api-keys/${editKey.id}`, {
+        owner_type: editFormData.owner_type,
+        user_id: editFormData.owner_type === "user" ? editFormData.user_id : null,
+        profile_ids: editFormData.owner_type === "profile" ? editFormData.profile_ids : [],
+        provider: editFormData.provider,
+        is_active: editFormData.is_active,
+        daily_budget: editFormData.daily_budget,
+      });
       toast.success("API key updated");
       setShowEditDialog(false);
       setEditKey(null);
@@ -248,19 +268,20 @@ export default function ApiKeysPage() {
               )}
               {formData.owner_type === "profile" && (
               <div className="space-y-2">
-                <Label>Profile</Label>
+                <Label>Profiles</Label>
                 <select
-                  className="w-full p-2 border rounded-xl text-sm kos-input"
-                  value={formData.profile_id}
-                  onChange={(event) => setFormData({ ...formData, profile_id: event.target.value })}
+                  multiple
+                  className="w-full min-h-[160px] p-2 border rounded-xl text-sm kos-input"
+                  value={formData.profile_ids}
+                  onChange={(event) => setFormData({ ...formData, profile_ids: getSelectedValues(event) })}
                 >
-                  <option value="">Select profile</option>
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
                       {safeText(profile.name)} ({safeText(profile.slug)}) - {t(profile.hermes_sync_status || "pending")}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground">{t("Hold Ctrl or Cmd to select multiple skills.")}</p>
               </div>
               )}
               <div className="space-y-2">
@@ -412,8 +433,12 @@ export default function ApiKeysPage() {
                     <CardContent className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Owner:</span>
-                        <span className="font-mono text-xs truncate max-w-[180px]">
-                          {key.owner_type === "profile" ? key.profile_id : key.owner_type === "user" ? key.user_id : "platform"}
+                        <span className="text-xs truncate max-w-[220px]" dir="auto">
+                          {key.owner_type === "profile"
+                            ? (key.profile_names?.join(", ") || key.profile_ids?.join(", ") || key.profile_id || "—")
+                            : key.owner_type === "user"
+                              ? (employees.find((employee) => employee.id === key.user_id)?.full_name || employees.find((employee) => employee.id === key.user_id)?.email || key.user_id)
+                              : "platform"}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
@@ -456,6 +481,70 @@ export default function ApiKeysPage() {
             <DialogTitle>Edit API Key</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Owner Type</Label>
+              <select
+                className="w-full p-2 border rounded-xl text-sm kos-input"
+                value={editFormData.owner_type}
+                onChange={(event) => setEditFormData({
+                  ...editFormData,
+                  owner_type: event.target.value as "user" | "profile" | "platform",
+                  user_id: event.target.value === "user" ? editFormData.user_id : "",
+                  profile_ids: event.target.value === "profile" ? editFormData.profile_ids : [],
+                })}
+              >
+                <option value="profile">Profile key</option>
+                <option value="user">Employee override key</option>
+                <option value="platform">Platform fallback key</option>
+              </select>
+            </div>
+            {editFormData.owner_type === "user" && (
+              <div className="space-y-2">
+                <Label>Employee</Label>
+                <select
+                  className="w-full p-2 border rounded-xl text-sm kos-input"
+                  value={editFormData.user_id}
+                  onChange={(event) => setEditFormData({ ...editFormData, user_id: event.target.value })}
+                >
+                  <option value="">Select employee</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.full_name || employee.email} ({employee.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {editFormData.owner_type === "profile" && (
+              <div className="space-y-2">
+                <Label>Profiles</Label>
+                <select
+                  multiple
+                  className="w-full min-h-[160px] p-2 border rounded-xl text-sm kos-input"
+                  value={editFormData.profile_ids}
+                  onChange={(event) => setEditFormData({ ...editFormData, profile_ids: getSelectedValues(event) })}
+                >
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {safeText(profile.name)} ({safeText(profile.slug)}) - {t(profile.hermes_sync_status || "pending")}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">{t("Hold Ctrl or Cmd to select multiple skills.")}</p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Provider</Label>
+              <select
+                className="w-full p-2 border rounded-xl text-sm kos-input"
+                value={editFormData.provider}
+                onChange={(event) => setEditFormData({ ...editFormData, provider: event.target.value })}
+              >
+                <option value="minimax">MiniMax</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama</option>
+              </select>
+            </div>
             <div className="flex items-center justify-between">
               <Label>Active</Label>
               <Switch

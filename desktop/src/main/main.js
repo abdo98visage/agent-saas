@@ -149,7 +149,7 @@ function readDesktopConfig() {
 }
 
 const desktopConfig = readDesktopConfig();
-const API_URL = process.env.API_URL || desktopConfig.apiUrl || "http://localhost:8002/api";
+const API_URL = process.env.API_URL || desktopConfig.apiUrl || "http://localhost:8001/api";
 const EXCLUDED_DIRS = [".git", "node_modules", ".venv", "__pycache__", "venv", "build", "dist", ".next", ".cache"];
 const EXCLUDED_FILES = [".gitignore", "package-lock.json", "yarn.lock"];
 const EXCLUDED_FILE_PREFIXES = [".env"];

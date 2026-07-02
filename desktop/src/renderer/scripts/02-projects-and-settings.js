@@ -535,7 +535,7 @@
                 return;
             }
 
-            const apiUrl = new URL(state.settings.apiUrl || "http://localhost:8002/api");
+            const apiUrl = new URL(state.settings.apiUrl || "http://localhost:8001/api");
             const wsProtocol = apiUrl.protocol === "https:" ? "wss" : "ws";
             const apiPath = apiUrl.pathname.replace(/\/$/, "");
             const pathPrefix = apiPath.endsWith("/api") ? apiPath.slice(0, -4) : apiPath;

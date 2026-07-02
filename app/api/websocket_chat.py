@@ -304,7 +304,8 @@ async def _run_cowork_loop(
             profile_name=effective_profile_name,
         )
         profile = await agent_service.resolve_user_profile(db, user.id, profile_name=effective_profile_name)
-        await agent_service._enforce_profile_ready(profile)
+        effective_provider, api_key = await agent_service._resolve_runtime_provider_and_key(db, user.id, profile)
+        await agent_service._enforce_profile_ready(profile, effective_provider)
         await agent_service._enforce_profile_request_limit(db, profile)
         await agent_service._enforce_profile_usage_limits(db, profile)
         session_obj = await agent_service._ensure_session(db, user.id, active_conversation_id, agent_template_name)
@@ -313,7 +314,6 @@ async def _run_cowork_loop(
         if profile:
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
-        api_key = await agent_service._resolve_runtime_api_key(db, user.id, profile)
 
         user_msg = Message(
             id=uuid4(),
@@ -325,7 +325,7 @@ async def _run_cowork_loop(
         db.add(user_msg)
         await db.flush()
 
-        run = await agent_service._create_run(db, session_obj, user.id, profile, "hermes", model_name)
+        run = await agent_service._create_run(db, session_obj, user.id, profile, "hermes", model_name, effective_provider)
         await _save_run_event(
             db,
             run.id,
@@ -364,7 +364,7 @@ async def _run_cowork_loop(
                 "session_id": str(session_obj.id),
                 "message": user_message,
                 "project_context": project_context,
-                "provider": settings.llm_provider,
+                "provider": effective_provider,
                 "model": model_name,
                 "api_key": api_key,
                 "workspace": workspace,
@@ -496,7 +496,7 @@ async def _run_cowork_loop(
                 effective_output_tokens = output_tokens or assistant_msg.tokens_used
                 cost_calc = await pricing_service.calculate_cost(
                     final_db,
-                    settings.llm_provider,
+                    result.get("provider") or settings.llm_provider,
                     input_tokens=effective_input_tokens,
                     output_tokens=effective_output_tokens,
                     fallback_cost=total_cost,
@@ -766,7 +766,7 @@ async def websocket_chat(
                             cowork_done_payload["model"],
                             cowork_done_payload["tokens_used"],
                             float(cowork_done_payload.get("total_cost", 0.0) or 0.0),
-                            provider=settings.llm_provider,
+                            provider=cowork_done_payload.get("provider") or settings.llm_provider,
                             profile_id=UUID(profile_uuid) if profile_uuid else None,
                         )
 
@@ -863,7 +863,7 @@ async def websocket_chat(
                         model_name,
                         tokens_used,
                         total_cost,
-                        provider=settings.llm_provider,
+                        provider=done_payload.get("provider") or settings.llm_provider,
                         profile_id=resolved_profile_id,
                     )
 

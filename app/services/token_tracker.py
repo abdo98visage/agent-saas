@@ -1,8 +1,10 @@
 """Token tracking service — quota checks and usage recording."""
 import datetime
+import json
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.kpi import KPI
@@ -25,7 +27,11 @@ async def _resolve_active_key(
 ) -> UserApiKey | None:
     candidates = [(UserApiKey.owner_type == "user", UserApiKey.user_id == user_id)]
     if profile_id:
-        candidates.append((UserApiKey.owner_type == "profile", UserApiKey.profile_id == profile_id))
+        candidates.append((
+            UserApiKey.owner_type == "profile",
+            (UserApiKey.profile_id == profile_id) |
+            (UserApiKey.profile_ids.op("@>")(cast(json.dumps([str(profile_id)]), JSONB))),
+        ))
     candidates.append((UserApiKey.owner_type == "platform", UserApiKey.user_id.is_(None)))
 
     for owner_filter, id_filter in candidates:

@@ -1,9 +1,11 @@
-INFO:     Started server process [54688]
+INFO:     Started server process [35556]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8002 (Press CTRL+C to quit)
-{"event": "http_request", "request_id": "d8805a89", "method": "POST", "path": "/api/auth/ws-token", "status": 200, "ip": "127.0.0.1", "latency_ms": 46.9}
-INFO:     ('127.0.0.1', 64936) - "WebSocket /api/chat/ws/chat?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3Njk0MTRjYi01ODgzLTQ2OTUtYTQxOC1lMmYzMzJkZmI3NGMiLCJyb2xlIjoiZW1wbG95ZWUiLCJleHAiOjE3ODI4OTg5MjEsImlhdCI6MTc4Mjg5ODYyMSwidmVyIjoxLCJwdXJwb3NlIjoid3MiLCJqdGkiOiI5NGMwNjI2YS03ZTg2LTQ1MzEtOGRjMC05YzA1MjM3MWQzZDQifQ.HweJpe8X2NftqOApBukmgkPcbFLDpXgurNmWqH0WbVA&agent_template_name=default&profile_name=%D8%A7%D9%8A%D8%AC%D9%86%D8%AA+%D8%A7%D9%84%D8%AA%D8%B3%D9%88%D9%8A%D9%82" [accepted]
-INFO:     connection open
-{"event": "http_request", "request_id": "85223586", "method": "GET", "path": "/api/status", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.5}
-{"event": "http_request", "request_id": "064cdb8f", "method": "GET", "path": "/api/chat/conversations", "status": 200, "ip": "127.0.0.1", "latency_ms": 3.6}
+{"event": "http_request", "request_id": "3bad47bb", "method": "OPTIONS", "path": "/api/auth/activate", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.3}
+{"event": "http_request", "request_id": "e4b37782", "method": "GET", "path": "/api/status", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.6}
+{"event": "http_request", "request_id": "b01e8118", "method": "OPTIONS", "path": "/api/auth/activate", "status": 200, "ip": "127.0.0.1", "latency_ms": 0.6}
+{"event": "http_request", "request_id": "fa8b2874", "method": "POST", "path": "/api/auth/activate", "status": 404, "ip": "127.0.0.1", "latency_ms": 125.5}
+{"event": "http_request", "request_id": "b76049a4", "method": "POST", "path": "/api/auth/activate", "status": 404, "ip": "127.0.0.1", "latency_ms": 6.1}
+{"event": "http_request", "request_id": "5aec4a8a", "method": "POST", "path": "/runs", "status": 404, "ip": "127.0.0.1", "latency_ms": 0.4}
+{"event": "http_request", "request_id": "0530c333", "method": "POST", "path": "/runs", "status": 404, "ip": "127.0.0.1", "latency_ms": 0.4}

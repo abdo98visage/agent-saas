@@ -88,6 +88,7 @@ const translations: Record<string, string> = {
   "Daily Request Limit": "حد الطلبات اليومي",
   "Total Employees": "إجمالي الموظفين",
   "Active": "نشط",
+  "Disable": "تعطيل",
   "Disabled": "معطل",
   "Name": "الاسم",
   "Role": "الدور",

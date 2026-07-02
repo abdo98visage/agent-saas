@@ -154,6 +154,7 @@ export default function AssignmentsPage() {
                   onChange={(event) => setFormData({ ...formData, priority: event.target.value })}
                   className="kos-input"
                 />
+                <p className="text-xs text-muted-foreground">0 = أعلى أولوية / Highest priority</p>
               </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
                 {t("Save Assignment")}
@@ -231,10 +232,10 @@ export default function AssignmentsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium" dir="auto">{safeText(getProfileName(assignment.profile_id))}</p>
-                        <Badge variant="secondary" className="text-xs kos-badge-purple">
-                          {t("Priority")}: {assignment.priority}
-                        </Badge>
-                        <div className="flex flex-wrap gap-1 mt-1">
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          <Badge variant="secondary" className="text-xs kos-badge-purple">
+                            {t("Priority")}: {assignment.priority}
+                          </Badge>
                           <Badge variant="outline" className="text-[10px]">
                             {t(assignment.profile_runtime_type === "direct_llm" ? "Direct Model" : "Smart Agents")}
                           </Badge>

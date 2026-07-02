@@ -15,8 +15,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let cancelled = false;
 
-    apiClient.get("/auth/me").catch(() => {
-      if (!cancelled) {
+    apiClient.get("/auth/me").catch((error: { response?: { status?: number } }) => {
+      if (!cancelled && error?.response?.status === 401) {
         router.push("/login");
       }
     });

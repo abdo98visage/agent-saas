@@ -1,4 +1,5 @@
 from sqlalchemy import String, Boolean, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 from app.core.db import Base
@@ -11,6 +12,7 @@ class UserApiKey(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     owner_type: Mapped[str] = mapped_column(String(20), default="user", index=True)  # user, profile, platform
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     profile_id: Mapped[UUID] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), nullable=True, index=True)
+    profile_ids: Mapped[list] = mapped_column(JSONB, default=list)
     provider: Mapped[str] = mapped_column(String(50), default="minimax")  # minimax, openai, etc.
     encrypted_key: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet encrypted
     key_prefix: Mapped[str] = mapped_column(String(10), nullable=False)  # First 6 chars for display

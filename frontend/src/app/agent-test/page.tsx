@@ -122,6 +122,7 @@ export default function AgentTestPage() {
               provider: null,
               runtime_type: null,
               request_url: null,
+              upstream_target: null,
               profile_name: currentSelectedProfile,
               profile_id: currentSelectedProfileObject?.id || null,
               total_cost: null,
@@ -263,7 +264,26 @@ export default function AgentTestPage() {
                   </div>
 
                   {entry.role === "assistant" && (
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 text-sm">
+                    <div className="space-y-3 text-sm">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Resolved execution</div>
+                        <div className="mt-2 grid gap-2 md:grid-cols-3">
+                          <div>
+                            <div className="text-muted-foreground">Resolved Provider</div>
+                            <div className="font-semibold break-all">{entry.meta.provider || "n/a"}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Resolved Model</div>
+                            <div className="font-semibold break-all">{entry.meta.model || "n/a"}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Resolved Runtime</div>
+                            <div className="font-semibold break-all">{entry.meta.runtime_type || "n/a"}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       <div className="rounded-xl border bg-white p-3">
                         <div className="text-muted-foreground flex items-center gap-2"><DatabaseZap className="h-4 w-4" /> Model</div>
                         <div className="font-semibold break-all">{entry.meta.model || "n/a"}</div>
@@ -279,6 +299,10 @@ export default function AgentTestPage() {
                       <div className="rounded-xl border bg-white p-3 xl:col-span-2">
                         <div className="text-muted-foreground">Request URL</div>
                         <div className="font-semibold break-all">{entry.meta.request_url || "n/a"}</div>
+                      </div>
+                      <div className="rounded-xl border bg-white p-3 xl:col-span-2">
+                        <div className="text-muted-foreground">Upstream Target</div>
+                        <div className="font-semibold break-all">{entry.meta.upstream_target || "n/a"}</div>
                       </div>
                       <div className="rounded-xl border bg-white p-3">
                         <div className="text-muted-foreground flex items-center gap-2"><Coins className="h-4 w-4" /> Cost</div>
@@ -300,6 +324,7 @@ export default function AgentTestPage() {
                         <div className="text-muted-foreground">Profile Used</div>
                         <div className="font-semibold">{entry.meta.profile_name || "n/a"}</div>
                       </div>
+                    </div>
                     </div>
                   )}
                 </CardContent>

@@ -128,6 +128,17 @@ def _runtime_env(payload: dict[str, Any], profile_home: Path) -> dict[str, str]:
     return env
 
 
+def _upstream_target(payload: dict[str, Any]) -> str:
+    provider = (payload.get("provider") or "").strip().lower()
+    if provider == "openai":
+        return OPENAI_COMPAT_BASE_URL or "openai-compatible"
+    if provider == "minimax":
+        return MINIMAX_BASE_URL or "https://api.minimax.io/v1/chat/completions"
+    if provider == "ollama":
+        return OLLAMA_BASE_URL or "ollama"
+    return provider or "unknown"
+
+
 def _stage_runtime_profile(source_profile_home: Path, runtime_profile_home: Path) -> Path:
     runtime_profile_home.mkdir(parents=True, exist_ok=True)
     runtime_workspace = runtime_profile_home / "workspace"
@@ -522,6 +533,7 @@ async def run_agent(payload: dict[str, Any]):
         return {
             **normalized,
             "content": normalized.get("content", ""),
+            "upstream_target": _upstream_target(payload),
             "tools_used": ["hermes-agent"],
             "mcp_servers_used": [],
             "total_cost": 0.0,
@@ -532,6 +544,7 @@ async def run_agent(payload: dict[str, Any]):
         }
     return {
         "content": content,
+        "upstream_target": _upstream_target(payload),
         "tools_used": ["hermes-agent"],
         "mcp_servers_used": [],
         "total_cost": 0.0,
@@ -555,6 +568,7 @@ async def run_agent_stream(payload: dict[str, Any]):
                 {
                     "type": "done",
                     "content": "",
+                    "upstream_target": _upstream_target(payload),
                     "tools_used": ["hermes-agent"],
                     "mcp_servers_used": [],
                     "total_cost": 0.0,
@@ -579,6 +593,7 @@ async def run_agent_stream(payload: dict[str, Any]):
         {
             "type": "done",
             "content": "",
+            "upstream_target": _upstream_target(payload),
             "tools_used": ["hermes-agent"],
             "mcp_servers_used": [],
             "total_cost": 0.0,

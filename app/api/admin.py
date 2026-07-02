@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 import secrets
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, delete, update
 from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
@@ -22,6 +22,7 @@ from app.models.agent_run import AgentRun, AgentRunEvent
 from app.models.provider_pricing import ProviderPricing
 from app.models.alert_event import AlertEvent
 from app.models.skill_definition import SkillDefinition
+from app.models.user_activity import UserActivity
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.services.hermes_orchestrator import hermes_orchestrator
@@ -91,6 +92,49 @@ def _profile_payload(p: Profile, skill_map: Optional[dict[str, dict]] = None) ->
         "memory_settings": p.memory_settings,
         "created_at": str(p.created_at),
     }
+
+
+def _normalize_profile_scope(profile_id: Optional[UUID], profile_ids: Optional[list[UUID]]) -> list[UUID]:
+    ordered: list[UUID] = []
+    seen: set[UUID] = set()
+    for candidate in ([profile_id] if profile_id else []) + list(profile_ids or []):
+        if candidate and candidate not in seen:
+            ordered.append(candidate)
+            seen.add(candidate)
+    return ordered
+
+
+async def _sync_key_profile_links(
+    db: AsyncSession,
+    key_obj: UserApiKey,
+    profile_ids: list[UUID],
+) -> list[Profile]:
+    normalized_ids = [str(item) for item in profile_ids]
+    key_obj.profile_id = profile_ids[0] if profile_ids else None
+    key_obj.profile_ids = normalized_ids
+
+    existing_result = await db.execute(select(Profile).where(Profile.provider_key_id == key_obj.id))
+    existing_profiles = existing_result.scalars().all()
+    existing_ids = {profile.id for profile in existing_profiles}
+    requested_ids = set(profile_ids)
+
+    if profile_ids:
+        requested_profiles_result = await db.execute(select(Profile).where(Profile.id.in_(profile_ids)))
+        requested_profiles = requested_profiles_result.scalars().all()
+        if len(requested_profiles) != len(requested_ids):
+            found_ids = {profile.id for profile in requested_profiles}
+            missing = [str(item) for item in profile_ids if item not in found_ids]
+            raise HTTPException(status_code=404, detail=f"Profiles not found: {', '.join(missing)}")
+    else:
+        requested_profiles = []
+
+    for profile in existing_profiles:
+        if profile.id not in requested_ids:
+            profile.provider_key_id = None
+    for profile in requested_profiles:
+        profile.provider_key_id = key_obj.id
+
+    return requested_profiles
 
 
 async def _track_kpi_message(db: AsyncSession, user_id: str) -> None:
@@ -264,18 +308,22 @@ async def update_employee(
 
 
 @router.delete("/employees/{user_id}")
-async def disable_employee(
+async def delete_employee(
     user_id: UUID, db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id, User.role == "employee"))
     user = result.scalar_one_or_none()
     if not user: raise HTTPException(status_code=404, detail="Employee not found")
-    user.is_active = False
-    audit = AuditLog(user_id=str(admin.id), action="disable_employee",
+    audit = AuditLog(user_id=str(admin.id), action="delete_employee",
                      details={"user_id": str(user_id), "email": user.email})
     db.add(audit)
-    return {"message": "Employee disabled"}
+    await db.execute(delete(UserActivity).where(UserActivity.user_id == user_id))
+    await db.execute(delete(KPI).where(KPI.user_id == user_id))
+    await db.execute(update(AuditLog).where(AuditLog.user_id == user_id).values(user_id=None))
+    await db.execute(delete(Session).where(Session.user_id == user_id))
+    await db.delete(user)
+    return {"message": "Employee deleted"}
 
 
 @router.put("/employees/{user_id}/quotas")
@@ -513,24 +561,18 @@ async def delete_profile(
     result = await db.execute(select(Profile).where(Profile.id == profile_id))
     profile = result.scalar_one_or_none()
     if not profile: raise HTTPException(status_code=404, detail="Profile not found")
-    session_refs = await db.execute(select(func.count(Session.id)).where(Session.profile_id == profile_id))
-    assignment_refs = await db.execute(select(func.count(ProfileUser.id)).where(ProfileUser.profile_id == profile_id))
-    if session_refs.scalar() or assignment_refs.scalar():
-        profile.is_active = False
-        profile.hermes_sync_status = "disabled"
-        message = "Profile disabled because it has assignments or session history"
-    else:
-        if profile.runtime_type == "hermes" and profile.hermes_profile_id:
-            try:
-                await hermes_orchestrator.delete_profile(profile.hermes_profile_id)
-            except Exception:
-                pass
-        await db.delete(profile)
-        message = "Profile deleted"
+    if profile.runtime_type == "hermes" and profile.hermes_profile_id:
+        try:
+            await hermes_orchestrator.delete_profile(profile.hermes_profile_id)
+        except Exception:
+            pass
     audit = AuditLog(user_id=str(admin.id), action="delete_profile",
                      details={"profile_id": str(profile_id), "name": profile.name})
     db.add(audit)
-    return {"message": message}
+    await db.execute(update(Session).where(Session.profile_id == profile_id).values(profile_id=None))
+    await db.execute(update(AgentRun).where(AgentRun.profile_id == profile_id).values(profile_id=None))
+    await db.delete(profile)
+    return {"message": "Profile deleted"}
 
 
 @router.post("/profiles/{profile_id}/sync")
@@ -669,7 +711,7 @@ async def admin_test_agent_message(
             result.get("model", ""),
             result["tokens_used"],
             float(result.get("total_cost", 0.0) or 0.0),
-            provider=settings.llm_provider,
+            provider=result.get("provider") or settings.llm_provider,
             profile_id=result.get("profile_id"),
         )
 
@@ -686,6 +728,7 @@ async def admin_test_agent_message(
         "provider": result.get("provider"),
         "runtime_type": result.get("runtime_type"),
         "request_url": result.get("request_url"),
+        "upstream_target": result.get("upstream_target"),
         "profile_name": result.get("profile_name"),
         "profile_id": result.get("profile_id"),
         "total_cost": result.get("total_cost"),
@@ -792,12 +835,28 @@ async def list_api_keys(
 ):
     result = await db.execute(select(UserApiKey))
     keys = result.scalars().all()
+    profile_ids = {
+        UUID(profile_id)
+        for key in keys
+        for profile_id in (key.profile_ids or ([str(key.profile_id)] if key.profile_id else []))
+        if profile_id
+    }
+    profile_map: dict[UUID, Profile] = {}
+    if profile_ids:
+        profiles_result = await db.execute(select(Profile).where(Profile.id.in_(profile_ids)))
+        profile_map = {profile.id: profile for profile in profiles_result.scalars().all()}
     return {
         "api_keys": [{
             "id": str(k.id),
             "owner_type": k.owner_type,
             "user_id": str(k.user_id) if k.user_id else None,
             "profile_id": str(k.profile_id) if k.profile_id else None,
+            "profile_ids": k.profile_ids or ([str(k.profile_id)] if k.profile_id else []),
+            "profile_names": [
+                profile_map[UUID(profile_id)].name
+                for profile_id in (k.profile_ids or ([str(k.profile_id)] if k.profile_id else []))
+                if profile_id and UUID(profile_id) in profile_map
+            ],
             "provider": k.provider, "key_prefix": k.key_prefix,
             "is_active": k.is_active, "daily_budget": k.daily_budget,
             "spent_today": k.spent_today,
@@ -811,20 +870,17 @@ async def create_api_key(
     admin: User = Depends(get_current_admin_user),
 ):
     if not req.api_key: raise HTTPException(status_code=400, detail="API key required")
+    scoped_profile_ids = _normalize_profile_scope(req.profile_id, req.profile_ids)
     if req.owner_type == "user" and not req.user_id:
         raise HTTPException(status_code=400, detail="user_id is required for employee API keys")
-    if req.owner_type == "profile" and not req.profile_id:
-        raise HTTPException(status_code=400, detail="profile_id is required for profile API keys")
-    if req.owner_type == "platform" and (req.user_id or req.profile_id):
+    if req.owner_type == "profile" and not scoped_profile_ids:
+        raise HTTPException(status_code=400, detail="At least one profile is required for profile API keys")
+    if req.owner_type == "platform" and (req.user_id or req.profile_id or req.profile_ids):
         raise HTTPException(status_code=400, detail="Platform keys must not include user_id or profile_id")
     if req.user_id:
         user_exists = await db.execute(select(User).where(User.id == req.user_id))
         if not user_exists.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Employee not found")
-    if req.profile_id:
-        profile_exists = await db.execute(select(Profile).where(Profile.id == req.profile_id))
-        if not profile_exists.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Profile not found")
     from cryptography.fernet import Fernet
     from app.core.config import settings
     f = Fernet(settings.fernet_key.encode())
@@ -832,22 +888,21 @@ async def create_api_key(
     key_obj = UserApiKey(
         owner_type=req.owner_type,
         user_id=req.user_id,
-        profile_id=req.profile_id,
+        profile_id=scoped_profile_ids[0] if scoped_profile_ids else None,
+        profile_ids=[str(item) for item in scoped_profile_ids],
         provider=req.provider,
         encrypted_key=encrypted, key_prefix=req.api_key[:6],
         daily_budget=req.daily_budget,
     )
     db.add(key_obj)
     await db.flush()
-    if req.owner_type == "profile" and req.profile_id:
-        profile = await db.get(Profile, req.profile_id)
-        if profile and not profile.provider_key_id:
-            profile.provider_key_id = key_obj.id
+    if req.owner_type == "profile":
+        await _sync_key_profile_links(db, key_obj, scoped_profile_ids)
     audit = AuditLog(user_id=str(admin.id), action="add_api_key",
                      details={
                          "owner_type": req.owner_type,
                          "user_id": str(req.user_id) if req.user_id else None,
-                         "profile_id": str(req.profile_id) if req.profile_id else None,
+                         "profile_ids": [str(item) for item in scoped_profile_ids],
                          "provider": req.provider,
                      })
     db.add(audit)
@@ -868,8 +923,31 @@ async def update_api_key(
     result = await db.execute(select(UserApiKey).where(UserApiKey.id == key_id))
     key_obj = result.scalar_one_or_none()
     if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
+    next_owner_type = req.owner_type or key_obj.owner_type
+    next_user_id = req.user_id if req.user_id is not None else key_obj.user_id
+    scoped_profile_ids = _normalize_profile_scope(
+        req.profile_id if req.profile_id is not None else key_obj.profile_id,
+        req.profile_ids if req.profile_ids is not None else [UUID(item) for item in (key_obj.profile_ids or []) if item],
+    )
+    if next_owner_type == "user" and not next_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required for employee API keys")
+    if next_owner_type == "profile" and not scoped_profile_ids:
+        raise HTTPException(status_code=400, detail="At least one profile is required for profile API keys")
+    if next_owner_type == "platform" and (next_user_id or scoped_profile_ids):
+        raise HTTPException(status_code=400, detail="Platform keys must not include user_id or profile_id")
+    if next_user_id:
+        user_exists = await db.execute(select(User).where(User.id == next_user_id))
+        if not user_exists.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Employee not found")
+    key_obj.owner_type = next_owner_type
+    key_obj.user_id = next_user_id if next_owner_type == "user" else None
+    if next_owner_type == "profile":
+        await _sync_key_profile_links(db, key_obj, scoped_profile_ids)
+    else:
+        await _sync_key_profile_links(db, key_obj, [])
     if req.is_active is not None: key_obj.is_active = req.is_active
     if req.daily_budget is not None: key_obj.daily_budget = req.daily_budget
+    if req.provider is not None: key_obj.provider = req.provider
     if req.api_key is not None:
         from cryptography.fernet import Fernet
         from app.core.config import settings
@@ -878,7 +956,8 @@ async def update_api_key(
         key_obj.key_prefix = req.api_key[:6]
     audit = AuditLog(user_id=str(admin.id), action="update_api_key",
                      details={"key_id": str(key_id), "provider": key_obj.provider,
-                              "owner_type": key_obj.owner_type})
+                              "owner_type": key_obj.owner_type,
+                              "profile_ids": key_obj.profile_ids})
     db.add(audit)
     return {"message": "API key updated"}
 
@@ -891,6 +970,7 @@ async def delete_api_key(
     result = await db.execute(select(UserApiKey).where(UserApiKey.id == key_id))
     key_obj = result.scalar_one_or_none()
     if not key_obj: raise HTTPException(status_code=404, detail="API key not found")
+    await _sync_key_profile_links(db, key_obj, [])
     await db.delete(key_obj)
     audit = AuditLog(user_id=str(admin.id), action="delete_api_key",
                      details={"key_id": str(key_id), "provider": key_obj.provider,

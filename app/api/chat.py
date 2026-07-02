@@ -116,7 +116,7 @@ async def send_message(
             result.get("model", ""),
             result["tokens_used"],
             float(result.get("total_cost", 0.0) or 0.0),
-            provider=settings.llm_provider,
+            provider=result.get("provider") or settings.llm_provider,
             profile_id=result.get("profile_id"),
         )
 
@@ -219,7 +219,7 @@ async def send_message_stream(
                                 chunk.get("model", ""),
                                 chunk["tokens_used"],
                                 float(chunk.get("total_cost", 0.0) or 0.0),
-                                provider=settings.llm_provider,
+                                provider=chunk.get("provider") or settings.llm_provider,
                                 profile_id=chunk.get("profile_id"),
                             )
                         event_type = chunk.get("type", "message")

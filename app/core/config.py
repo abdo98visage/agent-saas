@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     debug: bool = False
     environment: str = "development"
     version: str = "0.1.0"
-    allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+    allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8000", "null"]
 
     # Auth / JWT
     secret_key: str = "change-me-in-production"
@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     # LLM Provider
     llm_provider: str = "mock"
     default_model: str = "qwen3-14b"
+    minimax_model: str = "MiniMax-M3"
     minimax_api_key: str = ""
     minimax_base_url: str = "https://api.minimax.io/v1/chat/completions"
     openai_api_key: str = ""
