@@ -37,7 +37,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/fqsaas
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/fqsaas
+      - HERMES_ORCHESTRATOR_URL=http://hermes-orchestrator:8788
     depends_on:
       - db
       - redis
@@ -52,7 +52,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/fqsaas
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/fqsaas
+      - HERMES_ORCHESTRATOR_URL=http://hermes-orchestrator:8788
     depends_on:
       - redis
     volumes:
