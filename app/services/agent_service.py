@@ -608,6 +608,7 @@ class AgentService:
         tools_used: list = []
         mcp_servers_used: list = []
         runtime_cost = 0.0
+        upstream_target: str | None = None
         usage: dict[str, Any] = {}
 
         try:
@@ -628,6 +629,7 @@ class AgentService:
                         tools_used = event.get("tools_used", [])
                         mcp_servers_used = event.get("mcp_servers_used", [])
                         runtime_cost = float(event.get("total_cost", 0.0) or 0.0)
+                        upstream_target = event.get("upstream_target")
                         usage = event.get("usage") or {}
                     if chunk:
                         full_response += chunk
@@ -709,7 +711,7 @@ class AgentService:
             "provider": effective_provider,
             "runtime_type": runtime.runtime_type,
             "request_url": self._runtime_request_url(profile, effective_provider),
-            "upstream_target": runtime_result.get("upstream_target") if runtime.runtime_type == "hermes" else None,
+            "upstream_target": upstream_target if runtime.runtime_type == "hermes" else None,
             "profile_name": resolved_profile,
             "profile_id": str(profile.id) if profile else None,
             "total_cost": cost_calc.total_cost,

@@ -410,7 +410,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return sanitizeProductNames(language, translated);
   };
 
-  const safeText = (text: string) => sanitizeProductNames(language, text);
+  const safeText = (text: string) => text;
 
   return (
     <I18nContext.Provider
