@@ -526,18 +526,12 @@
         }
 
         async function getWebSocketToken() {
-            try {
-                const data = await apiRequest("/auth/ws-token", { method: "POST" });
-                state.authRequired = false;
-                return data.access_token || state.settings.token;
-            } catch (error) {
-                if (/Invalid or expired token|Token has been revoked|Missing auth token|inactive/i.test(error.message || "")) {
-                    await handleAuthFailure("الجلسة منتهية أو غير صالحة. أعد التفعيل أو حدّث رمز الدخول أولاً.");
-                    throw error;
-                }
-                console.warn("Failed to create a WebSocket token:", error.message);
-                return state.settings.token;
+            const data = await apiRequest("/auth/ws-token", { method: "POST" });
+            if (!data.access_token) {
+                throw new Error("WebSocket ticket was not returned");
             }
+            state.authRequired = false;
+            return data.access_token;
         }
 
         async function connectWebSocket() {
@@ -600,6 +594,7 @@
 
             state.ws.onclose = (event) => {
                 resetStreamingState();
+                rejectPendingMessageAcks("WebSocket closed before server acknowledgement");
                 if (state.heartbeatInterval) {
                     clearInterval(state.heartbeatInterval);
                     state.heartbeatInterval = null;

@@ -17,6 +17,7 @@ ENV/
 .env.*
 !.env.example
 !.env.production.example
+.history/
 
 # IDE
 .vscode/
@@ -49,6 +50,10 @@ desktop/src/renderer/dist/
 *.db
 *.sqlite
 backups/
+.tmp-pgdata/
+.tmp-pgutf8/
+.tmp-*/
+tmp-pg*.log
 
 # OS X
 .DS_Store

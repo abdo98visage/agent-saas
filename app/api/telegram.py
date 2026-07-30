@@ -1,18 +1,25 @@
 import secrets
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_admin_user, get_current_user
 from app.core.config import settings
 from app.core.db import get_db
 from app.models.telegram_binding import TelegramBinding
 from app.models.user import User
+from app.models.audit_log import AuditLog
 from app.services.agent_service import AgentService
+from app.services.token_tracker import (
+    check_token_quota,
+    reserve_request_quota,
+    TokenQuotaExceeded,
+)
 
 router = APIRouter()
 agent_service = AgentService()
@@ -81,10 +88,11 @@ async def telegram_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Receive Telegram webhook updates and send the bot reply through Telegram."""
-    if settings.telegram_webhook_secret:
-        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if secret != settings.telegram_webhook_secret:
-            raise HTTPException(status_code=403, detail="Invalid webhook secret")
+    if not settings.telegram_webhook_secret:
+        raise HTTPException(status_code=503, detail="Telegram webhook is not configured")
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secrets.compare_digest(secret, settings.telegram_webhook_secret):
+        raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
     data = await request.json()
     message = data.get("message")
@@ -116,6 +124,18 @@ async def telegram_webhook(
                 bound=False,
             )
 
+        existing_chat_result = await db.execute(
+            select(TelegramBinding).where(
+                TelegramBinding.telegram_chat_id == chat_id,
+                TelegramBinding.id != binding.id,
+            )
+        )
+        if existing_chat_result.scalar_one_or_none():
+            return await _reply(
+                chat_id,
+                "This Telegram chat is already linked to another platform account.",
+                bound=False,
+            )
         binding.telegram_chat_id = chat_id
         binding.binding_token_expires_at = None
         await db.flush()
@@ -150,6 +170,17 @@ async def telegram_webhook(
             bound=False,
         )
 
+    if text == "/new":
+        binding, user = await _get_bound_user(db, chat_id)
+        if not binding:
+            return await _reply(chat_id, "This Telegram chat is not linked.", bound=False)
+        inactive_message = _inactive_user_message(user)
+        if inactive_message:
+            return await _reply(chat_id, inactive_message, bound=True)
+        binding.session_id = None
+        await db.commit()
+        return await _reply(chat_id, "A new platform conversation has been started.", bound=True)
+
     binding, bound_user = await _get_bound_user(db, chat_id)
     if not binding:
         return await _reply(
@@ -162,15 +193,37 @@ async def telegram_webhook(
     if inactive_message:
         return await _reply(chat_id, inactive_message, user_id=str(binding.user_id), bound=True)
 
+    if not await reserve_request_quota(db, str(bound_user.id), bound_user.max_requests_per_day):
+        return await _reply(chat_id, "Daily request quota exceeded. Contact the administrator.", bound=True)
+    if not await check_token_quota(db, str(bound_user.id), bound_user.max_tokens_per_day):
+        await db.rollback()
+        return await _reply(chat_id, "Daily token quota exceeded. Contact the administrator.", bound=True)
+    await db.commit()
+
     try:
         result = await agent_service.run_agent(
             db=db,
             user_id=str(binding.user_id),
-            conversation_id=None,
+            conversation_id=str(binding.session_id) if binding.session_id else None,
             user_message=text,
             agent_template_name="default",
         )
         response_text = result.get("content") or "No response was generated."
+        binding.session_id = UUID(result["conversation_id"])
+        db.add(
+            AuditLog(
+                user_id=bound_user.id,
+                action="telegram_message",
+                details={
+                    "conversation_id": result.get("conversation_id"),
+                    "message_length": len(text),
+                    "tokens_used": result.get("tokens_used", 0),
+                },
+            )
+        )
+        await db.commit()
+    except TokenQuotaExceeded:
+        response_text = "Daily token quota exceeded. Contact the administrator."
     except Exception:
         response_text = "The agent could not process this message. Try again later."
 
@@ -182,63 +235,16 @@ async def telegram_webhook(
     )
 
 
-@router.get("/send/{chat_id}")
+@router.post("/send/{chat_id}")
 async def send_telegram_message(
     chat_id: int,
     text: str = "",
+    _admin: User = Depends(get_current_admin_user),
 ):
     """Send a message to a Telegram chat via Bot API."""
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
     return await _send_telegram_message(chat_id, text)
-
-
-@router.post("/bind")
-async def bind_telegram(
-    req: dict,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Bind current user to their Telegram chat_id."""
-    telegram_chat_id = req.get("telegram_chat_id")
-    if not telegram_chat_id:
-        raise HTTPException(status_code=400, detail="telegram_chat_id is required")
-
-    existing_by_chat = await db.execute(
-        select(TelegramBinding).where(TelegramBinding.telegram_chat_id == telegram_chat_id)
-    )
-    existing = existing_by_chat.scalar_one_or_none()
-    if existing:
-        if existing.user_id == user.id:
-            return {
-                "message": "Already bound",
-                "binding_token": existing.binding_token,
-                "telegram_chat_id": telegram_chat_id,
-            }
-        await db.delete(existing)
-
-    existing_user_binding = await db.execute(
-        select(TelegramBinding).where(TelegramBinding.user_id == user.id)
-    )
-    user_binding = existing_user_binding.scalar_one_or_none()
-    if user_binding:
-        user_binding.telegram_chat_id = telegram_chat_id
-        binding = user_binding
-    else:
-        binding = TelegramBinding(
-            user_id=user.id,
-            telegram_chat_id=telegram_chat_id,
-            binding_token=secrets.token_hex(32),
-            binding_token_expires_at=datetime.utcnow() + timedelta(minutes=settings.telegram_bind_code_ttl_minutes),
-        )
-        db.add(binding)
-
-    await db.flush()
-    return {
-        "message": "Telegram chat bound successfully",
-        "telegram_chat_id": telegram_chat_id,
-        "binding_token": binding.binding_token,
-    }
 
 
 @router.post("/generate-bind-code")

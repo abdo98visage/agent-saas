@@ -16,41 +16,6 @@ function readCookie(name: string) {
   return match ? decodeURIComponent(match.slice(prefix.length)) : null;
 }
 
-function readWindowNameToken() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const prefix = "auth_token:";
-  return window.name.startsWith(prefix) ? window.name.slice(prefix.length) : null;
-}
-
-function readStoredToken() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage?.getItem(ACCESS_TOKEN_STORAGE_KEY) || null;
-  } catch {
-    return null;
-  }
-}
-
-function storeAccessToken(token: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage?.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
-  } catch {
-    // Ignore storage failures in restricted browser environments.
-  }
-
-  window.name = `auth_token:${token}`;
-}
-
 function clearStoredAccessToken() {
   if (typeof window === "undefined") {
     return;
@@ -72,27 +37,23 @@ const apiClient = axios.create({
   withCredentials: true,
   headers: {
     "Content-Type": "application/json",
+    "X-Client-Type": "browser",
   },
 });
 
 apiClient.interceptors.request.use((config) => {
-  const bearerToken = readStoredToken() || readCookie("access_token") || readCookie("auth_token") || readWindowNameToken();
-
-  if (bearerToken) {
-    config.headers.Authorization = `Bearer ${bearerToken}`;
+  const method = String(config.method || "get").toLowerCase();
+  if (["post", "put", "patch", "delete"].includes(method)) {
+    const csrfToken = readCookie("csrf_token");
+    if (csrfToken) {
+      config.headers["X-CSRF-Token"] = csrfToken;
+    }
   }
-
   return config;
 });
 
 apiClient.interceptors.response.use(
   (response) => {
-    const accessToken = response.data?.access_token;
-
-    if (typeof accessToken === "string" && accessToken.length > 0) {
-      storeAccessToken(accessToken);
-    }
-
     if (response.config.url?.includes("/auth/logout")) {
       clearStoredAccessToken();
     }
@@ -107,6 +68,9 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Remove tokens left by versions that exposed browser JWTs to JavaScript.
+clearStoredAccessToken();
 
 export default apiClient;
 export { clearStoredAccessToken };

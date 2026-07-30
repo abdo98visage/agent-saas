@@ -1,4 +1,4 @@
-from sqlalchemy import Date, Integer, Float, ForeignKey, String, BigInteger
+from sqlalchemy import Integer, Float, ForeignKey, String, BigInteger, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import UUIDPrimaryKeyMixin
@@ -9,6 +9,7 @@ from uuid import UUID
 
 class KPI(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "kpis"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_kpis_user_date"),)
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)

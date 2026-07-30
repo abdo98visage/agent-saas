@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 from app.core.db import Base
+from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS
 
 
 class Profile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -31,6 +32,10 @@ class Profile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     allowed_mcp_servers: Mapped[list] = mapped_column(JSONB, default=list)
     allowed_tools: Mapped[list] = mapped_column(JSONB, default=list)
     approval_required_tools: Mapped[list] = mapped_column(JSONB, default=list)
+    runtime_toolsets: Mapped[list] = mapped_column(
+        JSONB,
+        default=lambda: list(SAFE_RUNTIME_TOOLSETS),
+    )
     memory_settings: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     # Relationships

@@ -16,3 +16,14 @@ class RegisterRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    refresh_token: str | None = None
+    expires_in: int | None = None
+
+
+class BrowserSessionResponse(BaseModel):
+    authenticated: bool = True
+    expires_in: int
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str | None = None

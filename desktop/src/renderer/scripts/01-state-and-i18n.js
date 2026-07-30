@@ -30,6 +30,8 @@
             swipedProjectId: null,
             projectSwipeTracker: null,
             messageApprovalGranted: false,
+            composerAttachments: [],
+            pendingMessageAcks: new Map(),
         };
 
         const els = {
@@ -43,6 +45,9 @@
             composerCommandSelect: document.getElementById("composer-command-select"),
             composerApprovalSelect: document.getElementById("composer-approval-select"),
             composerProfileSelect: document.getElementById("composer-profile-select"),
+            composerAttachments: document.getElementById("composer-attachments"),
+            btnAttachImage: document.getElementById("btn-attach-image"),
+            imageAttachmentInput: document.getElementById("image-attachment-input"),
             composerStatus: document.getElementById("composer-status"),
             conversationsList: document.getElementById("conversations-list"),
             chatTitle: document.getElementById("chat-title"),
@@ -82,6 +87,13 @@
 
         function getOfflineQueue() {
             return Array.isArray(state.settings.offlineQueue) ? state.settings.offlineQueue : [];
+        }
+
+        function rejectPendingMessageAcks(message) {
+            for (const [clientMessageId, pendingAck] of state.pendingMessageAcks.entries()) {
+                state.pendingMessageAcks.delete(clientMessageId);
+                pendingAck.reject(new Error(message));
+            }
         }
 
         function ensureUiSettings() {
@@ -391,17 +403,46 @@
             renderQueueStatus();
         }
 
-        async function apiRequest(path, options = {}) {
-            const token = state.settings.token;
-            const headers = { "Content-Type": "application/json", ...options.headers };
-            if (token) {
-                headers.Authorization = `Bearer ${token}`;
-            }
+        let refreshPromise = null;
 
-            const response = await fetch(`${state.settings.apiUrl}${path}`, {
-                ...options,
-                headers,
-            });
+        async function refreshAccessToken() {
+            if (!state.settings.hasRefreshSession) {
+                throw new Error("Missing refresh session");
+            }
+            if (!refreshPromise) {
+                refreshPromise = (async () => {
+                    const data = await window.electronAPI.refreshSession(state.settings.apiUrl);
+                    state.settings.token = data.accessToken;
+                    state.settings.hasRefreshSession = true;
+                    return data.accessToken;
+                })().finally(() => {
+                    refreshPromise = null;
+                });
+            }
+            return refreshPromise;
+        }
+
+        async function apiRequest(path, options = {}) {
+            const makeRequest = (token) => {
+                const headers = { "Content-Type": "application/json", ...options.headers };
+                if (token) {
+                    headers.Authorization = `Bearer ${token}`;
+                }
+                return fetch(`${state.settings.apiUrl}${path}`, {
+                    ...options,
+                    headers,
+                });
+            };
+
+            let response = await makeRequest(state.settings.token);
+            if (response.status === 401 && path !== "/auth/refresh" && state.settings.hasRefreshSession) {
+                try {
+                    response = await makeRequest(await refreshAccessToken());
+                } catch (error) {
+                    await handleAuthFailure(error.message);
+                    throw error;
+                }
+            }
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 throw new Error(data.detail || `API error: ${response.status}`);
@@ -477,6 +518,8 @@
         async function handleAuthFailure(message = "") {
             state.authRequired = true;
             state.currentUser = null;
+            rejectPendingMessageAcks("Authentication session ended before server acknowledgement");
+            await window.electronAPI.clearSession();
             resetStreamingState();
             if (state.heartbeatInterval) {
                 clearInterval(state.heartbeatInterval);
@@ -490,12 +533,14 @@
                 state.ws = null;
             }
             state.settings.token = "";
+            state.settings.refreshToken = "";
             els.settingToken.value = "";
             document.getElementById("activation-panel").style.display = "flex";
             document.getElementById("act-status").innerHTML = `<span class="text-danger">${escapeHtml(message || "انتهت الجلسة الحالية. فعّل الحساب أو سجّل الدخول من جديد.")}</span>`;
             await window.electronAPI.setSettings({
                 ...state.settings,
                 token: "",
+                refreshToken: "",
             });
             renderHeaderIdentity();
         }
@@ -513,15 +558,32 @@
             await persistSettings();
         }
 
-        async function enqueueMessage(content, profileName = "") {
-            const queue = getOfflineQueue();
-            queue.push({
-                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        async function createQueueItem(content, profileName = "", attachments = [], existingItem = null) {
+            if (existingItem) {
+                return existingItem;
+            }
+            const projectContext = await buildProjectContextForMessage(content);
+            return {
+                id: crypto.randomUUID(),
                 content,
                 profileName,
+                attachments: Array.isArray(attachments) ? attachments : [],
                 createdAt: new Date().toISOString(),
-            });
+                conversationId: state.conversationResetPending ? null : (state.currentConversation || null),
+                projectId: state.pendingConversationProjectId || state.currentProjectId || null,
+                projectContext: projectContext || null,
+                workspace: buildWorkspaceDescriptor(),
+            };
+        }
+
+        async function enqueueMessage(content, profileName = "", attachments = [], existingItem = null) {
+            const queue = getOfflineQueue();
+            const item = await createQueueItem(content, profileName, attachments, existingItem);
+            if (!queue.some((queued) => queued.id === item.id)) {
+                queue.push(item);
+            }
             await setOfflineQueue(queue);
+            return item;
         }
 
         async function flushQueuedMessages() {
@@ -533,9 +595,22 @@
             const remaining = [];
             for (const item of queue) {
                 try {
-                    await sendWebSocketMessage(item.content, item.profileName || "");
+                    let sendItem = item;
+                    if (!sendItem.id || !sendItem.workspace) {
+                        sendItem = await createQueueItem(
+                            item.content,
+                            item.profileName || "",
+                            item.attachments || [],
+                        );
+                    }
+                    await sendWebSocketMessage(
+                        sendItem.content,
+                        sendItem.profileName || "",
+                        sendItem.attachments || [],
+                        sendItem,
+                    );
                 } catch (error) {
-                    remaining.push(item);
+                    remaining.push(error.queueItem || item);
                     appendSystemMessage(`تعذر إرسال رسالة معلقة: ${error.message}`);
                 }
             }

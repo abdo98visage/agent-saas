@@ -1,8 +1,9 @@
 """Admin API Pydantic schemas — input validation for all admin endpoints."""
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from typing import Optional
 from uuid import UUID
 from app.core.config import settings
+from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS, normalize_runtime_toolsets
 
 
 # Disable Pydantic protected_namespaces warning for model_* fields
@@ -53,7 +54,13 @@ class ProfileCreate(BaseModel):
     allowed_mcp_servers: list[str] = Field(default_factory=list)
     allowed_tools: list[str] = Field(default_factory=list)
     approval_required_tools: list[str] = Field(default_factory=list)
+    runtime_toolsets: list[str] = Field(default_factory=lambda: list(SAFE_RUNTIME_TOOLSETS))
     memory_settings: dict = Field(default_factory=dict)
+
+    @field_validator("runtime_toolsets")
+    @classmethod
+    def validate_runtime_toolsets(cls, value: list[str]) -> list[str]:
+        return normalize_runtime_toolsets(value)
 
 
 class ProfileUpdate(BaseModel):
@@ -72,7 +79,13 @@ class ProfileUpdate(BaseModel):
     allowed_mcp_servers: Optional[list[str]] = None
     allowed_tools: Optional[list[str]] = None
     approval_required_tools: Optional[list[str]] = None
+    runtime_toolsets: Optional[list[str]] = None
     memory_settings: Optional[dict] = None
+
+    @field_validator("runtime_toolsets")
+    @classmethod
+    def validate_runtime_toolsets(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        return None if value is None else normalize_runtime_toolsets(value)
 
 
 # --- Skills ---

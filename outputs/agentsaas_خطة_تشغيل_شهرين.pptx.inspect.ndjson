@@ -1,0 +1,9 @@
+{"kind":"deck","id":"pr/gq5z6e","name":"Deck"}
+{"kind":"layout","layoutId":"5bd2b663-029f-405a-abc4-05964df89631","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"d6681b33-3870-4299-af0e-02fea94b6f99","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/z6i1ez","slide":1,"title":"Slide 1","textShapes":0}
+{"kind":"image","id":"im/o7qpg3ex","slide":1,"name":"","alt":"شريحة خطة تشغيل المنصة 1","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/z6i1ez","slide":1,"text":""}
+{"kind":"slide","id":"sl/6ehbqi","slide":2,"title":"Slide 2","textShapes":0}
+{"kind":"image","id":"im/gvy90je9","slide":2,"name":"","alt":"شريحة خطة تشغيل المنصة 2","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/6ehbqi","slide":2,"text":""}

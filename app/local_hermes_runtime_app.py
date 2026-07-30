@@ -4,18 +4,23 @@ Hermes CLI bridge runtime.
 This service keeps the existing AgentSaaS HTTP contract while delegating each
 run to a real hermes-agent profile stored under /data/hermes/profiles/<slug>.
 """
+import asyncio
+import base64
 import json
 import os
 import re
+import signal
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import websockets
+from app.core.runtime_policy import RUNTIME_TOOLSETS, SAFE_RUNTIME_TOOLSETS, normalize_runtime_toolsets
+from app.services.attachments import normalize_image_attachments
 
 
 HERMES_PROFILES_ROOT = Path(os.getenv("HERMES_PROFILES_ROOT", "/data/hermes/profiles"))
@@ -33,7 +38,24 @@ app = FastAPI(title="AgentSaaS Agent Runtime", version="0.2.0")
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "runtime": "hermes-agent-cli"}
+    binary = shutil.which("hermes")
+    profiles_ready = HERMES_PROFILES_ROOT.exists() and os.access(HERMES_PROFILES_ROOT, os.R_OK)
+    if not binary or not profiles_ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "runtime": "hermes-agent-cli",
+                "binary": "available" if binary else "missing",
+                "profiles": "readable" if profiles_ready else "unavailable",
+            },
+        )
+    return {
+        "status": "healthy",
+        "runtime": "hermes-agent-cli",
+        "binary": "available",
+        "profiles": "readable",
+    }
 
 
 def _slugify(value: str) -> str:
@@ -105,11 +127,37 @@ def _config_yaml(payload: dict[str, Any], profile_home: Path, runtime_workspace:
             f"  cwd: {json.dumps(str(runtime_workspace))}",
         ]
     )
+    configured_toolsets = normalize_runtime_toolsets(
+        (payload.get("profile") or {}).get("runtime_toolsets", list(SAFE_RUNTIME_TOOLSETS))
+    )
+    disabled_toolsets = sorted(RUNTIME_TOOLSETS - set(configured_toolsets))
+    lines.append("platform_toolsets:")
+    if configured_toolsets:
+        lines.append("  cli:")
+        lines.extend(f"    - {item}" for item in configured_toolsets)
+    else:
+        lines.append("  cli: []")
+    lines.extend(["agent:", "  disabled_toolsets:"])
+    lines.extend(f"    - {item}" for item in disabled_toolsets)
     return "\n".join(lines) + "\n"
 
 
 def _runtime_env(payload: dict[str, Any], profile_home: Path) -> dict[str, str]:
-    env = os.environ.copy()
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key in {
+            "PATH",
+            "LANG",
+            "LC_ALL",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+        }
+    }
+    env["HOME"] = str(profile_home)
     env["HERMES_HOME"] = str(profile_home)
     api_key = payload.get("api_key") or ""
     provider = payload.get("provider") or ""
@@ -160,11 +208,37 @@ def _stage_runtime_profile(source_profile_home: Path, runtime_profile_home: Path
     return runtime_workspace
 
 
+def _stage_attachments(payload: dict[str, Any], runtime_workspace: Path) -> list[str]:
+    attachments = normalize_image_attachments(payload.get("attachments") or [])
+    if not attachments:
+        return []
+    attachment_dir = runtime_workspace / ".attachments"
+    attachment_dir.mkdir(parents=True, exist_ok=True)
+    extensions = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+    }
+    paths: list[str] = []
+    for index, item in enumerate(attachments, start=1):
+        target = attachment_dir / f"attachment-{index}{extensions[item['mime_type']]}"
+        target.write_bytes(base64.b64decode(item["data_url"].split(",", 1)[1], validate=True))
+        paths.append(str(target))
+    return paths
+
+
 def _build_prompt(payload: dict[str, Any]) -> str:
     profile_home = _profile_home(payload)
     employee = payload.get("employee") or {}
     user_request = (payload.get("message") or "").strip()
+    history = payload.get("history") or []
     parts = [
+        "Conversation continuity rule:",
+        "Use the conversation history below to resolve short follow-up replies such as Arabic yes/no/continue confirmations, English yes/no/continue, or do it.",
+        "If the latest message is a short confirmation, treat it as an answer to the immediately preceding assistant question in the same session.",
+        "Do not restart the conversation or introduce yourself again when history is available.",
         "Primary user request (verbatim; may be Arabic or English):",
         user_request or "[empty request]",
         "Interpret the user request literally.",
@@ -172,6 +246,18 @@ def _build_prompt(payload: dict[str, Any]) -> str:
         f"Employee: {employee.get('full_name') or employee.get('email') or 'Unknown'}",
         f"Employee email: {employee.get('email') or 'Unknown'}",
     ]
+    if history:
+        safe_history = []
+        for item in history[-20:]:
+            role = str(item.get("role") or "").strip()
+            content = str(item.get("content") or "").strip()
+            if role in {"user", "assistant", "system"} and content:
+                safe_history.append({"role": role, "content": content[:4000]})
+        if safe_history:
+            parts.append(
+                "Conversation history before the latest user request:\n"
+                f"{json.dumps(safe_history, ensure_ascii=False, indent=2)}"
+            )
     system_prompt_path = profile_home / "system_prompt.md"
     if system_prompt_path.exists():
         system_prompt = system_prompt_path.read_text(encoding="utf-8", errors="ignore").strip()
@@ -181,6 +267,13 @@ def _build_prompt(payload: dict[str, Any]) -> str:
         parts.append(f"Department: {employee['department']}")
     if payload.get("project_context"):
         parts.append(f"Project context:\n{payload['project_context']}")
+    attachment_paths = payload.get("runtime_attachment_paths") or []
+    if attachment_paths:
+        parts.append(
+            "Image attachments for the latest request:\n"
+            + "\n".join(f"- {path}" for path in attachment_paths)
+            + "\nInspect these image files when answering. Do not ignore them."
+        )
     cowork = payload.get("cowork") or {}
     workspace = payload.get("workspace") or {}
     if workspace.get("root_name"):
@@ -219,14 +312,14 @@ def _log_runtime_prompt(payload: dict[str, Any], prompt: str) -> None:
                 "debug_event": "runtime_prompt",
                 "profile_slug": profile.get("slug"),
                 "profile_name": profile.get("name"),
-                "employee_email": employee.get("email"),
+                "employee_id": employee.get("id"),
                 "provider": payload.get("provider"),
                 "model": payload.get("model"),
                 "cowork_protocol": cowork.get("protocol"),
                 "workspace_root": workspace.get("root_name"),
-                "message_preview": str(payload.get("message") or "")[:200],
-                "project_context_preview": str(payload.get("project_context") or "")[:500],
-                "prompt_preview": prompt[:2000],
+                "message_length": len(str(payload.get("message") or "")),
+                "project_context_length": len(str(payload.get("project_context") or "")),
+                "prompt_length": len(prompt),
             },
             ensure_ascii=False,
         ),
@@ -475,58 +568,271 @@ def _normalize_cowork_response(raw_text: str) -> dict[str, Any]:
     return {"type": "assistant_final", "content": raw_text.strip()}
 
 
-def _run_hermes(payload: dict[str, Any]) -> str:
+async def _run_hermes(payload: dict[str, Any]) -> str:
+    result = await _run_hermes_result(payload)
+    return result["content"]
+
+
+async def _run_hermes_result(payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {"content": "", "usage": {}}
+    async for event in _run_hermes_server_events(payload):
+        if event.get("type") == "complete":
+            result = {
+                "content": event.get("content", ""),
+                "usage": event.get("usage") or {},
+            }
+    return result
+
+
+async def _drain_process_stream(stream, sink: list[str]) -> None:
+    if stream is None:
+        return
+    while True:
+        line = await stream.readline()
+        if not line:
+            return
+        sink.append(line.decode("utf-8", errors="replace"))
+        if sum(len(item) for item in sink) > 32768:
+            del sink[: len(sink) // 2]
+
+
+async def _stop_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGTERM)
+        else:
+            process.terminate()
+        await asyncio.wait_for(process.wait(), timeout=5)
+    except (ProcessLookupError, asyncio.TimeoutError):
+        if process.returncode is None:
+            if os.name == "posix":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            await process.wait()
+
+
+async def _server_ready_port(process: asyncio.subprocess.Process) -> int:
+    async def read_until_ready() -> int:
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                raise RuntimeError("Hermes Server exited before becoming ready")
+            match = re.search(r"HERMES_BACKEND_READY\s+port=(\d+)", line.decode("utf-8", errors="replace"))
+            if match:
+                return int(match.group(1))
+
+    return await asyncio.wait_for(
+        read_until_ready(),
+        timeout=float(os.getenv("HERMES_SERVER_START_TIMEOUT_SECONDS", "20")),
+    )
+
+
+def _normalized_server_usage(usage: dict[str, Any] | None) -> dict[str, int]:
+    values = usage or {}
+    input_tokens = int(values.get("input_tokens") or values.get("input") or 0)
+    output_tokens = int(values.get("output_tokens") or values.get("output") or 0)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
+async def _run_hermes_server_events(payload: dict[str, Any]):
     if (payload.get("provider") or "").strip().lower() == "mock":
-        return _mock_runtime_response(payload)
+        content = _mock_runtime_response(payload)
+        yield {"type": "delta", "content": content}
+        yield {
+            "type": "complete",
+            "content": content,
+            "usage": {
+                "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
+                "output_tokens": max(1, len(content) // 4),
+            },
+        }
+        return
+
     source_profile_home = _profile_home(payload)
     with tempfile.TemporaryDirectory(prefix="hermes-run-") as temp_root:
         runtime_profile_home = Path(temp_root) / "profile"
         runtime_workspace_path = _stage_runtime_profile(source_profile_home, runtime_profile_home)
+        runtime_payload = {
+            **payload,
+            "runtime_attachment_paths": _stage_attachments(payload, runtime_workspace_path),
+        }
         (runtime_profile_home / "config.yaml").write_text(
-            _config_yaml(payload, runtime_profile_home, runtime_workspace_path),
+            _config_yaml(runtime_payload, runtime_profile_home, runtime_workspace_path),
             encoding="utf-8",
         )
-        env = _runtime_env(payload, runtime_profile_home)
-        prompt = _build_prompt(payload)
-        _log_runtime_prompt(payload, prompt)
-        command = [
+        prompt = _build_prompt(runtime_payload)
+        _log_runtime_prompt(runtime_payload, prompt)
+        server_token = uuid4().hex
+        server_env = _runtime_env(runtime_payload, runtime_profile_home)
+        server_env["HERMES_DASHBOARD_SESSION_TOKEN"] = server_token
+        process = await asyncio.create_subprocess_exec(
             "hermes",
-            "-z",
-            prompt,
-            "--provider",
-            _provider_name(payload.get("provider") or "custom"),
-            "-m",
-            payload.get("model") or DEFAULT_MODEL,
-            "--yolo",
-        ]
-        for skill_name in _profile_skill_names(runtime_profile_home):
-            command.extend(["--skills", skill_name])
-        result = subprocess.run(
-            command,
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+            "--skip-build",
             cwd=runtime_workspace_path,
-            env=env,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            timeout=float(os.getenv("HERMES_RUN_TIMEOUT_SECONDS", "300")),
-            check=False,
+            env=server_env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-        if result.returncode != 0:
-            error = result.stderr.strip() or result.stdout.strip() or "Unknown agent runtime failure"
-            raise RuntimeError(error)
-        raw_text = _extract_response_text(result.stdout)
-        safe_text = _sanitize_internal_paths(raw_text)
-        workspace = payload.get("workspace") or {}
-        if not workspace.get("root_name") and not (workspace.get("selected_files") or []):
-            generated_files = _workspace_generated_files(runtime_workspace_path)
-            return _render_inline_artifact_response(runtime_workspace_path, generated_files, safe_text)
-        return safe_text
+        stderr_lines: list[str] = []
+        stderr_task = asyncio.create_task(_drain_process_stream(process.stderr, stderr_lines))
+        stdout_task = None
+        try:
+            port = await _server_ready_port(process)
+            stdout_lines: list[str] = []
+            stdout_task = asyncio.create_task(_drain_process_stream(process.stdout, stdout_lines))
+            uri = f"ws://127.0.0.1:{port}/api/ws?token={server_token}"
+            async with websockets.connect(
+                uri,
+                open_timeout=10,
+                close_timeout=2,
+                max_size=None,
+                ping_interval=20,
+            ) as websocket:
+                create_id = uuid4().hex
+                await websocket.send(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": create_id,
+                    "method": "session.create",
+                    "params": {
+                        "cwd": str(runtime_workspace_path),
+                        "source": "cli",
+                        "title": "AgentSaaS runtime request",
+                        "model": payload.get("model") or DEFAULT_MODEL,
+                        "provider": _provider_name(payload.get("provider") or "custom"),
+                        "close_on_disconnect": True,
+                    },
+                }))
+                session_id = ""
+                while not session_id:
+                    message = json.loads(await websocket.recv())
+                    if message.get("id") != create_id:
+                        continue
+                    if message.get("error"):
+                        raise RuntimeError(message["error"].get("message") or "Hermes session creation failed")
+                    session_id = str((message.get("result") or {}).get("session_id") or "")
+                    if not session_id:
+                        raise RuntimeError("Hermes Server did not return a session id")
+
+                submit_id = uuid4().hex
+                await websocket.send(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": submit_id,
+                    "method": "prompt.submit",
+                    "params": {"session_id": session_id, "text": prompt},
+                }))
+                complete_payload: dict[str, Any] | None = None
+                pending_text = ""
+                raw_streamed_text = ""
+                deadline = (
+                    asyncio.get_running_loop().time()
+                    + float(os.getenv("HERMES_RUN_TIMEOUT_SECONDS", "120"))
+                )
+                while complete_payload is None:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError("Hermes Server run timed out")
+                    message = json.loads(
+                        await asyncio.wait_for(
+                            websocket.recv(),
+                            timeout=remaining,
+                        )
+                    )
+                    if message.get("id") == submit_id:
+                        if message.get("error"):
+                            raise RuntimeError(message["error"].get("message") or "Hermes prompt failed")
+                        continue
+                    if message.get("method") != "event":
+                        continue
+                    params = message.get("params") or {}
+                    if params.get("session_id") != session_id:
+                        continue
+                    event_type = params.get("type")
+                    event_payload = params.get("payload") or {}
+                    if event_type == "approval.request":
+                        await websocket.send(json.dumps({
+                            "jsonrpc": "2.0",
+                            "id": uuid4().hex,
+                            "method": "approval.respond",
+                            "params": {
+                                "session_id": session_id,
+                                "choice": "deny",
+                                "all": True,
+                            },
+                        }))
+                    elif event_type == "message.delta":
+                        delta = str(event_payload.get("text") or "")
+                        raw_streamed_text += delta
+                        pending_text += delta
+                        whitespace = max(pending_text.rfind(" "), pending_text.rfind("\n"), pending_text.rfind("\t"))
+                        if whitespace >= 0:
+                            safe_chunk = _sanitize_internal_paths(pending_text[: whitespace + 1])
+                            pending_text = pending_text[whitespace + 1 :]
+                            if safe_chunk:
+                                yield {"type": "delta", "content": safe_chunk}
+                    elif event_type == "error":
+                        raise RuntimeError(str(event_payload.get("message") or "Hermes Server runtime failure"))
+                    elif event_type == "message.complete":
+                        complete_payload = event_payload
+
+                raw_text = str(complete_payload.get("text") or "")
+                if pending_text:
+                    safe_chunk = _sanitize_internal_paths(pending_text)
+                    if safe_chunk:
+                        yield {"type": "delta", "content": safe_chunk}
+                elif not raw_streamed_text and raw_text:
+                    yield {"type": "delta", "content": _sanitize_internal_paths(raw_text)}
+                if complete_payload.get("status") == "error":
+                    raise RuntimeError(raw_text or "Hermes Server returned an error")
+
+                safe_text = _sanitize_internal_paths(raw_text)
+                workspace = payload.get("workspace") or {}
+                if not workspace.get("root_name") and not (workspace.get("selected_files") or []):
+                    safe_text = _render_inline_artifact_response(
+                        runtime_workspace_path,
+                        _workspace_generated_files(runtime_workspace_path),
+                        safe_text,
+                    )
+                yield {
+                    "type": "complete",
+                    "content": safe_text,
+                    "usage": _normalized_server_usage(complete_payload.get("usage")),
+                }
+        except BaseException as exc:
+            if isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
+                raise
+            details = "".join(stderr_lines).strip()
+            raise RuntimeError(details or str(exc)) from exc
+        finally:
+            await _stop_process(process)
+            for task in (stdout_task, stderr_task):
+                if task is not None:
+                    task.cancel()
+            await asyncio.gather(
+                *(task for task in (stdout_task, stderr_task) if task is not None),
+                return_exceptions=True,
+            )
 
 
 @app.post("/runs")
 async def run_agent(payload: dict[str, Any]):
-    content = _run_hermes(payload)
+    runtime_result = await _run_hermes_result(payload)
+    content = runtime_result["content"]
+    usage = runtime_result.get("usage") or {
+        "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
+        "output_tokens": max(1, len(content) // 4),
+    }
     cowork = payload.get("cowork") or {}
     if cowork.get("protocol") == "cowork_v1":
         normalized = _normalize_cowork_response(content)
@@ -537,10 +843,7 @@ async def run_agent(payload: dict[str, Any]):
             "tools_used": ["hermes-agent"],
             "mcp_servers_used": [],
             "total_cost": 0.0,
-            "usage": {
-                "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
-                "output_tokens": max(1, len(content) // 4),
-            },
+            "usage": usage,
         }
     return {
         "content": content,
@@ -548,64 +851,52 @@ async def run_agent(payload: dict[str, Any]):
         "tools_used": ["hermes-agent"],
         "mcp_servers_used": [],
         "total_cost": 0.0,
-        "usage": {
-            "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
-            "output_tokens": max(1, len(content) // 4),
-        },
+        "usage": usage,
     }
 
 
 @app.post("/runs/stream")
 async def run_agent_stream(payload: dict[str, Any]):
-    content = _run_hermes(payload)
     cowork = payload.get("cowork") or {}
-    if cowork.get("protocol") == "cowork_v1":
-        normalized = _normalize_cowork_response(content)
-        chunks = [normalized]
-        if normalized.get("type") == "assistant_final":
-            chunks = [
-                {"type": "assistant_chunk", "content": normalized.get("content", "")},
-                {
-                    "type": "done",
-                    "content": "",
-                    "upstream_target": _upstream_target(payload),
-                    "tools_used": ["hermes-agent"],
-                    "mcp_servers_used": [],
-                    "total_cost": 0.0,
-                    "usage": {
-                        "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
-                        "output_tokens": max(1, len(content) // 4),
-                    },
-                },
-            ]
+
+    async def events():
+        yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
+        if cowork.get("protocol") == "cowork_v1":
+            content = await _run_hermes(payload)
+            normalized = _normalize_cowork_response(content)
+            if normalized.get("type") != "assistant_final":
+                yield f"data: {json.dumps(normalized, ensure_ascii=False)}\n\n"
+                return
+            chunk_content = normalized.get("content", "")
+            if chunk_content:
+                yield f"data: {json.dumps({'type': 'assistant_chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+            usage = {
+                "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
+                "output_tokens": max(1, len(content) // 4),
+            }
         else:
-            chunks = [normalized]
-
-        async def cowork_events():
-            for event in chunks:
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(cowork_events(), media_type="text/event-stream")
-    midpoint = max(1, len(content) // 2)
-    chunks = [
-        {"type": "chunk", "content": content[:midpoint]},
-        {"type": "chunk", "content": content[midpoint:]},
-        {
+            content = ""
+            usage = {}
+            async for event in _run_hermes_server_events(payload):
+                if event.get("type") == "delta":
+                    chunk_content = event.get("content", "")
+                    content += chunk_content
+                    if chunk_content:
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+                elif event.get("type") == "complete":
+                    usage = event.get("usage") or {}
+        done = {
             "type": "done",
             "content": "",
             "upstream_target": _upstream_target(payload),
             "tools_used": ["hermes-agent"],
             "mcp_servers_used": [],
             "total_cost": 0.0,
-            "usage": {
+            "usage": usage or {
                 "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
                 "output_tokens": max(1, len(content) // 4),
             },
-        },
-    ]
-
-    async def events():
-        for event in chunks:
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        }
+        yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")

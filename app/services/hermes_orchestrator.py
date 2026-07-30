@@ -77,7 +77,13 @@ class HermesOrchestratorClient:
     async def run_agent_stream(self, payload: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         if not self.configured:
             raise HermesOrchestratorUnavailable("Agent orchestrator URL is not configured")
-        async with httpx.AsyncClient(timeout=None) as client:
+        timeout = httpx.Timeout(
+            connect=5.0,
+            read=settings.hermes_request_timeout_seconds,
+            write=10.0,
+            pool=5.0,
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/runs/stream",

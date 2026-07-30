@@ -6,10 +6,12 @@ managed by Compose/Kubernetes, so lifecycle endpoints must not require Docker CL
 """
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 import shutil
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -28,7 +30,7 @@ HERMES_RUN_STREAM_PATH = os.getenv("HERMES_RUN_STREAM_PATH", "/runs/stream")
 HERMES_HEALTH_PATH = os.getenv("HERMES_HEALTH_PATH", "/health")
 HERMES_DOCKER_NETWORK = os.getenv("HERMES_DOCKER_NETWORK", "")
 HERMES_PUBLISH_PORT = os.getenv("HERMES_PUBLISH_PORT", "false").lower() == "true"
-HERMES_REQUEST_TIMEOUT_SECONDS = float(os.getenv("HERMES_REQUEST_TIMEOUT_SECONDS", "300"))
+HERMES_REQUEST_TIMEOUT_SECONDS = float(os.getenv("HERMES_REQUEST_TIMEOUT_SECONDS", "120"))
 HERMES_MANAGED_EXTERNALLY = os.getenv("HERMES_MANAGED_EXTERNALLY", "false").lower() == "true"
 
 app = FastAPI(title="AgentSaaS Agent Orchestrator", version="0.1.0")
@@ -148,9 +150,24 @@ def _reset_managed_profile_artifacts(workspace: Path) -> None:
             path.unlink()
 
 
+def _validate_profile_slug(value: Any) -> str:
+    slug = str(value or "").strip()
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,62})", slug):
+        raise HTTPException(status_code=400, detail="Invalid profile slug")
+    return slug
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "healthy"}
+
+
+@app.get("/readyz")
+async def readyz():
+    health = await _hermes_health()
+    if not health.get("ok"):
+        raise HTTPException(status_code=503, detail="Agent runtime is unavailable")
+    return {"status": "ready"}
 
 
 @app.get("/status")
@@ -266,17 +283,38 @@ async def repair_sync(x_hermes_orchestrator_secret: str | None = Header(default=
 async def sync_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
     profile = payload.get("profile", {})
-    slug = profile.get("slug")
-    if not slug:
-        raise HTTPException(status_code=400, detail="profile.slug is required")
-    workspace = HERMES_WORKSPACE_ROOT / slug
-    workspace.mkdir(parents=True, exist_ok=True)
-    _reset_managed_profile_artifacts(workspace)
-    for filename, content in (payload.get("files") or {}).items():
-        target = _resolve_profile_path(workspace, filename)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content or "", encoding="utf-8")
-    (workspace / "profile.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+    slug = _validate_profile_slug(profile.get("slug"))
+    HERMES_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+    workspace = _resolve_profile_path(HERMES_WORKSPACE_ROOT, slug)
+    transaction_id = str(uuid4())
+    staging = _resolve_profile_path(HERMES_WORKSPACE_ROOT, f".{slug}.{transaction_id}.tmp")
+    backup = _resolve_profile_path(HERMES_WORKSPACE_ROOT, f".{slug}.{transaction_id}.bak")
+    files = payload.get("files") or {}
+    if not isinstance(files, dict) or not files:
+        raise HTTPException(status_code=400, detail="profile files are required")
+    try:
+        staging.mkdir(parents=True, exist_ok=False)
+        for filename, content in files.items():
+            if not isinstance(filename, str) or not isinstance(content, str):
+                raise HTTPException(status_code=400, detail="profile files must contain text paths and content")
+            target = _resolve_profile_path(staging, filename)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        (staging / "profile.json").write_text(
+            json.dumps(profile, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        if workspace.exists():
+            workspace.rename(backup)
+        staging.rename(workspace)
+        if backup.exists():
+            shutil.rmtree(backup)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        if backup.exists() and not workspace.exists():
+            backup.rename(workspace)
+        raise
     return {
         "status": "synced",
         "hermes_profile_id": slug,
@@ -287,10 +325,8 @@ async def sync_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: st
 @app.post("/profiles/delete")
 async def delete_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
-    hermes_profile_id = payload.get("hermes_profile_id")
-    if not hermes_profile_id:
-        raise HTTPException(status_code=400, detail="hermes_profile_id is required")
-    workspace = HERMES_WORKSPACE_ROOT / hermes_profile_id
+    hermes_profile_id = _validate_profile_slug(payload.get("hermes_profile_id"))
+    workspace = _resolve_profile_path(HERMES_WORKSPACE_ROOT, hermes_profile_id)
     if workspace.exists():
         shutil.rmtree(workspace)
     return {"status": "deleted", "hermes_profile_id": hermes_profile_id}
@@ -305,9 +341,9 @@ async def run_agent(payload: dict[str, Any], x_hermes_orchestrator_secret: str |
             response.raise_for_status()
             return _normalize_run_result(response.json())
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"Agent run failed: {exc.response.text}") from exc
+        raise HTTPException(status_code=502, detail="Agent runtime rejected the request") from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Agent runtime unavailable: {exc}") from exc
+        raise HTTPException(status_code=503, detail="Agent runtime unavailable") from exc
 
 
 @app.post("/runs/stream")
@@ -316,7 +352,13 @@ async def run_agent_stream(payload: dict[str, Any], x_hermes_orchestrator_secret
 
     async def event_generator():
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
+            timeout = httpx.Timeout(
+                connect=5.0,
+                read=HERMES_REQUEST_TIMEOUT_SECONDS,
+                write=10.0,
+                pool=5.0,
+            )
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", _hermes_url(HERMES_RUN_STREAM_PATH), json=payload) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -328,8 +370,8 @@ async def run_agent_stream(payload: dict[str, Any], x_hermes_orchestrator_secret
                             continue
                         else:
                             yield f"data: {line}\n\n"
-        except Exception as exc:
-            error = json.dumps({"type": "error", "error": str(exc)}, ensure_ascii=False)
+        except Exception:
+            error = json.dumps({"type": "error", "error": "Agent runtime stream failed"}, ensure_ascii=False)
             yield f"data: {error}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

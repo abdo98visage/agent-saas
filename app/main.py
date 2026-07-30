@@ -14,6 +14,7 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 try:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -71,13 +72,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(IntegrityError)
+async def database_conflict_handler(request: Request, _exc: IntegrityError):
+    request_id = str(uuid.uuid4())[:8]
+    logger.warning(json.dumps({
+        "event": "database_conflict",
+        "request_id": request_id,
+        "method": request.method,
+        "path": request.url.path,
+    }))
+    return JSONResponse(
+        status_code=409,
+        content={"detail": f"Request conflicts with existing data. Reference: {request_id}"},
+    )
+
 # SECURITY: Restrict CORS to specific methods and headers only
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Client-Type", "X-CSRF-Token"],
     max_age=3600,  # Cache preflight for 1 hour
 )
 
@@ -120,9 +136,6 @@ _RATE_LIMIT = settings.rate_limit_per_minute  # requests per minute per IP
 _RATE_WINDOW = 60.0  # seconds
 # Auth endpoints have stricter limits
 _AUTH_RATE_LIMIT = settings.auth_rate_limit_per_minute  # attempts per minute for auth
-_AUTH_LOCKOUT_THRESHOLD = 5  # Lock out after 5 failures
-
-
 def _is_auth_endpoint(path: str) -> bool:
     """Check if path is an auth-sensitive endpoint."""
     return any(p in path for p in ["/auth/login", "/auth/activate", "/auth/register"])
@@ -146,7 +159,6 @@ async def rate_limit_middleware(request: Request, call_next):
                     status_code=429,
                     content={
                         "detail": f"Rate limit exceeded. {limit} requests per minute."
-                        + (" Account temporarily locked. Contact admin." if _is_auth_endpoint(request.url.path) else "")
                     },
                 )
             return await call_next(request)
@@ -164,7 +176,6 @@ async def rate_limit_middleware(request: Request, call_next):
             status_code=429,
             content={
                 "detail": f"Rate limit exceeded. {limit} requests per minute."
-                + (" Account temporarily locked. Contact admin." if _is_auth_endpoint(request.url.path) else "")
             },
         )
 

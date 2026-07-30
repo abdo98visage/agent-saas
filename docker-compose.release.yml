@@ -14,18 +14,45 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     networks:
-      - app_net
+      app_net:
+        ipv4_address: ${AGENTSAAS_PROXY_IP:-172.30.0.2}
     restart: unless-stopped
 
-  api:
-    image: ${AGENTSAAS_API_IMAGE:-ghcr.io/example/agentsaas-api:latest}
+  migrate:
+    image: ${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to an immutable version or digest}
     env_file:
-      - .env.production
+      - ${AGENTSAAS_ENV_FILE:-.env.production}
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_net
+    command: alembic upgrade head
+    restart: "no"
+
+  storage-init:
+    image: ${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to an immutable version or digest}
+    user: "0:0"
+    command: sh -c "mkdir -p /data/attachments /data/hermes/profiles && chown -R 10001:10001 /data/attachments /data/hermes/profiles"
+    volumes:
+      - ${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/attachments:/data/attachments
+      - ${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/hermes/profiles:/data/hermes/profiles
+    restart: "no"
+
+  api:
+    image: ${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to an immutable version or digest}
+    env_file:
+      - ${AGENTSAAS_ENV_FILE:-.env.production}
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
       HERMES_ORCHESTRATOR_SECRET: ${HERMES_ORCHESTRATOR_SECRET}
+      ATTACHMENT_STORAGE_ROOT: /data/attachments
+    volumes:
+      - ${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/attachments:/data/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -33,20 +60,29 @@ services:
         condition: service_healthy
       hermes-orchestrator:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
     networks:
       - app_net
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=${AGENTSAAS_PROXY_IP:-172.30.0.2}
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=5)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=5)\""]
       interval: 30s
       timeout: 10s
       retries: 5
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
 
   admin:
-    image: ${AGENTSAAS_ADMIN_IMAGE:-ghcr.io/example/agentsaas-admin:latest}
-    env_file:
-      - .env.production
+    image: ${AGENTSAAS_ADMIN_IMAGE:?Set AGENTSAAS_ADMIN_IMAGE to an immutable version or digest}
     depends_on:
       api:
         condition: service_healthy
@@ -58,11 +94,16 @@ services:
       timeout: 10s
       retries: 5
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1
 
   worker:
-    image: ${AGENTSAAS_API_IMAGE:-ghcr.io/example/agentsaas-api:latest}
-    env_file:
-      - .env.production
+    image: ${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to an immutable version or digest}
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -75,11 +116,18 @@ services:
       - app_net
     command: celery -A app.celery_app worker --loglevel=info --pool=solo
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1
 
   beat:
-    image: ${AGENTSAAS_API_IMAGE:-ghcr.io/example/agentsaas-api:latest}
+    image: ${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to an immutable version or digest}
     env_file:
-      - .env.production
+      - ${AGENTSAAS_ENV_FILE:-.env.production}
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -90,11 +138,18 @@ services:
       - app_net
     command: celery -A app.celery_app beat --loglevel=info
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
 
   hermes-orchestrator:
-    image: ${AGENTSAAS_API_IMAGE:-ghcr.io/example/agentsaas-api:latest}
+    image: ${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to an immutable version or digest}
     env_file:
-      - .env.production
+      - ${AGENTSAAS_ENV_FILE:-.env.production}
     environment:
       HERMES_WORKSPACE_ROOT: /data/hermes/profiles
       HERMES_PORT: ${HERMES_PORT:-8787}
@@ -110,30 +165,58 @@ services:
     depends_on:
       hermes-runtime:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     networks:
       - app_net
+      - runtime_net
     command: uvicorn app.hermes_orchestrator_app:app --host 0.0.0.0 --port 8788
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/healthz', timeout=5)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/readyz', timeout=5)\""]
       interval: 30s
       timeout: 10s
       retries: 5
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
 
   hermes-runtime:
-    image: ${AGENTSAAS_HERMES_RUNTIME_IMAGE:-ghcr.io/example/agentsaas-hermes-runtime:latest}
-    env_file:
-      - .env.production
+    image: ${AGENTSAAS_HERMES_RUNTIME_IMAGE:?Set AGENTSAAS_HERMES_RUNTIME_IMAGE to an immutable version or digest}
+    environment:
+      HERMES_PROFILES_ROOT: /data/hermes/profiles
+      HERMES_RUN_TIMEOUT_SECONDS: ${HERMES_RUN_TIMEOUT_SECONDS:-120}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3-14b}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
     command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
     volumes:
       - ${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/hermes/profiles:/data/hermes/profiles:ro
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
     networks:
-      - app_net
+      - runtime_net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\""]
       interval: 30s
       timeout: 10s
       retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
     restart: unless-stopped
 
   db:
@@ -173,3 +256,8 @@ volumes:
 networks:
   app_net:
     name: ${AGENTSAAS_DOCKER_NETWORK:-agentsaas_private}
+    ipam:
+      config:
+        - subnet: ${AGENTSAAS_DOCKER_SUBNET:-172.30.0.0/24}
+  runtime_net:
+    name: ${AGENTSAAS_RUNTIME_DOCKER_NETWORK:-agentsaas_runtime}

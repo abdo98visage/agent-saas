@@ -14,3 +14,8 @@ class TelegramBinding(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
     binding_token: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     binding_token_expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )

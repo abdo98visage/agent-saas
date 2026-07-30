@@ -76,6 +76,8 @@
             state.currentConversation = id;
             state.conversationResetPending = false;
             state.currentMessages = [];
+            state.composerAttachments = [];
+            renderComposerAttachments();
             updateProjectSelectionFromConversation(id);
             const conversation = state.conversations.find((item) => item.conversation_id === id);
             els.chatTitle.textContent = conversation ? getConversationDisplayTitle(conversation) : (getCurrentProject()?.name || t("newChat"));
@@ -93,7 +95,7 @@
                 if (derivedTitle) {
                     rememberConversationTitle(id, derivedTitle);
                 }
-                state.currentMessages.forEach((message) => appendMessage(message.role, message.content));
+                state.currentMessages.forEach((message) => appendMessage(message.role, message));
                 scrollBottom();
                 renderContextSidebar();
             } catch (error) {
@@ -124,8 +126,12 @@
             els.messageInput.value = "";
             els.messageInput.style.height = "auto";
             els.welcomeScreen.style.display = "none";
-            appendMessage("user", text);
-            state.currentMessages.push({ role: "user", content: text });
+            const outgoingAttachments = normalizeMessageAttachments(state.composerAttachments);
+            const outgoingMessage = { role: "user", content: text, attachments: outgoingAttachments };
+            appendMessage("user", outgoingMessage);
+            state.currentMessages.push(outgoingMessage);
+            state.composerAttachments = [];
+            renderComposerAttachments();
             if (state.currentConversation) {
                 rememberConversationTitle(state.currentConversation, localTitle);
                 await persistSettings();
@@ -135,7 +141,7 @@
                 ? state.currentProjectId
                 : (state.currentConversation ? getConversationProjectId(state.currentConversation) : state.currentProjectId);
             if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-                await enqueueMessage(text, profileName);
+                await enqueueMessage(text, profileName, outgoingAttachments);
                 appendSystemMessage("تم حفظ الرسالة محلياً وسيتم إرسالها عند عودة الاتصال.");
                 connectWebSocket();
                 return;
@@ -143,11 +149,11 @@
             showTypingIndicator();
             state.isStreaming = true;
             try {
-                await sendWebSocketMessage(text, profileName);
+                await sendWebSocketMessage(text, profileName, outgoingAttachments);
             } catch (error) {
                 resetStreamingState();
                 state.pendingConversationProjectId = null;
-                await enqueueMessage(text, profileName);
+                await enqueueMessage(text, profileName, outgoingAttachments, error.queueItem || null);
                 appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
             }
         }
@@ -191,6 +197,11 @@
                     void executeApplyRequest(data);
                     break;
                 case "done":
+                    if (data.client_message_id && state.pendingMessageAcks.has(data.client_message_id)) {
+                        const pendingAck = state.pendingMessageAcks.get(data.client_message_id);
+                        state.pendingMessageAcks.delete(data.client_message_id);
+                        pendingAck.resolve(data);
+                    }
                     clearTransientSystemMessage();
                     resetStreamingState();
                     if (data.conversation_id) {
@@ -209,6 +220,13 @@
                     void loadConversations();
                     break;
                 case "error":
+                    if (data.client_message_id && state.pendingMessageAcks.has(data.client_message_id)) {
+                        const pendingAck = state.pendingMessageAcks.get(data.client_message_id);
+                        state.pendingMessageAcks.delete(data.client_message_id);
+                        const error = new Error(data.detail || "Server rejected the message");
+                        error.retryable = data.retryable !== false;
+                        pendingAck.reject(error);
+                    }
                     clearTransientSystemMessage();
                     resetStreamingState();
                     state.pendingConversationProjectId = null;
@@ -222,6 +240,39 @@
         els.messageInput.addEventListener("input", () => {
             els.messageInput.style.height = "auto";
             els.messageInput.style.height = `${Math.min(els.messageInput.scrollHeight, 248)}px`;
+        });
+        els.btnAttachImage?.addEventListener("click", () => {
+            els.imageAttachmentInput?.click();
+        });
+        els.imageAttachmentInput?.addEventListener("change", async () => {
+            try {
+                await addComposerAttachmentsFromFiles(els.imageAttachmentInput.files);
+            } catch (error) {
+                updateComposerStatus(error.message);
+            } finally {
+                els.imageAttachmentInput.value = "";
+            }
+        });
+        document.addEventListener("dragover", (event) => {
+            if (event.dataTransfer?.types?.includes("Files")) {
+                event.preventDefault();
+            }
+        });
+        document.addEventListener("drop", async (event) => {
+            if (!event.dataTransfer?.files?.length) {
+                return;
+            }
+            const droppedImages = Array.from(event.dataTransfer.files).filter((file) => String(file.type || "").startsWith("image/"));
+            if (!droppedImages.length) {
+                return;
+            }
+            event.preventDefault();
+            try {
+                await addComposerAttachmentsFromFiles(droppedImages);
+                updateComposerStatus(getLocale() === "en" ? "Image attached to the next message." : "تم إرفاق الصورة مع الرسالة التالية.");
+            } catch (error) {
+                updateComposerStatus(error.message);
+            }
         });
         els.btnOpenFolderLive?.addEventListener("click", async () => {
             await promptAndAddProject();
@@ -244,6 +295,7 @@
 
         (async () => {
             await loadSettings();
+            renderComposerAttachments();
 
             if (!state.settings.token) {
                 document.getElementById("activation-panel").style.display = "flex";

@@ -4,6 +4,7 @@ per-user API keys, streaming support, and token tracking.
 """
 import json
 import time
+import asyncio
 from datetime import datetime, date, time as dt_time
 from uuid import uuid4, UUID
 from typing import Optional, Dict, Any, AsyncGenerator
@@ -24,6 +25,12 @@ from app.models.agent_run import AgentRun, AgentRunEvent
 from app.services.api_key_resolver import api_key_resolver
 from app.services.agent_runtime import AgentRuntimeRouter
 from app.services.pricing_service import pricing_service
+from app.services.attachments import normalize_image_attachments, persist_image_attachments
+from app.services.token_tracker import (
+    release_token_reservation,
+    reserve_token_quota,
+    settle_token_reservation,
+)
 
 
 class AgentService:
@@ -109,7 +116,17 @@ class AgentService:
 
     async def _resolve_runtime_provider_and_key(
         self, db: AsyncSession, user_id: UUID, profile: Optional[Profile]
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, Optional[str], Optional[UUID]]:
+        if profile and profile.provider_key_id:
+            key_obj = await db.get(UserApiKey, profile.provider_key_id)
+            if not key_obj or not key_obj.is_active:
+                raise RuntimeError("The provider key configured for this profile is missing or inactive")
+            if profile.allowed_providers and key_obj.provider not in profile.allowed_providers:
+                raise RuntimeError(f"Provider {key_obj.provider} is not allowed for this profile")
+            if key_obj.spent_today >= key_obj.daily_budget:
+                raise RuntimeError("Provider API key daily budget exceeded")
+            return key_obj.provider, api_key_resolver.decrypt(key_obj), key_obj.id
+
         key_obj = await api_key_resolver.resolve_key(
             db,
             user_id=user_id,
@@ -125,10 +142,10 @@ class AgentService:
                 raise RuntimeError(
                     "No active provider API key is configured for this employee/profile/platform."
                 )
-            return resolved_provider, None
+            return resolved_provider, None, None
         if key_obj.spent_today >= key_obj.daily_budget:
             raise RuntimeError("Provider API key daily budget exceeded")
-        return resolved_provider, api_key_resolver.decrypt(key_obj)
+        return resolved_provider, api_key_resolver.decrypt(key_obj), key_obj.id
 
     async def get_system_prompt(
         self,
@@ -322,6 +339,65 @@ class AgentService:
             total += self._estimate_tokens(str(message.get("content") or ""))
         return total
 
+    def _reservation_tokens(
+        self,
+        messages: list[dict[str, Any]],
+        max_output_tokens: int,
+        attachments: Optional[list[dict[str, Any]]] = None,
+        runtime_overhead_tokens: int = 0,
+    ) -> int:
+        # UTF-8 byte length is a conservative upper bound for text tokenization.
+        input_upper_bound = sum(
+            len(str(message.get("content") or "").encode("utf-8")) + 16
+            for message in messages
+        )
+        return (
+            input_upper_bound
+            + max(1, int(max_output_tokens))
+            + len(attachments or []) * settings.quota_attachment_reservation_tokens
+            + max(0, int(runtime_overhead_tokens))
+        )
+
+    @staticmethod
+    def _sanitize_attachments(attachments: Optional[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+        return normalize_image_attachments(attachments)
+
+    def _build_user_message_content(
+        self,
+        text: str,
+        attachments: Optional[list[dict[str, Any]]] = None,
+        provider: Optional[str] = None,
+    ) -> Any:
+        safe_attachments = self._sanitize_attachments(attachments)
+        if not safe_attachments:
+            return text
+
+        if (provider or "").strip().lower() == "ollama":
+            attachment_names = ", ".join(item["name"] for item in safe_attachments)
+            return f"{text}\n\nAttached image files: {attachment_names}"
+
+        content: list[dict[str, Any]] = [{"type": "text", "text": text or "Describe this image."}]
+        for item in safe_attachments:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": item["data_url"],
+                    },
+                }
+            )
+        return content
+
+    def _build_history_message(self, message: Message, provider: str) -> dict[str, Any]:
+        return {
+            "role": message.role,
+            "content": self._build_user_message_content(
+                message.content,
+                attachments=message.attachments if message.role == "user" else None,
+                provider=provider,
+            ) if message.role == "user" else message.content,
+        }
+
     def _resolve_usage_tokens(
         self,
         messages: list[dict[str, Any]],
@@ -346,6 +422,8 @@ class AgentService:
         project_context: Optional[str] = None,
         profile_name: Optional[str] = None,
         force_direct_runtime: bool = False,
+        attachments: Optional[list[dict[str, Any]]] = None,
+        client_message_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         """Run the agent for a user message (non-streaming)."""
         start_time = time.time()
@@ -362,7 +440,7 @@ class AgentService:
             )
         )
         profile = await self.resolve_user_profile(db, user_uuid, profile_name=profile_name)
-        effective_provider, user_api_key = await self._resolve_runtime_provider_and_key(db, user_uuid, profile)
+        effective_provider, user_api_key, api_key_id = await self._resolve_runtime_provider_and_key(db, user_uuid, profile)
         await self._enforce_profile_ready(profile, effective_provider)
         await self._enforce_profile_request_limit(db, profile)
         await self._enforce_profile_usage_limits(db, profile)
@@ -375,19 +453,14 @@ class AgentService:
 
         # 3. Load conversation history (last 20 messages)
         history_messages = []
-        if conversation_id:
-            try:
-                c_id = UUID(conversation_id)
-                result = await db.execute(
-                    select(Message)
-                    .where(Message.session_id == c_id)
-                    .order_by(Message.created_at.asc())
-                    .limit(20)
-                )
-                for m in result.scalars().all():
-                    history_messages.append({"role": m.role, "content": m.content})
-            except ValueError:
-                pass
+        result = await db.execute(
+            select(Message)
+            .where(Message.session_id == session_obj.id)
+            .order_by(Message.created_at.desc())
+            .limit(20)
+        )
+        for m in reversed(result.scalars().all()):
+            history_messages.append(self._build_history_message(m, effective_provider))
 
         # 4. Build messages payload
         messages = [{"role": "system", "content": full_prompt}]
@@ -407,9 +480,28 @@ class AgentService:
             "content": runtime_facts_context,
         })
         messages.extend(history_messages)
-        messages.append({"role": "user", "content": user_message})
+        messages.append({
+            "role": "user",
+            "content": self._build_user_message_content(user_message, attachments=attachments, provider=effective_provider),
+        })
 
         # 5. Call selected runtime
+        reservation_id = await reserve_token_quota(
+            user_id=str(user_uuid),
+            user_daily_limit=user.max_tokens_per_day,
+            requested_tokens=self._reservation_tokens(
+                messages,
+                max_tokens,
+                attachments,
+                settings.hermes_runtime_reservation_overhead_tokens
+                if runtime.runtime_type == "hermes"
+                else 0,
+            ),
+            provider=effective_provider,
+            profile_id=str(profile.id) if profile else None,
+            profile_daily_limit=profile.max_tokens_per_day if profile else None,
+            api_key_id=str(api_key_id) if api_key_id else None,
+        )
         run = await self._create_run(db, session_obj, user_uuid, profile, runtime.runtime_type, model_name, effective_provider)
         try:
             if runtime.runtime_type == "hermes":
@@ -422,6 +514,8 @@ class AgentService:
                     api_key=user_api_key,
                     model=model_name,
                     provider=effective_provider,
+                    conversation_history=history_messages,
+                    attachments=self._sanitize_attachments(attachments),
                 )
                 response_text = runtime_result.get("content", "")
                 tools_used = runtime_result.get("tools_used", [])
@@ -442,7 +536,8 @@ class AgentService:
                 mcp_servers_used = []
                 runtime_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
                 usage = runtime_result.get("usage") or {}
-        except Exception as exc:
+        except BaseException as exc:
+            await release_token_reservation(reservation_id)
             latency = int((time.time() - start_time) * 1000)
             await self._finish_run(
                 db,
@@ -457,12 +552,22 @@ class AgentService:
             raise
 
         # 6. Save messages to DB
+        user_message_id = uuid4()
+        stored_attachments = await asyncio.to_thread(
+            persist_image_attachments,
+            self._sanitize_attachments(attachments),
+            user_uuid,
+            session_obj.id,
+            user_message_id,
+        )
         user_msg = Message(
-            id=uuid4(),
+            id=user_message_id,
             session_id=session_obj.id,
             role="user",
             content=user_message,
             project_context=project_context,
+            attachments=stored_attachments,
+            client_message_id=client_message_id,
         )
         db.add(user_msg)
         await db.flush()
@@ -498,6 +603,12 @@ class AgentService:
             mcp_servers_used=mcp_servers_used,
             pricing_snapshot=cost_calc.pricing_snapshot,
         )
+        await settle_token_reservation(
+            reservation_id,
+            model=model_name,
+            actual_tokens=input_tokens + output_tokens,
+            cost=cost_calc.total_cost,
+        )
 
         return {
             "conversation_id": str(session_obj.id),
@@ -517,6 +628,7 @@ class AgentService:
             "profile_id": str(profile.id) if profile else None,
             "total_cost": cost_calc.total_cost,
             "pricing_snapshot": cost_calc.pricing_snapshot,
+            "attachments": assistant_msg.attachments or [],
         }
 
     async def run_agent_stream(
@@ -529,6 +641,8 @@ class AgentService:
         project_context: Optional[str] = None,
         profile_name: Optional[str] = None,
         force_direct_runtime: bool = False,
+        attachments: Optional[list[dict[str, Any]]] = None,
+        client_message_id: Optional[UUID] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the agent for a user message with SSE streaming."""
         user_uuid = UUID(user_id)
@@ -544,7 +658,7 @@ class AgentService:
             )
         )
         profile = await self.resolve_user_profile(db, user_uuid, profile_name=profile_name)
-        effective_provider, user_api_key = await self._resolve_runtime_provider_and_key(db, user_uuid, profile)
+        effective_provider, user_api_key, api_key_id = await self._resolve_runtime_provider_and_key(db, user_uuid, profile)
         await self._enforce_profile_ready(profile, effective_provider)
         await self._enforce_profile_request_limit(db, profile)
         await self._enforce_profile_usage_limits(db, profile)
@@ -557,19 +671,14 @@ class AgentService:
 
         # 3. Load conversation history
         history_messages = []
-        if conversation_id:
-            try:
-                c_id = UUID(conversation_id)
-                result = await db.execute(
-                    select(Message)
-                    .where(Message.session_id == c_id)
-                    .order_by(Message.created_at.asc())
-                    .limit(20)
-                )
-                for m in result.scalars().all():
-                    history_messages.append({"role": m.role, "content": m.content})
-            except ValueError:
-                pass
+        result = await db.execute(
+            select(Message)
+            .where(Message.session_id == session_obj.id)
+            .order_by(Message.created_at.desc())
+            .limit(20)
+        )
+        for m in reversed(result.scalars().all()):
+            history_messages.append(self._build_history_message(m, effective_provider))
 
         # 4. Build messages payload
         messages = [{"role": "system", "content": full_prompt}]
@@ -587,15 +696,44 @@ class AgentService:
             "content": runtime_facts_context,
         })
         messages.extend(history_messages)
-        messages.append({"role": "user", "content": user_message})
+        messages.append({
+            "role": "user",
+            "content": self._build_user_message_content(user_message, attachments=attachments, provider=effective_provider),
+        })
 
         # 5. Save user message immediately
+        reservation_id = await reserve_token_quota(
+            user_id=str(user_uuid),
+            user_daily_limit=user.max_tokens_per_day,
+            requested_tokens=self._reservation_tokens(
+                messages,
+                max_tokens,
+                attachments,
+                settings.hermes_runtime_reservation_overhead_tokens
+                if runtime.runtime_type == "hermes"
+                else 0,
+            ),
+            provider=effective_provider,
+            profile_id=str(profile.id) if profile else None,
+            profile_daily_limit=profile.max_tokens_per_day if profile else None,
+            api_key_id=str(api_key_id) if api_key_id else None,
+        )
+        user_message_id = uuid4()
+        stored_attachments = await asyncio.to_thread(
+            persist_image_attachments,
+            self._sanitize_attachments(attachments),
+            user_uuid,
+            session_obj.id,
+            user_message_id,
+        )
         user_msg = Message(
-            id=uuid4(),
+            id=user_message_id,
             session_id=session_obj.id,
             role="user",
             content=user_message,
             project_context=project_context,
+            attachments=stored_attachments,
+            client_message_id=client_message_id,
         )
         db.add(user_msg)
         await db.flush()
@@ -622,6 +760,8 @@ class AgentService:
                     api_key=user_api_key,
                     model=model_name,
                     provider=effective_provider,
+                    conversation_history=history_messages,
+                    attachments=self._sanitize_attachments(attachments),
                 ):
                     db.add(AgentRunEvent(run_id=run.id, event_type=event.get("type", "event"), payload=event))
                     chunk = event.get("content", "")
@@ -653,7 +793,8 @@ class AgentService:
                         "content": chunk,
                         "message_id": assistant_msg_id,
                     }
-        except Exception as exc:
+        except BaseException as exc:
+            await release_token_reservation(reservation_id)
             latency = int((time.time() - start_time) * 1000)
             await self._finish_run(
                 db,
@@ -697,6 +838,12 @@ class AgentService:
             tools_used=tools_used,
             mcp_servers_used=mcp_servers_used,
             pricing_snapshot=cost_calc.pricing_snapshot,
+        )
+        await settle_token_reservation(
+            reservation_id,
+            model=model_name,
+            actual_tokens=input_tokens + output_tokens,
+            cost=cost_calc.total_cost,
         )
 
         # Final event

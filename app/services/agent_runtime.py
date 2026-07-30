@@ -3,6 +3,7 @@ from typing import Any, AsyncGenerator, Optional
 from app.models.profile import Profile
 from app.models.user import User
 from app.services.hermes_orchestrator import HermesOrchestratorClient, hermes_orchestrator
+from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS
 
 
 class DirectLLMRuntime:
@@ -51,6 +52,8 @@ class HermesRuntime:
         api_key: Optional[str],
         model: str,
         provider: str,
+        conversation_history: Optional[list[dict[str, str]]] = None,
+        attachments: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         return {
             "employee": {
@@ -65,10 +68,17 @@ class HermesRuntime:
                 "name": profile.name,
                 "version": profile.version,
                 "hermes_profile_id": profile.hermes_profile_id,
+                "runtime_toolsets": (
+                    getattr(profile, "runtime_toolsets", None)
+                    if getattr(profile, "runtime_toolsets", None) is not None
+                    else list(SAFE_RUNTIME_TOOLSETS)
+                ),
             },
             "session_id": session_id,
+            "history": conversation_history or [],
             "message": user_message,
             "project_context": project_context,
+            "attachments": attachments or [],
             "provider": provider,
             "model": model,
             "api_key": api_key,
@@ -84,9 +94,22 @@ class HermesRuntime:
         api_key: Optional[str],
         model: str,
         provider: str,
+        conversation_history: Optional[list[dict[str, str]]] = None,
+        attachments: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         return await self.orchestrator.run_agent(
-            self._payload(user, profile, session_id, user_message, project_context, api_key, model, provider)
+            self._payload(
+                user,
+                profile,
+                session_id,
+                user_message,
+                project_context,
+                api_key,
+                model,
+                provider,
+                conversation_history,
+                attachments,
+            )
         )
 
     async def stream(
@@ -99,9 +122,22 @@ class HermesRuntime:
         api_key: Optional[str],
         model: str,
         provider: str,
+        conversation_history: Optional[list[dict[str, str]]] = None,
+        attachments: Optional[list[dict[str, Any]]] = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.orchestrator.run_agent_stream(
-            self._payload(user, profile, session_id, user_message, project_context, api_key, model, provider)
+            self._payload(
+                user,
+                profile,
+                session_id,
+                user_message,
+                project_context,
+                api_key,
+                model,
+                provider,
+                conversation_history,
+                attachments,
+            )
         ):
             yield event
 

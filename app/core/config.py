@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     version: str = "0.1.0"
     allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8000", "null"]
+    public_app_origin: str = ""
 
     # Auth / JWT
     secret_key: str = "change-me-in-production"
@@ -36,14 +37,15 @@ class Settings(BaseSettings):
             raise RuntimeError("SECURITY ERROR: HERMES_ORCHESTRATOR_SECRET must be at least 32 characters in production.")
         if self.llm_provider not in {"minimax", "openai", "ollama"}:
             raise RuntimeError("SECURITY ERROR: LLM_PROVIDER must be minimax, openai, or ollama in production.")
-        if self.is_minimax and not self.minimax_api_key:
-            raise RuntimeError("SECURITY ERROR: MINIMAX_API_KEY is required when LLM_PROVIDER=minimax.")
-        if self.is_openai and not self.openai_api_key:
-            raise RuntimeError("SECURITY ERROR: OPENAI_API_KEY is required when LLM_PROVIDER=openai.")
         if "*" in self.allowed_origins:
             raise RuntimeError("SECURITY ERROR: ALLOWED_ORIGINS cannot contain '*' in production.")
+        if not self.public_app_origin.startswith("https://"):
+            raise RuntimeError("SECURITY ERROR: PUBLIC_APP_ORIGIN must be an explicit HTTPS origin in production.")
+        if self.telegram_bot_token and len(self.telegram_webhook_secret) < 32:
+            raise RuntimeError("SECURITY ERROR: TELEGRAM_WEBHOOK_SECRET must be at least 32 characters when Telegram is enabled.")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    refresh_token_expire_days: int = 30
     invite_token_ttl_hours: int = 72
     telegram_bind_code_ttl_minutes: int = 30
 
@@ -60,9 +62,20 @@ class Settings(BaseSettings):
     rate_limit_backend: str = "redis"
     rate_limit_per_minute: int = 100
     auth_rate_limit_per_minute: int = 10
-    websocket_max_message_bytes: int = 32768
+    auth_lockout_attempts: int = 5
+    auth_lockout_minutes: int = 15
+    websocket_max_message_bytes: int = 8388608
+    attachment_max_count: int = 4
+    attachment_max_bytes: int = 6 * 1024 * 1024
+    attachment_total_max_bytes: int = 7 * 1024 * 1024
+    attachment_storage_root: str = ".data/attachments"
+    attachment_url_ttl_seconds: int = 3600
     kpi_token_alert_threshold: int = 40000
     kpi_cost_alert_threshold: float = 25.0
+    quota_timezone: str = "Asia/Riyadh"
+    token_reservation_ttl_minutes: int = 10
+    quota_attachment_reservation_tokens: int = 2048
+    hermes_runtime_reservation_overhead_tokens: int = 8192
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"
@@ -81,6 +94,8 @@ class Settings(BaseSettings):
     hermes_orchestrator_url: str = ""
     hermes_orchestrator_secret: str = ""
     hermes_request_timeout_seconds: float = 120.0
+    dependency_health_timeout_seconds: float = 3.0
+    agent_run_stale_minutes: int = 30
 
     # Telegram
     telegram_bot_token: str = ""

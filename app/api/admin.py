@@ -1,7 +1,10 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Optional
 from datetime import date, datetime, timedelta
 import secrets
+import logging
+import asyncio
+from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, delete, update
@@ -29,7 +32,17 @@ from app.services.hermes_orchestrator import hermes_orchestrator
 from app.services.hermes_profile_sync import hermes_profile_sync_service
 from app.services.pricing_service import pricing_service
 from app.services.alert_service import alert_service
-from app.services.token_tracker import record_token_usage
+
+logger = logging.getLogger("fqsaas.admin")
+
+
+def _desktop_activation_url(invite_token: str) -> str:
+    public_origin = settings.public_app_origin.rstrip("/") or "http://localhost:8001"
+    return "fqsaas://activate?" + urlencode({
+        "server": f"{public_origin}/api",
+        "token": invite_token,
+    })
+from app.services.token_tracker import increment_message_count, TokenQuotaExceeded
 from app.services.presence_service import presence_service
 from app.schemas.admin import (
     EmployeeCreate, EmployeeUpdate, EmployeeQuotas,
@@ -89,6 +102,7 @@ def _profile_payload(p: Profile, skill_map: Optional[dict[str, dict]] = None) ->
         "allowed_mcp_servers": p.allowed_mcp_servers,
         "allowed_tools": p.allowed_tools,
         "approval_required_tools": p.approval_required_tools,
+        "runtime_toolsets": p.runtime_toolsets,
         "memory_settings": p.memory_settings,
         "created_at": str(p.created_at),
     }
@@ -138,20 +152,7 @@ async def _sync_key_profile_links(
 
 
 async def _track_kpi_message(db: AsyncSession, user_id: str) -> None:
-    today = date.today().isoformat()
-    result = await db.execute(select(KPI).where(KPI.user_id == user_id, KPI.date == today))
-    kpi = result.scalar_one_or_none()
-    if kpi:
-        kpi.messages_sent += 1
-        return
-
-    db.add(
-        KPI(
-            user_id=user_id,
-            date=today,
-            messages_sent=1,
-        )
-    )
+    await increment_message_count(db, user_id)
 
 
 async def _load_skill_definitions(
@@ -177,6 +178,20 @@ async def _ensure_valid_skill_slugs(db: AsyncSession, skill_slugs: list[str]) ->
     if missing:
         raise HTTPException(status_code=400, detail=f"Unknown skills: {', '.join(missing)}")
     return definitions
+
+
+async def _validate_profile_provider_key(
+    db: AsyncSession,
+    provider_key_id: UUID | None,
+) -> UserApiKey | None:
+    if provider_key_id is None:
+        return None
+    key_obj = await db.get(UserApiKey, provider_key_id)
+    if not key_obj:
+        raise HTTPException(status_code=404, detail="Provider API key not found")
+    if not key_obj.is_active:
+        raise HTTPException(status_code=409, detail="Provider API key is inactive")
+    return key_obj
 
 
 # ==================== EMPLOYEES ====================
@@ -249,6 +264,7 @@ async def create_employee(
     return {
         "id": str(user.id), "email": user.email,
         "invite_token": invite_token,
+        "activation_url": _desktop_activation_url(invite_token),
         "message": "Employee created. Share invite token for activation."
     }
 
@@ -281,6 +297,7 @@ async def create_desktop_invite(
         "id": str(user.id),
         "email": user.email,
         "invite_token": invite_token,
+        "activation_url": _desktop_activation_url(invite_token),
         "invite_token_expires_at": str(user.invite_token_expires_at),
         "message": "Desktop activation invite created.",
     }
@@ -410,13 +427,17 @@ async def update_skill(
     if duplicate.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Skill name or slug already exists")
 
+    affected_profiles_result = await db.execute(
+        select(Profile).where(Profile.skills.contains([skill.slug]))
+    )
+    affected_profiles = affected_profiles_result.scalars().all()
+
     if req.name is not None:
         skill.name = req.name
     if req.slug is not None:
         old_slug = skill.slug
         skill.slug = req.slug
-        profile_result = await db.execute(select(Profile).where(Profile.skills.contains([old_slug])))
-        for profile in profile_result.scalars().all():
+        for profile in affected_profiles:
             profile.skills = [req.slug if slug == old_slug else slug for slug in (profile.skills or [])]
     if req.description is not None:
         skill.description = req.description
@@ -425,8 +446,20 @@ async def update_skill(
     if req.is_active is not None:
         skill.is_active = req.is_active
 
+    await db.flush()
+    sync_results = []
+    for profile in affected_profiles:
+        profile.version = int(profile.version or 1) + 1
+        definitions = await _load_skill_definitions(db, profile.skills or [])
+        sync_results.append(
+            {
+                "profile_id": str(profile.id),
+                "result": await hermes_profile_sync_service.sync(profile, definitions),
+            }
+        )
+
     db.add(AuditLog(user_id=str(admin.id), action="update_skill", details={"skill_id": str(skill_id), "slug": skill.slug}))
-    return _skill_payload(skill)
+    return {**_skill_payload(skill), "profile_sync_results": sync_results}
 
 
 @router.delete("/skills/{skill_id}")
@@ -473,9 +506,12 @@ async def create_profile(
     admin: User = Depends(get_current_admin_user),
 ):
     skill_definitions = await _ensure_valid_skill_slugs(db, req.skills)
-    result = await db.execute(select(Profile).where(Profile.slug == req.slug))
+    result = await db.execute(
+        select(Profile).where((Profile.slug == req.slug) | (Profile.name == req.name))
+    )
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Profile slug already exists")
+        raise HTTPException(status_code=409, detail="Profile name or slug already exists")
+    await _validate_profile_provider_key(db, req.provider_key_id)
     profile = Profile(
         name=req.name, slug=req.slug,
         soul_md=req.soul_md,
@@ -491,6 +527,7 @@ async def create_profile(
         allowed_mcp_servers=req.allowed_mcp_servers,
         allowed_tools=req.allowed_tools,
         approval_required_tools=req.approval_required_tools,
+        runtime_toolsets=req.runtime_toolsets,
         memory_settings=req.memory_settings,
     )
     db.add(profile)
@@ -517,6 +554,14 @@ async def update_profile(
     result = await db.execute(select(Profile).where(Profile.id == profile_id))
     profile = result.scalar_one_or_none()
     if not profile: raise HTTPException(status_code=404, detail="Profile not found")
+    if req.name is not None:
+        duplicate_name = await db.execute(
+            select(Profile).where(Profile.id != profile_id, Profile.name == req.name)
+        )
+        if duplicate_name.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Profile name already exists")
+    if "provider_key_id" in req.model_fields_set:
+        await _validate_profile_provider_key(db, req.provider_key_id)
     skill_definitions = None
     if req.name is not None: profile.name = req.name
     if req.soul_md is not None: profile.soul_md = req.soul_md
@@ -527,14 +572,15 @@ async def update_profile(
     if req.system_prompt is not None: profile.system_prompt = req.system_prompt
     if req.is_active is not None: profile.is_active = req.is_active
     if req.runtime_type is not None: profile.runtime_type = req.runtime_type
-    if req.provider_key_id is not None: profile.provider_key_id = req.provider_key_id
-    if req.max_tokens_per_day is not None: profile.max_tokens_per_day = req.max_tokens_per_day
-    if req.max_requests_per_day is not None: profile.max_requests_per_day = req.max_requests_per_day
-    if req.daily_cost_budget is not None: profile.daily_cost_budget = req.daily_cost_budget
+    if "provider_key_id" in req.model_fields_set: profile.provider_key_id = req.provider_key_id
+    if "max_tokens_per_day" in req.model_fields_set: profile.max_tokens_per_day = req.max_tokens_per_day
+    if "max_requests_per_day" in req.model_fields_set: profile.max_requests_per_day = req.max_requests_per_day
+    if "daily_cost_budget" in req.model_fields_set: profile.daily_cost_budget = req.daily_cost_budget
     if req.allowed_providers is not None: profile.allowed_providers = req.allowed_providers
     if req.allowed_mcp_servers is not None: profile.allowed_mcp_servers = req.allowed_mcp_servers
     if req.allowed_tools is not None: profile.allowed_tools = req.allowed_tools
     if req.approval_required_tools is not None: profile.approval_required_tools = req.approval_required_tools
+    if req.runtime_toolsets is not None: profile.runtime_toolsets = req.runtime_toolsets
     if req.memory_settings is not None: profile.memory_settings = req.memory_settings
     profile.version = (profile.version or 1) + 1
     if skill_definitions is None:
@@ -564,8 +610,11 @@ async def delete_profile(
     if profile.runtime_type == "hermes" and profile.hermes_profile_id:
         try:
             await hermes_orchestrator.delete_profile(profile.hermes_profile_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Profile runtime cleanup failed; database record was not deleted",
+            ) from exc
     audit = AuditLog(user_id=str(admin.id), action="delete_profile",
                      details={"profile_id": str(profile_id), "name": profile.name})
     db.add(audit)
@@ -634,13 +683,22 @@ async def assign_profile_to_user(
     if not u.scalar_one_or_none(): raise HTTPException(status_code=404, detail="User not found")
     profile = p.scalar_one_or_none()
     if not profile: raise HTTPException(status_code=404, detail="Profile not found")
+    duplicate = await db.execute(
+        select(ProfileUser).where(
+            ProfileUser.user_id == user_id,
+            ProfileUser.profile_id == profile_id,
+        )
+    )
+    if duplicate.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Profile is already assigned to this user")
     assignment = ProfileUser(
         user_id=user_id, profile_id=profile_id,
         priority=req.priority,
     )
     db.add(assignment)
     await db.flush()
-    sync_result = await hermes_profile_sync_service.sync(profile)
+    skill_definitions = await _load_skill_definitions(db, profile.skills or [])
+    sync_result = await hermes_profile_sync_service.sync(profile, skill_definitions)
     audit = AuditLog(user_id=str(admin.id), action="assign_profile",
                      details={"user_id": str(user_id), "profile_id": str(profile_id), "sync": sync_result})
     db.add(audit)
@@ -698,23 +756,16 @@ async def admin_test_agent_message(
             project_context=req.project_context,
             profile_name=req.profile_name,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Agent test failed: {str(exc)}")
+    except TokenQuotaExceeded:
+        raise HTTPException(status_code=429, detail="Daily token quota exceeded")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid agent test request")
+    except Exception:
+        error_id = str(uuid4())
+        logger.exception("Admin agent test failed error_id=%s", error_id)
+        raise HTTPException(status_code=500, detail=f"Agent test failed. Reference: {error_id}")
 
     await _track_kpi_message(db, str(admin.id))
-    if result.get("tokens_used"):
-        await record_token_usage(
-            db,
-            str(admin.id),
-            result.get("model", ""),
-            result["tokens_used"],
-            float(result.get("total_cost", 0.0) or 0.0),
-            provider=result.get("provider") or settings.llm_provider,
-            profile_id=result.get("profile_id"),
-        )
-
     return {
         "conversation_id": result.get("conversation_id"),
         "message_id": result.get("message_id"),
@@ -748,8 +799,13 @@ async def view_sessions(
     query = select(Session).order_by(desc(Session.created_at))
     if user_id: query = query.where(Session.user_id == user_id)
     if profile_name: query = query.where(Session.profile_name == profile_name)
-    if date_from: query = query.where(Session.created_at >= datetime.fromisoformat(date_from))
-    if date_to: query = query.where(Session.created_at <= datetime.fromisoformat(date_to))
+    try:
+        parsed_date_from = datetime.fromisoformat(date_from) if date_from else None
+        parsed_date_to = datetime.fromisoformat(date_to) if date_to else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="date_from and date_to must be ISO-8601 timestamps") from exc
+    if parsed_date_from: query = query.where(Session.created_at >= parsed_date_from)
+    if parsed_date_to: query = query.where(Session.created_at <= parsed_date_to)
     query = query.limit(limit)
     result = await db.execute(query)
     sessions = result.scalars().all()
@@ -1302,7 +1358,13 @@ async def hermes_repair_sync(
     profiles = (await db.execute(select(Profile).where(Profile.runtime_type == "hermes"))).scalars().all()
     sync_results = []
     for profile in profiles:
-        sync_results.append({"profile_id": str(profile.id), "result": await hermes_profile_sync_service.sync(profile)})
+        definitions = await _load_skill_definitions(db, profile.skills or [])
+        sync_results.append(
+            {
+                "profile_id": str(profile.id),
+                "result": await hermes_profile_sync_service.sync(profile, definitions),
+            }
+        )
     return {"runtime": result, "profiles": sync_results}
 
 
@@ -1833,25 +1895,31 @@ async def get_dashboard_stats(
     )
     activity_counts = {row[0]: row[1] for row in activity_counts.all()}
     
-    # Messages per day for last 7 days (chart data)
-    messages_per_day = []
-    for i in range(7):
-        day = (date.today() - timedelta(days=i)).isoformat()
-        result = await db.execute(
-            select(func.coalesce(func.sum(KPI.messages_sent), 0)).where(KPI.date == day)
+    daily_usage_result = await db.execute(
+        select(
+            KPI.date,
+            func.coalesce(func.sum(KPI.messages_sent), 0),
+            func.coalesce(func.sum(KPI.tokens_used), 0),
         )
-        messages_per_day.append({"date": day, "messages": result.scalar()})
-    messages_per_day.reverse()
-    
-    # Token usage per day for last 7 days
-    tokens_per_day = []
-    for i in range(7):
-        day = (date.today() - timedelta(days=i)).isoformat()
-        result = await db.execute(
-            select(func.coalesce(func.sum(KPI.tokens_used), 0)).where(KPI.date == day)
-        )
-        tokens_per_day.append({"date": day, "tokens": result.scalar() or 0})
-    tokens_per_day.reverse()
+        .where(KPI.date >= week_ago)
+        .group_by(KPI.date)
+    )
+    daily_usage = {
+        row[0]: {"messages": int(row[1] or 0), "tokens": int(row[2] or 0)}
+        for row in daily_usage_result.all()
+    }
+    chart_days = [
+        (date.today() - timedelta(days=i)).isoformat()
+        for i in range(6, -1, -1)
+    ]
+    messages_per_day = [
+        {"date": day, "messages": daily_usage.get(day, {}).get("messages", 0)}
+        for day in chart_days
+    ]
+    tokens_per_day = [
+        {"date": day, "tokens": daily_usage.get(day, {}).get("tokens", 0)}
+        for day in chart_days
+    ]
 
     profile_usage_result = await db.execute(
         select(Profile.name, func.count(AgentRun.id), func.coalesce(func.sum(AgentRun.total_cost), 0))
@@ -1892,9 +1960,10 @@ async def get_dashboard_stats(
     ]
 
     try:
-        hermes = await hermes_orchestrator.status()
-    except Exception as exc:
-        hermes = {"status": "error", "message": str(exc)}
+        async with asyncio.timeout(settings.dependency_health_timeout_seconds):
+            hermes = await hermes_orchestrator.status()
+    except Exception:
+        hermes = {"status": "error", "message": "Agent runtime unavailable"}
 
     alerts = []
     if hermes.get("run_health") == "unhealthy" or hermes.get("status") in {"error", "unhealthy"}:

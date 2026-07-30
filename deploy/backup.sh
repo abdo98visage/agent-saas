@@ -11,18 +11,36 @@ get_env() {
   grep -E "^$1=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-
 }
 
-mkdir -p "$BACKUP_DIR"
+RECIPIENT="${AGENTSAAS_BACKUP_RECIPIENT:-$(get_env AGENTSAAS_BACKUP_RECIPIENT)}"
+if [[ -z "$RECIPIENT" ]]; then
+  echo "AGENTSAAS_BACKUP_RECIPIENT is required; import the off-host GPG public key first." >&2
+  exit 1
+fi
+if ! gpg --batch --list-keys "$RECIPIENT" >/dev/null 2>&1; then
+  echo "The configured backup GPG public key is not imported: $RECIPIENT" >&2
+  exit 1
+fi
 
+umask 077
+mkdir -p "$BACKUP_DIR"
 POSTGRES_USER="$(get_env POSTGRES_USER)"
 POSTGRES_DB="$(get_env POSTGRES_DB)"
 
-"${COMPOSE[@]}" exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_DIR/postgres.sql"
-tar -C "$APP_HOME/data/hermes" -czf "$BACKUP_DIR/hermes-profiles.tar.gz" profiles
-cp "$ENV_FILE" "$BACKUP_DIR/env.production.backup"
+"${COMPOSE[@]}" exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \
+  | gpg --batch --yes --trust-model always --encrypt --recipient "$RECIPIENT" \
+      --output "$BACKUP_DIR/postgres.sql.gpg"
+
+tar -C "$APP_HOME/data/hermes" -czf - profiles \
+  | gpg --batch --yes --trust-model always --encrypt --recipient "$RECIPIENT" \
+      --output "$BACKUP_DIR/hermes-profiles.tar.gz.gpg"
+
+tar -C "$APP_HOME/data" -czf - attachments \
+  | gpg --batch --yes --trust-model always --encrypt --recipient "$RECIPIENT" \
+      --output "$BACKUP_DIR/attachments.tar.gz.gpg"
 
 (
   cd "$BACKUP_DIR"
-  sha256sum postgres.sql hermes-profiles.tar.gz env.production.backup > manifest.sha256
+  sha256sum postgres.sql.gpg hermes-profiles.tar.gz.gpg attachments.tar.gz.gpg > manifest.sha256
 )
 
-echo "Backup created: $BACKUP_DIR"
+echo "Encrypted backup created: $BACKUP_DIR"

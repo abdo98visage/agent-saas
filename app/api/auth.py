@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 from fastapi import APIRouter, HTTPException, Depends, status, Header, Cookie, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 from uuid import UUID, uuid4
 
@@ -14,9 +16,10 @@ from app.models.user import User
 from app.models.agent_template import AgentTemplate
 from app.models.profile import Profile
 from app.models.profile_user import ProfileUser
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.schemas.auth import BrowserSessionResponse, LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.schemas.user import UserResponse
 from app.core.config import settings
+from app.models.auth_session import AuthSession
 
 router = APIRouter()
 _ws_ticket_fallback: dict[str, datetime] = {}
@@ -48,12 +51,26 @@ async def consume_ws_ticket(app, ticket_id: str) -> bool:
 # --- Dependencies ---
 
 async def get_current_user(
+    request: Request,
     auth_header: str | None = Header(None, alias="Authorization"),
     access_token: str | None = Cookie(None, alias="access_token"),
+    csrf_cookie: str | None = Cookie(None, alias="csrf_token"),
+    csrf_header: str | None = Header(None, alias="X-CSRF-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Extract user from an HttpOnly browser cookie or Authorization Bearer token."""
     token = access_token
+    uses_browser_cookie = bool(access_token and not auth_header)
+    if (
+        uses_browser_cookie
+        and request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
+        and (
+            not csrf_cookie
+            or not csrf_header
+            or not secrets.compare_digest(csrf_cookie, csrf_header)
+        )
+    ):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
     if auth_header:
         try:
             scheme, bearer_token = auth_header.split()
@@ -105,23 +122,99 @@ def _set_session_cookie(response: Response, token: str) -> None:
         samesite="lax",
         path="/",
     )
+    response.set_cookie(
+        key="csrf_token",
+        value=secrets.token_urlsafe(32),
+        max_age=settings.access_token_expire_minutes * 60,
+        httponly=False,
+        secure=settings.environment.lower() == "production",
+        samesite="strict",
+        path="/",
+    )
 
 
-@router.post("/login", response_model=TokenResponse)
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key="refresh_token",
+        value=token,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        httponly=True,
+        secure=settings.environment.lower() == "production",
+        samesite="strict",
+        path="/api/auth",
+    )
+
+
+def _refresh_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _normalize_client_type(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"browser", "desktop"} else "api"
+
+
+async def _issue_token_pair(
+    db: AsyncSession,
+    user: User,
+    response: Response,
+    client_type: str,
+) -> TokenResponse | BrowserSessionResponse:
+    access_token = create_access_token(
+        str(user.id),
+        user.role,
+        extra_claims={"ver": int(user.token_version or 0)},
+    )
+    raw_refresh_token = secrets.token_urlsafe(48)
+    now = datetime.utcnow()
+    db.add(
+        AuthSession(
+            user_id=user.id,
+            refresh_token_hash=_refresh_token_hash(raw_refresh_token),
+            token_version=int(user.token_version or 0),
+            expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+            client_type=client_type,
+        )
+    )
+    await db.flush()
+    _set_session_cookie(response, access_token)
+    _set_refresh_cookie(response, raw_refresh_token)
+    if client_type == "browser":
+        return BrowserSessionResponse(expires_in=settings.access_token_expire_minutes * 60)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=raw_refresh_token if client_type == "desktop" else None,
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
+
+
+@router.post("/login", response_model=TokenResponse | BrowserSessionResponse)
 async def login(
     request: LoginRequest,
     response: Response,
+    client_type_header: str | None = Header(None, alias="X-Client-Type"),
     db: AsyncSession = Depends(get_db),
 ):
     """Login and get JWT access token."""
     result = await db.execute(select(User).where(User.email == request.email))
     user = result.scalar_one_or_none()
+    now = datetime.utcnow()
+    if user and user.locked_until and user.locked_until > now:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user or not verify_password(request.password, user.hashed_password):
+        if user:
+            user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
+            if user.failed_login_attempts >= settings.auth_lockout_attempts:
+                user.locked_until = now + timedelta(minutes=settings.auth_lockout_minutes)
+                user.failed_login_attempts = 0
+            await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
     if not user.is_activated:
         raise HTTPException(status_code=403, detail="Account not activated. Please activate first.")
+    user.failed_login_attempts = 0
+    user.locked_until = None
 
     # SECURITY: Audit login action
     from app.models.audit_log import AuditLog
@@ -129,9 +222,7 @@ async def login(
     db.add(audit)
     await db.flush()
 
-    token = create_access_token(str(user.id), user.role, extra_claims={"ver": int(user.token_version or 0)})
-    _set_session_cookie(response, token)
-    return TokenResponse(access_token=token)
+    return await _issue_token_pair(db, user, response, _normalize_client_type(client_type_header))
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -143,10 +234,11 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     )
 
 
-@router.post("/activate", response_model=TokenResponse)
+@router.post("/activate", response_model=TokenResponse | BrowserSessionResponse)
 async def activate_account(
     request: dict,
     response: Response,
+    client_type_header: str | None = Header(None, alias="X-Client-Type"),
     db: AsyncSession = Depends(get_db),
 ):
     """Activate an employee account using invite token + set password."""
@@ -188,9 +280,52 @@ async def activate_account(
     audit = AuditLog(user_id=user.id, action="account_activated", details={"email": user.email})
     db.add(audit)
 
-    access_token = create_access_token(str(user.id), user.role, extra_claims={"ver": int(user.token_version or 0)})
-    _set_session_cookie(response, access_token)
-    return TokenResponse(access_token=access_token)
+    return await _issue_token_pair(db, user, response, _normalize_client_type(client_type_header))
+
+
+@router.post("/refresh", response_model=TokenResponse | BrowserSessionResponse)
+async def refresh_session(
+    request: RefreshRequest,
+    response: Response,
+    refresh_cookie: str | None = Cookie(None, alias="refresh_token"),
+    client_type_header: str | None = Header(None, alias="X-Client-Type"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rotate a refresh token and issue a new access token."""
+    raw_refresh_token = request.refresh_token or refresh_cookie
+    if not raw_refresh_token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+
+    result = await db.execute(
+        select(AuthSession)
+        .where(AuthSession.refresh_token_hash == _refresh_token_hash(raw_refresh_token))
+        .with_for_update()
+    )
+    auth_session = result.scalar_one_or_none()
+    now = datetime.utcnow()
+    if not auth_session or auth_session.revoked_at or auth_session.expires_at <= now:
+        response.delete_cookie("refresh_token", path="/api/auth")
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    user = await db.get(User, auth_session.user_id)
+    if (
+        not user
+        or not user.is_active
+        or not user.is_activated
+        or auth_session.token_version != int(user.token_version or 0)
+    ):
+        auth_session.revoked_at = now
+        response.delete_cookie("refresh_token", path="/api/auth")
+        raise HTTPException(status_code=401, detail="Refresh session has been revoked")
+
+    auth_session.revoked_at = now
+    auth_session.last_used_at = now
+    return await _issue_token_pair(
+        db,
+        user,
+        response,
+        _normalize_client_type(client_type_header or auth_session.client_type),
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -207,7 +342,14 @@ async def logout(
 ):
     """Clear the browser session cookie."""
     user.token_version = int(user.token_version or 0) + 1
+    await db.execute(
+        update(AuthSession)
+        .where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=datetime.utcnow())
+    )
     response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/api/auth")
+    response.delete_cookie("csrf_token", path="/")
     return {"message": "Logged out"}
 
 

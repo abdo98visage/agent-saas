@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_HOME="${AGENTSAAS_HOME:-/opt/agentsaas}"
 RELEASE_BASE_URL="${AGENTSAAS_RELEASE_BASE_URL:-https://downloads.example.com/agentsaas}"
-VERSION="latest"
+VERSION=""
 DOMAIN=""
 ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
@@ -42,7 +42,7 @@ while [[ $# -gt 0 ]]; do
     --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
     --admin-password) ADMIN_PASSWORD="${2:-}"; shift 2 ;;
     --minimax-key) MINIMAX_KEY="${2:-}"; shift 2 ;;
-    --version) VERSION="${2:-latest}"; shift 2 ;;
+    --version) VERSION="${2:-}"; shift 2 ;;
     --telegram-bot-token) TELEGRAM_BOT_TOKEN="${2:-}"; shift 2 ;;
     --sentry-dsn) SENTRY_DSN="${2:-}"; shift 2 ;;
     --smtp-host) SMTP_HOST="${2:-}"; shift 2 ;;
@@ -56,9 +56,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$DOMAIN" || -z "$ADMIN_EMAIL" || -z "$MINIMAX_KEY" ]]; then
-  echo "Missing required --domain, --admin-email, or --minimax-key." >&2
+if [[ -z "$DOMAIN" || -z "$ADMIN_EMAIL" || -z "$MINIMAX_KEY" || -z "$VERSION" ]]; then
+  echo "Missing required --domain, --admin-email, --minimax-key, or --version." >&2
   usage
+  exit 1
+fi
+
+if [[ "$VERSION" == "latest" ]]; then
+  echo "--version must be an immutable release version, not latest." >&2
+  exit 1
+fi
+
+if [[ -z "$API_IMAGE" || -z "$ADMIN_IMAGE" || -z "$HERMES_RUNTIME_IMAGE" ]]; then
+  echo "Provide --api-image, --admin-image, and --hermes-runtime-image using immutable tags or digests." >&2
   exit 1
 fi
 
@@ -109,7 +119,8 @@ download_asset() {
 }
 
 prepare_files() {
-  mkdir -p "$APP_HOME/deploy" "$APP_HOME/data/postgres" "$APP_HOME/data/redis" "$APP_HOME/data/hermes/profiles" "$APP_HOME/backups"
+  mkdir -p "$APP_HOME/deploy" "$APP_HOME/data/postgres" "$APP_HOME/data/redis" "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/attachments" "$APP_HOME/backups"
+  chown -R 10001:10001 "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/attachments"
 
   download_asset "docker-compose.release.yml" "$APP_HOME/compose.yml"
   download_asset "deploy/Caddyfile" "$APP_HOME/deploy/Caddyfile"
@@ -134,21 +145,22 @@ write_env() {
     ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
   fi
 
-  local secret_key fernet_key postgres_password hermes_secret
+  local secret_key fernet_key postgres_password hermes_secret telegram_webhook_secret
   secret_key="$(random_hex)"
   fernet_key="$(random_fernet)"
   postgres_password="$(random_hex)"
   hermes_secret="$(random_hex)"
-  API_IMAGE="${API_IMAGE:-ghcr.io/example/agentsaas-api:$VERSION}"
-  ADMIN_IMAGE="${ADMIN_IMAGE:-ghcr.io/example/agentsaas-admin:$VERSION}"
-  HERMES_RUNTIME_IMAGE="${HERMES_RUNTIME_IMAGE:-ghcr.io/example/agentsaas-hermes-runtime:$VERSION}"
-
+  telegram_webhook_secret=""
+  if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+    telegram_webhook_secret="$(random_hex)"
+  fi
   cat > "$env_file" <<EOF
 APP_NAME=FQ-SaaS
 DEBUG=False
 ENVIRONMENT=production
 DOMAIN=$DOMAIN
 ALLOWED_ORIGINS=["https://$DOMAIN"]
+PUBLIC_APP_ORIGIN=https://$DOMAIN
 NEXT_PUBLIC_API_URL=/api
 
 SECRET_KEY=$secret_key
@@ -169,7 +181,7 @@ CELERY_BROKER_URL=redis://redis:6379/1
 RATE_LIMIT_BACKEND=redis
 RATE_LIMIT_PER_MINUTE=100
 AUTH_RATE_LIMIT_PER_MINUTE=10
-WEBSOCKET_MAX_MESSAGE_BYTES=32768
+WEBSOCKET_MAX_MESSAGE_BYTES=8388608
 KPI_TOKEN_ALERT_THRESHOLD=40000
 KPI_COST_ALERT_THRESHOLD=25
 
@@ -192,7 +204,7 @@ HERMES_HEALTH_PATH=/health
 HERMES_MANAGED_EXTERNALLY=true
 
 TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-TELEGRAM_WEBHOOK_SECRET=
+TELEGRAM_WEBHOOK_SECRET=$telegram_webhook_secret
 TELEGRAM_WEBHOOK_URL=https://$DOMAIN/api/telegram/webhook
 
 SENTRY_DSN=$SENTRY_DSN
@@ -211,6 +223,7 @@ AGENTSAAS_DATA_DIR=$APP_HOME/data
 AGENTSAAS_API_IMAGE=$API_IMAGE
 AGENTSAAS_ADMIN_IMAGE=$ADMIN_IMAGE
 AGENTSAAS_HERMES_RUNTIME_IMAGE=$HERMES_RUNTIME_IMAGE
+AGENTSAAS_BACKUP_RECIPIENT=${AGENTSAAS_BACKUP_RECIPIENT:-}
 EOF
 }
 

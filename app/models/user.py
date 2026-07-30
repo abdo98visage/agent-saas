@@ -18,6 +18,8 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     is_activated: Mapped[bool] = mapped_column(Boolean, default=True, index=True)  # Employee must activate via invite
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     invite_token: Mapped[str] = mapped_column(String(64), nullable=True, index=True)  # One-time activation token
     invite_token_expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     max_tokens_per_day: Mapped[int] = mapped_column(Integer, default=50000)

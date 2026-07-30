@@ -5,6 +5,8 @@ Includes heartbeat for online status tracking and activity logging.
 """
 import asyncio
 import json
+import logging
+import time
 from uuid import UUID, uuid4
 from typing import Optional
 from datetime import datetime
@@ -12,7 +14,6 @@ from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
 from sqlalchemy import select, update, func
-from datetime import date
 
 from app.core.config import settings
 from app.core.db import async_session
@@ -21,20 +22,108 @@ from app.api.auth import consume_ws_ticket
 from app.models.user import User
 from app.models.session import Session
 from app.models.message import Message
-from app.models.kpi import KPI
 from app.models.user_activity import UserActivity
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.services.agent_service import AgentService
 from app.services.hermes_orchestrator import hermes_orchestrator
 from app.services.pricing_service import pricing_service
-from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
+from app.services.token_tracker import (
+    check_request_quota,
+    check_token_quota,
+    release_token_reservation,
+    reserve_token_quota,
+    reserve_request_quota,
+    settle_token_reservation,
+    TokenQuotaExceeded,
+)
 from app.services.presence_service import presence_service
+from app.services.attachments import normalize_image_attachments, persist_image_attachments
 
 router = APIRouter()
 agent_service = AgentService()
+logger = logging.getLogger("fqsaas.websocket")
 READ_ONLY_COWORK_TOOLS = {"list_files", "search_files", "read_file", "read_multiple_files"}
 ALL_COWORK_TOOLS = READ_ONLY_COWORK_TOOLS | {"propose_patch"}
 MAX_COWORK_STEPS = 8
+CLIENT_EVENT_TIMEOUT_SECONDS = 300
+
+
+async def _reserve_cowork_token_quota(
+    user: "WebSocketUser",
+    conversation_id: str,
+    agent_template_name: str,
+    profile_name: Optional[str],
+    user_message: str,
+    project_context: Optional[str],
+) -> str:
+    async with async_session() as db:
+        full_prompt, _model, _resolved, _temperature, max_tokens = await agent_service.get_system_prompt(
+            db,
+            user.id,
+            agent_template_name,
+            profile_name=profile_name,
+        )
+        profile = await agent_service.resolve_user_profile(db, user.id, profile_name=profile_name)
+        provider, _api_key, api_key_id = await agent_service._resolve_runtime_provider_and_key(
+            db,
+            user.id,
+            profile,
+        )
+        history_result = await db.execute(
+            select(Message)
+            .join(Session, Session.id == Message.session_id)
+            .where(
+                Session.user_id == user.id,
+                Session.id == UUID(conversation_id),
+            )
+            .order_by(Message.created_at.desc())
+            .limit(20)
+        )
+        messages = [{"role": "system", "content": full_prompt}]
+        messages.extend(
+            {"role": message.role, "content": message.content}
+            for message in reversed(history_result.scalars().all())
+        )
+        if project_context:
+            messages.append({"role": "system", "content": project_context})
+        messages.append({"role": "user", "content": user_message})
+        requested_tokens = agent_service._reservation_tokens(
+            messages,
+            max_tokens,
+            runtime_overhead_tokens=settings.hermes_runtime_reservation_overhead_tokens,
+        ) * MAX_COWORK_STEPS
+        return await reserve_token_quota(
+            user_id=str(user.id),
+            user_daily_limit=user.max_tokens_per_day,
+            requested_tokens=requested_tokens,
+            provider=provider,
+            profile_id=str(profile.id) if profile else None,
+            profile_daily_limit=profile.max_tokens_per_day if profile else None,
+            api_key_id=str(api_key_id) if api_key_id else None,
+        )
+
+
+def _profile_cowork_tools(profile) -> set[str]:
+    configured = {str(item).strip().lower() for item in (profile.allowed_tools or []) if str(item).strip()}
+    explicit = configured & ALL_COWORK_TOOLS
+    if explicit:
+        return explicit
+    if configured & {"documents", "document", "spreadsheets", "workspace", "files", "cowork"}:
+        return set(ALL_COWORK_TOOLS)
+    # Backward-compatible legacy profiles remain usable, but all writes still
+    # require an explicit server-enforced approval below.
+    return set(ALL_COWORK_TOOLS) if not configured else set()
+
+
+def _profile_requires_approval(profile, tool_name: str) -> bool:
+    configured = {
+        str(item).strip().lower()
+        for item in (profile.approval_required_tools or [])
+        if str(item).strip()
+    }
+    return tool_name in configured or bool(
+        configured & {"documents", "document", "workspace", "files", "cowork"}
+    )
 
 
 def _debug_log(event: str, **payload):
@@ -115,21 +204,6 @@ async def get_websocket_user(token: str, app=None) -> Optional[WebSocketUser]:
         )
 
 
-async def track_kpi(user_id: str):
-    """Track KPI: increment daily messages."""
-    today = date.today().isoformat()
-    async with async_session.begin() as db:
-        result = await db.execute(
-            select(KPI).where(KPI.user_id == user_id, KPI.date == today)
-        )
-        kpi = result.scalar_one_or_none()
-        if kpi:
-            kpi.messages_sent += 1
-        else:
-            kpi = KPI(user_id=user_id, date=today, messages_sent=1)
-            db.add(kpi)
-
-
 async def log_user_activity(user_id: UUID, action: str, details: dict = None, session_id: UUID = None):
     """Log user activity for real-time monitoring."""
     async with async_session.begin() as db:
@@ -168,6 +242,10 @@ def _normalize_workspace_payload(msg: dict) -> dict:
         "selected_files": [str(item)[:500] for item in selected_files[:100] if item],
         "file_paths": [str(item)[:500] for item in file_paths[:200] if item],
     }
+
+
+def _normalize_attachments_payload(msg: dict) -> list[dict]:
+    return normalize_image_attachments(msg.get("attachments") or [])
 
 
 def _has_workspace_context(workspace: dict) -> bool:
@@ -257,9 +335,43 @@ async def _save_run_event(db, run_id: UUID, event_type: str, payload: dict):
     await db.flush()
 
 
+async def _fail_active_cowork_run(user_id: UUID, conversation_id: str, exc: Exception) -> None:
+    try:
+        session_id = UUID(conversation_id)
+    except ValueError:
+        return
+    async with async_session.begin() as db:
+        result = await db.execute(
+            select(AgentRun)
+            .where(
+                AgentRun.user_id == user_id,
+                AgentRun.session_id == session_id,
+                AgentRun.status == "running",
+            )
+            .order_by(AgentRun.started_at.desc())
+            .limit(1)
+        )
+        run = result.scalar_one_or_none()
+        if run:
+            await agent_service._finish_run(
+                db,
+                run,
+                "failed",
+                0,
+                error_code=exc.__class__.__name__,
+                error_message=str(exc)[:2000],
+            )
+
+
 async def _wait_for_client_event(websocket: WebSocket, user: WebSocketUser, allowed_types: set[str]) -> dict:
     while True:
-        raw = await websocket.receive_text()
+        try:
+            raw = await asyncio.wait_for(
+                websocket.receive_text(),
+                timeout=CLIENT_EVENT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Timed out waiting for the desktop client") from exc
         if len(raw.encode("utf-8")) > settings.websocket_max_message_bytes:
             await websocket.send_json({"type": "error", "detail": "Message too large"})
             continue
@@ -276,6 +388,7 @@ async def _wait_for_client_event(websocket: WebSocket, user: WebSocketUser, allo
             continue
         if msg_type == "heartbeat":
             await websocket.send_json({"type": "heartbeat_ack", "online": True})
+            await presence_service.heartbeat(user.id)
             await update_last_seen(user.id)
             continue
         if msg_type not in allowed_types:
@@ -294,7 +407,10 @@ async def _run_cowork_loop(
     effective_profile_name: Optional[str],
     workspace: dict,
     approval_mode: str,
+    attachments: list[dict],
+    client_message_id: Optional[UUID],
 ) -> dict:
+    run_started_at = time.monotonic()
     async with async_session() as db:
         user_obj = await agent_service._get_user(db, user.id)
         _, model_name, resolved_profile, _temperature, _max_tokens = await agent_service.get_system_prompt(
@@ -304,7 +420,8 @@ async def _run_cowork_loop(
             profile_name=effective_profile_name,
         )
         profile = await agent_service.resolve_user_profile(db, user.id, profile_name=effective_profile_name)
-        effective_provider, api_key = await agent_service._resolve_runtime_provider_and_key(db, user.id, profile)
+        allowed_cowork_tools = _profile_cowork_tools(profile)
+        effective_provider, api_key, _api_key_id = await agent_service._resolve_runtime_provider_and_key(db, user.id, profile)
         await agent_service._enforce_profile_ready(profile, effective_provider)
         await agent_service._enforce_profile_request_limit(db, profile)
         await agent_service._enforce_profile_usage_limits(db, profile)
@@ -315,12 +432,33 @@ async def _run_cowork_loop(
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
 
+        history_result = await db.execute(
+            select(Message)
+            .where(Message.session_id == session_obj.id)
+            .order_by(Message.created_at.desc())
+            .limit(20)
+        )
+        conversation_history = [
+            {"role": message.role, "content": message.content}
+            for message in reversed(history_result.scalars().all())
+        ]
+
+        user_message_id = uuid4()
+        stored_attachments = await asyncio.to_thread(
+            persist_image_attachments,
+            attachments,
+            user.id,
+            session_obj.id,
+            user_message_id,
+        )
         user_msg = Message(
-            id=uuid4(),
+            id=user_message_id,
             session_id=session_obj.id,
             role="user",
             content=user_message,
             project_context=project_context,
+            attachments=stored_attachments,
+            client_message_id=client_message_id,
         )
         db.add(user_msg)
         await db.flush()
@@ -344,7 +482,7 @@ async def _run_cowork_loop(
         total_cost = 0.0
         output_tokens = 0
         input_tokens = 0
-        approval_granted_for_message = approval_mode in {"approve_for_me", "full_access"}
+        approval_granted_for_message = False
 
         for _step in range(MAX_COWORK_STEPS):
             payload = {
@@ -360,26 +498,29 @@ async def _run_cowork_loop(
                     "name": profile.name,
                     "version": profile.version,
                     "hermes_profile_id": profile.hermes_profile_id,
+                    "runtime_toolsets": profile.runtime_toolsets,
                 },
                 "session_id": str(session_obj.id),
+                "history": conversation_history,
                 "message": user_message,
                 "project_context": project_context,
+                "attachments": attachments,
                 "provider": effective_provider,
                 "model": model_name,
                 "api_key": api_key,
                 "workspace": workspace,
                 "cowork": {
                     "protocol": "cowork_v1",
-                    "allowed_tools": sorted(ALL_COWORK_TOOLS),
+                    "allowed_tools": sorted(allowed_cowork_tools),
                     "transcript": transcript,
                 },
             }
             result = await hermes_orchestrator.run_agent(payload)
             event_type = result.get("type") or "assistant_final"
             usage = result.get("usage") or {}
-            total_cost = max(total_cost, float(result.get("total_cost", 0.0) or 0.0))
-            output_tokens = max(output_tokens, int(usage.get("output_tokens") or usage.get("completion_tokens") or 0))
-            input_tokens = max(input_tokens, int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0))
+            total_cost += float(result.get("total_cost", 0.0) or 0.0)
+            output_tokens += int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+            input_tokens += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
 
             async with async_session() as event_db:
                 await _save_run_event(event_db, run.id, event_type, result)
@@ -388,7 +529,7 @@ async def _run_cowork_loop(
             if event_type == "tool_request":
                 request_id = result.get("request_id") or str(uuid4())
                 tool_name = result.get("tool") or ""
-                if tool_name not in READ_ONLY_COWORK_TOOLS:
+                if tool_name not in READ_ONLY_COWORK_TOOLS or tool_name not in allowed_cowork_tools:
                     raise RuntimeError(f"Unsupported cowork tool requested by the smart agent: {tool_name}")
                 tool_event = {
                     "type": "tool_request",
@@ -416,6 +557,8 @@ async def _run_cowork_loop(
 
             if event_type == "apply_request":
                 request_id = result.get("request_id") or str(uuid4())
+                if "propose_patch" not in allowed_cowork_tools:
+                    raise RuntimeError("This profile is not allowed to modify workspace files")
                 current_apply_signature = _canonicalize_apply_changes(result.get("changes") or [])
                 previous_apply_signature = _last_successful_apply_signature(transcript)
                 if previous_apply_signature and previous_apply_signature == current_apply_signature:
@@ -435,7 +578,10 @@ async def _run_cowork_loop(
                     result = {"type": "assistant_final", "content": final_content}
                     event_type = "assistant_final"
                 else:
-                    require_approval = approval_mode == "ask_for_approval" and not approval_granted_for_message
+                    require_approval = (
+                        _profile_requires_approval(profile, "propose_patch")
+                        or not approval_granted_for_message
+                    )
                     approval_event = None
                     if require_approval:
                         approval_event = {
@@ -452,7 +598,7 @@ async def _run_cowork_loop(
                         "summary": result.get("summary") or "Apply proposed workspace changes",
                         "changes": result.get("changes") or [],
                         "require_approval": require_approval,
-                        "approval_mode": approval_mode,
+                        "approval_mode": "ask_for_approval" if require_approval else "approved_for_message",
                     }
                     await websocket.send_json(apply_event)
                     apply_result = await _wait_for_client_event(websocket, user, {"apply_result"})
@@ -507,7 +653,7 @@ async def _run_cowork_loop(
                     final_db,
                     persisted_run,
                     "completed",
-                    0,
+                    int((time.monotonic() - run_started_at) * 1000),
                     output_tokens=effective_output_tokens,
                     input_tokens=effective_input_tokens,
                     total_cost=cost_calc.total_cost,
@@ -520,8 +666,10 @@ async def _run_cowork_loop(
                 "message_id": str(assistant_msg.id),
                 "tokens_used": effective_input_tokens + effective_output_tokens,
                 "input_tokens": effective_input_tokens,
+                "output_tokens": effective_output_tokens,
                 "total_tokens": effective_input_tokens + effective_output_tokens,
                 "model": model_name,
+                "provider": effective_provider,
                 "profile_name": resolved_profile,
                 "profile_id": str(profile.id) if profile else None,
                 "total_cost": cost_calc.total_cost,
@@ -535,7 +683,7 @@ async def _run_cowork_loop(
                 failed_db,
                 persisted_run,
                 "failed",
-                0,
+                int((time.monotonic() - run_started_at) * 1000),
                 output_tokens=output_tokens,
                 input_tokens=input_tokens,
                 total_cost=total_cost,
@@ -639,6 +787,7 @@ async def websocket_chat(
 
             if msg_type == "heartbeat":
                 await websocket.send_json({"type": "heartbeat_ack", "online": True})
+                await presence_service.heartbeat(user.id)
                 await update_last_seen(user.id)
                 continue
 
@@ -676,12 +825,32 @@ async def websocket_chat(
 
             active_conversation_id = requested_conversation_id
             user_message = msg.get("content", "").strip()
+            raw_client_message_id = msg.get("client_message_id")
+            client_message_id = None
+            if raw_client_message_id:
+                try:
+                    client_message_id = UUID(str(raw_client_message_id))
+                except ValueError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "detail": "Invalid client_message_id",
+                        "client_message_id": str(raw_client_message_id),
+                    })
+                    continue
             project_context = msg.get("project_context")
             effective_profile_name = msg.get("profile_name") or profile_name
             approval_mode = str(msg.get("approval_mode") or "ask_for_approval").strip()
             if approval_mode not in {"ask_for_approval", "approve_for_me", "full_access"}:
                 approval_mode = "ask_for_approval"
+            # The desktop value is a UX preference only. It must never expand
+            # the profile policy or bypass server-side write approval.
+            approval_mode = "ask_for_approval"
             workspace = _normalize_workspace_payload(msg)
+            try:
+                attachments = _normalize_attachments_payload(msg)
+            except ValueError as exc:
+                await websocket.send_json({"type": "error", "detail": str(exc)})
+                continue
             cowork_matches = _cowork_match_phrases(user_message, workspace)
             has_workspace = _has_workspace_context(workspace)
             effective_project_context = _effective_project_context(
@@ -691,21 +860,76 @@ async def websocket_chat(
             )
 
             if not user_message:
-                await websocket.send_json({"type": "error", "detail": "Empty message"})
+                await websocket.send_json({
+                    "type": "error",
+                    "detail": "Empty message",
+                    "client_message_id": str(client_message_id) if client_message_id else None,
+                })
                 continue
 
+            if client_message_id:
+                async with async_session.begin() as db:
+                    duplicate_result = await db.execute(
+                        select(Message).where(
+                            Message.session_id == UUID(active_conversation_id),
+                            Message.role == "user",
+                            Message.client_message_id == client_message_id,
+                        )
+                    )
+                    duplicate_user_message = duplicate_result.scalar_one_or_none()
+                    duplicate_assistant_message = None
+                    if duplicate_user_message:
+                        assistant_result = await db.execute(
+                            select(Message)
+                            .where(
+                                Message.session_id == duplicate_user_message.session_id,
+                                Message.role == "assistant",
+                                Message.created_at >= duplicate_user_message.created_at,
+                            )
+                            .order_by(Message.created_at.asc())
+                            .limit(1)
+                        )
+                        duplicate_assistant_message = assistant_result.scalar_one_or_none()
+                if duplicate_user_message:
+                    if duplicate_assistant_message:
+                        await websocket.send_json({
+                            "type": "done",
+                            "message_id": str(duplicate_assistant_message.id),
+                            "tokens_used": duplicate_assistant_message.tokens_used or 0,
+                            "conversation_id": active_conversation_id,
+                            "client_message_id": str(client_message_id),
+                            "replayed": True,
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "detail": "The previous request with this id is still incomplete",
+                            "client_message_id": str(client_message_id),
+                            "retryable": True,
+                        })
+                    continue
+
             async with async_session.begin() as db:
-                if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
-                    await websocket.send_json({"type": "error", "detail": "Daily request quota exceeded"})
+                if not await reserve_request_quota(db, str(user.id), user.max_requests_per_day):
+                    await websocket.send_json({
+                        "type": "error",
+                        "detail": "Daily request quota exceeded",
+                        "client_message_id": str(client_message_id) if client_message_id else None,
+                    })
                     continue
                 if not await check_token_quota(db, str(user.id), user.max_tokens_per_day, provider=settings.llm_provider):
-                    await websocket.send_json({"type": "error", "detail": "Daily token quota exceeded"})
+                    await websocket.send_json({
+                        "type": "error",
+                        "detail": "Daily token quota exceeded",
+                        "client_message_id": str(client_message_id) if client_message_id else None,
+                    })
                     continue
 
             # Send start event
             await websocket.send_json({
                 "type": "start",
                 "conversation_id": active_conversation_id,
+                "client_message_id": str(client_message_id) if client_message_id else None,
             })
             async with async_session.begin() as db:
                 resolved_profile_obj = await agent_service.resolve_user_profile(
@@ -717,7 +941,8 @@ async def websocket_chat(
             use_cowork = bool(
                 resolved_profile_obj
                 and resolved_profile_obj.runtime_type == "hermes"
-                and has_workspace
+                and _should_use_cowork_mode(user_message, workspace)
+                and not attachments
             )
             force_direct_runtime = False
             _debug_log(
@@ -730,11 +955,20 @@ async def websocket_chat(
                 cowork_matches=cowork_matches,
                 use_cowork=use_cowork,
                 force_direct_runtime=force_direct_runtime,
-                user_message_preview=user_message[:200],
+                user_message_length=len(user_message),
             )
 
             if use_cowork:
+                cowork_reservation_id = None
                 try:
+                    cowork_reservation_id = await _reserve_cowork_token_quota(
+                        user,
+                        active_conversation_id,
+                        agent_template_name,
+                        effective_profile_name,
+                        user_message,
+                        effective_project_context,
+                    )
                     cowork_done_payload = await _run_cowork_loop(
                         websocket=websocket,
                         user=user,
@@ -745,32 +979,46 @@ async def websocket_chat(
                         effective_profile_name=effective_profile_name,
                         workspace=workspace,
                         approval_mode=approval_mode,
+                        attachments=attachments,
+                        client_message_id=client_message_id,
                     )
                 except asyncio.CancelledError:
+                    if cowork_reservation_id:
+                        await release_token_reservation(cowork_reservation_id)
                     raise
-                except Exception as e:
-                    await websocket.send_json({"type": "error", "detail": f"Cowork error: {str(e)}"})
+                except TokenQuotaExceeded:
+                    await websocket.send_json({
+                        "type": "error",
+                        "detail": "Daily token quota exceeded",
+                        "client_message_id": str(client_message_id) if client_message_id else None,
+                    })
                     continue
+                except Exception as e:
+                    if cowork_reservation_id:
+                        await release_token_reservation(cowork_reservation_id)
+                    await _fail_active_cowork_run(user.id, active_conversation_id, e)
+                    error_id = str(uuid4())
+                    logger.exception("Cowork run failed error_id=%s", error_id)
+                    await websocket.send_json({
+                        "type": "error",
+                        "detail": f"Agent request failed. Reference: {error_id}",
+                        "client_message_id": str(client_message_id) if client_message_id else None,
+                    })
+                    continue
+
+                await settle_token_reservation(
+                    cowork_reservation_id,
+                    model=cowork_done_payload.get("model", ""),
+                    actual_tokens=int(cowork_done_payload.get("tokens_used", 0) or 0),
+                    cost=float(cowork_done_payload.get("total_cost", 0.0) or 0.0),
+                )
 
                 await websocket.send_json({
                     "type": "done",
+                    "client_message_id": str(client_message_id) if client_message_id else None,
                     **cowork_done_payload,
                 })
 
-                if cowork_done_payload.get("tokens_used") and cowork_done_payload.get("model"):
-                    async with async_session.begin() as db:
-                        profile_uuid = cowork_done_payload.get("profile_id")
-                        await record_token_usage(
-                            db,
-                            str(user.id),
-                            cowork_done_payload["model"],
-                            cowork_done_payload["tokens_used"],
-                            float(cowork_done_payload.get("total_cost", 0.0) or 0.0),
-                            provider=cowork_done_payload.get("provider") or settings.llm_provider,
-                            profile_id=UUID(profile_uuid) if profile_uuid else None,
-                        )
-
-                await track_kpi(str(user.id))
                 await log_user_activity(
                     user.id, "message_sent",
                     details={
@@ -804,20 +1052,25 @@ async def websocket_chat(
                         project_context=effective_project_context,
                         profile_name=effective_profile_name,
                         force_direct_runtime=force_direct_runtime,
+                        attachments=attachments,
+                        client_message_id=client_message_id,
                     )
                     try:
                         async for chunk in stream:
                             event_type = chunk.get("type", "chunk")
 
                             if event_type == "chunk":
+                                assistant_msg_id = chunk.get("message_id") or assistant_msg_id
                                 content = chunk.get("content", "")
                                 full_response += content
                                 await websocket.send_json({
                                     "type": "chunk",
                                     "content": content,
                                     "message_id": assistant_msg_id,
+                                    "client_message_id": str(client_message_id) if client_message_id else None,
                                 })
                             elif event_type == "done":
+                                assistant_msg_id = chunk.get("message_id") or assistant_msg_id
                                 model_name = chunk.get("model", "")
                                 resolved_profile = chunk.get("profile_name", "")
                                 resolved_profile_id = chunk.get("profile_id")
@@ -827,9 +1080,16 @@ async def websocket_chat(
                                     "type": "done",
                                     "message_id": assistant_msg_id,
                                     "tokens_used": tokens_used,
+                                    "input_tokens": chunk.get("input_tokens", 0),
+                                    "output_tokens": chunk.get("output_tokens", 0),
+                                    "total_tokens": chunk.get("total_tokens", tokens_used),
+                                    "total_cost": total_cost,
                                     "model": model_name,
+                                    "provider": chunk.get("provider") or "",
+                                    "profile_id": resolved_profile_id,
                                     "profile_name": resolved_profile,
                                     "conversation_id": active_conversation_id,
+                                    "client_message_id": str(client_message_id) if client_message_id else None,
                                 }
                     finally:
                         await stream.aclose()
@@ -838,8 +1098,21 @@ async def websocket_chat(
                         raise RuntimeError("Agent stream completed without a done event")
             except asyncio.CancelledError:
                 raise
+            except TokenQuotaExceeded:
+                await websocket.send_json({
+                    "type": "error",
+                    "detail": "Daily token quota exceeded",
+                    "client_message_id": str(client_message_id) if client_message_id else None,
+                })
+                continue
             except Exception as e:
-                await websocket.send_json({"type": "error", "detail": f"Streaming error: {str(e)}"})
+                error_id = str(uuid4())
+                logger.exception("WebSocket stream failed error_id=%s", error_id)
+                await websocket.send_json({
+                    "type": "error",
+                    "detail": f"Agent request failed. Reference: {error_id}",
+                    "client_message_id": str(client_message_id) if client_message_id else None,
+                })
                 continue
 
             if done_payload is None:
@@ -850,24 +1123,10 @@ async def websocket_chat(
                     "model": model_name,
                     "profile_name": resolved_profile,
                     "conversation_id": active_conversation_id,
+                    "client_message_id": str(client_message_id) if client_message_id else None,
                 }
 
             await websocket.send_json(done_payload)
-
-            # Track token usage & KPI (outside the streaming session)
-            if tokens_used and model_name:
-                async with async_session.begin() as db:
-                    await record_token_usage(
-                        db,
-                        str(user.id),
-                        model_name,
-                        tokens_used,
-                        total_cost,
-                        provider=done_payload.get("provider") or settings.llm_provider,
-                        profile_id=resolved_profile_id,
-                    )
-
-            await track_kpi(str(user.id))
 
             # Log activity
             await log_user_activity(
@@ -881,8 +1140,10 @@ async def websocket_chat(
     except asyncio.CancelledError:
         raise
     except Exception as e:
+        error_id = str(uuid4())
+        logger.exception("WebSocket handler failed error_id=%s", error_id)
         try:
-            await websocket.send_json({"type": "error", "detail": str(e)})
+            await websocket.send_json({"type": "error", "detail": f"Request failed. Reference: {error_id}"})
         except Exception:
             pass
     finally:

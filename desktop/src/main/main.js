@@ -3,12 +3,16 @@ const Store = require("electron-store");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
+const { resolveWorkspaceFile, toRealDir } = require("./workspace-paths");
 
 const pendingWrites = new Map();
+const PENDING_WRITE_TTL_MS = 10 * 60 * 1000;
 const ACTIVATION_PROTOCOL = "fqsaas";
 
 let mainWindow;
 let pendingActivationUrl = "";
+let rendererHasUnsavedChanges = false;
 
 function stripBom(value) {
   return typeof value === "string" ? value.replace(/^\uFEFF/, "") : value;
@@ -24,7 +28,10 @@ function encryptToken(token) {
     return "";
   }
   if (!safeStorage.isEncryptionAvailable()) {
-    return token;
+    if (app.isPackaged) {
+      throw new Error("Secure credential storage is unavailable on this device");
+    }
+    return `development-plaintext:${token}`;
   }
   return safeStorage.encryptString(token).toString("base64");
 }
@@ -34,22 +41,39 @@ function decryptToken(value) {
     return "";
   }
   if (!safeStorage.isEncryptionAvailable()) {
-    return value;
+    if (app.isPackaged) {
+      return "";
+    }
+    return value.startsWith("development-plaintext:")
+      ? value.slice("development-plaintext:".length)
+      : "";
   }
   try {
     return safeStorage.decryptString(Buffer.from(value, "base64"));
   } catch {
-    return value;
+    return "";
   }
 }
 
 function buildRendererSettings() {
   const rawStore = { ...store.store };
   const encryptedToken = typeof rawStore.token === "string" ? rawStore.token : "";
+  const encryptedRefreshToken = typeof rawStore.refreshToken === "string" ? rawStore.refreshToken : "";
+  let offlineQueue = Array.isArray(rawStore.offlineQueue) ? rawStore.offlineQueue : [];
+  if (rawStore.offlineQueueEncrypted) {
+    try {
+      offlineQueue = JSON.parse(decryptToken(String(rawStore.offlineQueueEncrypted)));
+    } catch {
+      offlineQueue = [];
+    }
+  }
   return {
     ...rawStore,
     token: decryptToken(encryptedToken),
-    offlineQueue: Array.isArray(rawStore.offlineQueue) ? rawStore.offlineQueue : [],
+    refreshToken: "",
+    hasRefreshSession: Boolean(decryptToken(encryptedRefreshToken)),
+    offlineQueue: Array.isArray(offlineQueue) ? offlineQueue : [],
+    offlineQueueEncrypted: undefined,
     selectedProjectFiles: Array.isArray(rawStore.selectedProjectFiles) ? rawStore.selectedProjectFiles : [],
     projects: Array.isArray(rawStore.projects) ? rawStore.projects : [],
     conversationProjectMap: rawStore.conversationProjectMap && typeof rawStore.conversationProjectMap === "object" ? rawStore.conversationProjectMap : {},
@@ -76,13 +100,20 @@ function normalizeApiUrl(serverUrl) {
   if (!["http:", "https:"].includes(parsed.protocol)) {
     throw new Error("Activation server must use http or https");
   }
+  if (app.isPackaged && parsed.protocol !== "https:") {
+    throw new Error("Packaged releases require an HTTPS activation server");
+  }
   parsed.hash = "";
   parsed.search = "";
   parsed.pathname = parsed.pathname.replace(/\/$/, "");
   if (!parsed.pathname.endsWith("/api")) {
     parsed.pathname = `${parsed.pathname}/api`.replace(/\/+/g, "/");
   }
-  return parsed.toString().replace(/\/$/, "");
+  const normalized = parsed.toString().replace(/\/$/, "");
+  if (!TRUSTED_API_ORIGINS.has(parsed.origin)) {
+    throw new Error("Activation server is not trusted by this desktop release");
+  }
+  return normalized;
 }
 
 function parseActivationUrl(rawUrl) {
@@ -113,7 +144,6 @@ function applyActivationUrl(rawUrl) {
     return false;
   }
   store.set({
-    activationToken: activation.token,
     activationApiUrl: activation.apiUrl,
     apiUrl: activation.apiUrl,
   });
@@ -150,17 +180,32 @@ function readDesktopConfig() {
 
 const desktopConfig = readDesktopConfig();
 const API_URL = process.env.API_URL || desktopConfig.apiUrl || "http://localhost:8001/api";
+const TRUSTED_API_ORIGINS = new Set(
+  [API_URL, ...(Array.isArray(desktopConfig.allowedApiOrigins) ? desktopConfig.allowedApiOrigins : [])]
+    .map((value) => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        return "";
+      }
+    })
+    .filter(Boolean),
+);
 const EXCLUDED_DIRS = [".git", "node_modules", ".venv", "__pycache__", "venv", "build", "dist", ".next", ".cache"];
 const EXCLUDED_FILES = [".gitignore", "package-lock.json", "yarn.lock"];
 const EXCLUDED_FILE_PREFIXES = [".env"];
 const EXCLUDED_FILE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx", ".crt"]);
 const SECRET_FILE_PATTERNS = [/secret/i, /credential/i, /private[-_]?key/i];
 const TEXT_EXTENSIONS = new Set([".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".xml", ".sql", ".sh", ".bat", ".cfg", ".ini", ".conf"]);
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
+const MAX_IMAGE_FILE_SIZE = 6 * 1024 * 1024;
 const MAX_SNIPPET_LENGTH = 600;
 const MAX_CONTEXT_FILE_CHARS = 1500;
 const MAX_CONTEXT_TOTAL_CHARS = 9000;
 const MAX_CONTEXT_FILES = 6;
+const MAX_WORKSPACE_FILES = 5000;
+const MAX_WORKSPACE_DEPTH = 20;
 const UPDATE_FEED_URL = process.env.UPDATE_FEED_URL || "";
 const updateStatus = {
   configured: Boolean(UPDATE_FEED_URL),
@@ -169,12 +214,17 @@ const updateStatus = {
   message: UPDATE_FEED_URL ? "Update feed configured" : "UPDATE_FEED_URL is not configured",
   lastCheckedAt: null,
 };
+const TRUSTED_CONNECT_SOURCES = Array.from(TRUSTED_API_ORIGINS).flatMap((origin) => {
+  const parsed = new URL(origin);
+  const websocketProtocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+  return [parsed.origin, `${websocketProtocol}//${parsed.host}`];
+});
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "connect-src http: https: ws: wss:",
+  `img-src 'self' data: ${Array.from(TRUSTED_API_ORIGINS).join(" ")}`,
+  `connect-src 'self' ${TRUSTED_CONNECT_SOURCES.join(" ")}`,
   "font-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
@@ -226,10 +276,26 @@ function configureAutoUpdates() {
     updateStatus.message = error.message;
     console.error("Auto-update error:", error.message);
   });
-  autoUpdater.on("update-downloaded", () => {
+  autoUpdater.on("update-downloaded", async () => {
     updateStatus.state = "downloaded";
-    updateStatus.message = "Update downloaded; installing";
-    autoUpdater.quitAndInstall();
+    updateStatus.message = "Update downloaded; restart when ready";
+    const hasPendingWork = rendererHasUnsavedChanges || pendingWrites.size > 0;
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Update ready",
+      message: hasPendingWork
+        ? "The update is ready, but there are unapplied or unsaved changes."
+        : "The update is ready to install.",
+      detail: hasPendingWork
+        ? "Save or apply your changes, then restart the application."
+        : "Restart now or install automatically when you close the application.",
+      buttons: hasPendingWork ? ["Later"] : ["Restart now", "Later"],
+      defaultId: hasPendingWork ? 0 : 1,
+      cancelId: hasPendingWork ? 0 : 1,
+    });
+    if (!hasPendingWork && result.response === 0) {
+      autoUpdater.quitAndInstall();
+    }
   });
   setTimeout(() => {
     autoUpdater.checkForUpdates();
@@ -264,32 +330,6 @@ function createWindow() {
       pendingActivationUrl = "";
     });
   }
-}
-
-function toRealDir(rootPath) {
-  if (!rootPath) {
-    throw new Error("Workspace path is required");
-  }
-
-  const resolved = fs.realpathSync(rootPath);
-  const stat = fs.statSync(resolved);
-  if (!stat.isDirectory()) {
-    throw new Error("Workspace path must be a directory");
-  }
-
-  return resolved;
-}
-
-function resolveWorkspaceFile(rootPath, relativePath) {
-  const root = toRealDir(rootPath);
-  const target = path.resolve(root, relativePath || "");
-  const normalizedRoot = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-
-  if (target !== root && !target.startsWith(normalizedRoot)) {
-    throw new Error("File path escapes the selected workspace");
-  }
-
-  return { root, target };
 }
 
 function sanitizeArtifactFileName(fileName) {
@@ -377,31 +417,120 @@ function readTextFileWithFallback(filePath) {
   }
 }
 
-function scanWorkspace(rootPath) {
+function hashFileState(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile()) {
+    throw new Error(`Workspace changes only support files: ${filePath}`);
+  }
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function createPreviewToken() {
+  return crypto.randomUUID();
+}
+
+function consumePendingWrite(previewToken, expectedType) {
+  const pending = pendingWrites.get(previewToken);
+  pendingWrites.delete(previewToken);
+  if (!pending || pending.type !== expectedType) {
+    throw new Error("Invalid or expired workspace change token");
+  }
+  if (Date.now() - pending.createdAt > PENDING_WRITE_TTL_MS) {
+    throw new Error("Workspace change token has expired");
+  }
+  return pending;
+}
+
+function assertUnchanged(preconditions) {
+  for (const precondition of preconditions) {
+    if (hashFileState(precondition.target) !== precondition.hash) {
+      throw new Error(`File changed after preview: ${precondition.path}`);
+    }
+  }
+}
+
+function atomicWriteFile(target, content) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const nonce = crypto.randomUUID();
+  const temp = `${target}.fqsaas-${nonce}.tmp`;
+  const backup = `${target}.fqsaas-${nonce}.bak`;
+  fs.writeFileSync(temp, content);
+  let hadPrevious = false;
+  try {
+    if (fs.existsSync(target)) {
+      fs.renameSync(target, backup);
+      hadPrevious = true;
+    }
+    fs.renameSync(temp, target);
+    if (hadPrevious && fs.existsSync(backup)) {
+      fs.unlinkSync(backup);
+    }
+  } catch (error) {
+    if (fs.existsSync(temp)) {
+      fs.unlinkSync(temp);
+    }
+    if (hadPrevious && fs.existsSync(backup) && !fs.existsSync(target)) {
+      fs.renameSync(backup, target);
+    }
+    throw error;
+  }
+}
+
+function snapshotFiles(filePaths) {
+  return Array.from(new Set(filePaths)).map((target) => ({
+    target,
+    content: fs.existsSync(target) ? fs.readFileSync(target) : null,
+  }));
+}
+
+function restoreSnapshots(snapshots) {
+  for (const snapshot of snapshots) {
+    if (snapshot.content === null) {
+      if (fs.existsSync(snapshot.target)) {
+        fs.unlinkSync(snapshot.target);
+      }
+    } else {
+      atomicWriteFile(snapshot.target, snapshot.content);
+    }
+  }
+}
+
+async function scanWorkspace(rootPath) {
   const root = toRealDir(rootPath);
   const files = [];
 
-  function scan(dir, relativeDir = "") {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
+  async function scan(dir, relativeDir = "", depth = 0) {
+    if (depth > MAX_WORKSPACE_DEPTH || files.length >= MAX_WORKSPACE_FILES) {
+      return;
+    }
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
+      if (files.length >= MAX_WORKSPACE_FILES) {
+        break;
+      }
       const fullPath = path.join(dir, entry.name);
       const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
 
       if (entry.isDirectory()) {
-        if (EXCLUDED_DIRS.includes(entry.name)) {
+        if (entry.isSymbolicLink() || EXCLUDED_DIRS.includes(entry.name)) {
           continue;
         }
-        scan(fullPath, relativePath);
+        await scan(fullPath, relativePath, depth + 1);
         continue;
       }
 
-      if (!isIncludedFile(entry.name, fullPath)) {
+      const ext = path.extname(entry.name).toLowerCase();
+      const isImage = IMAGE_EXTENSIONS.has(ext);
+      if (!isImage && !isIncludedFile(entry.name, fullPath)) {
         continue;
       }
 
       const stat = fs.statSync(fullPath);
-      const content = readTextFileWithFallback(fullPath);
+      const content = isImage ? "[image file]" : readTextFileWithFallback(fullPath);
       const createdAt = stat.birthtime instanceof Date ? stat.birthtime : stat.mtime;
       const status = Math.abs(stat.mtimeMs - stat.birthtimeMs) < 60_000
         ? "new"
@@ -412,23 +541,55 @@ function scanWorkspace(rootPath) {
         createdAt: createdAt.toISOString(),
         modifiedAt: stat.mtime.toISOString(),
         status,
+        kind: isImage ? "image" : "text",
         snippet: sanitizeSnippet(content),
       });
+      if (files.length % 50 === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
     }
   }
 
-  scan(root);
+  await scan(root);
   return files.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function buildProjectContext(rootPath, query, selectedPaths = []) {
+function imageFileToDataUrl(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (!IMAGE_EXTENSIONS.has(ext)) {
+    throw new Error("Only image files are supported");
+  }
+  const stat = fs.statSync(filePath);
+  if (stat.size > MAX_IMAGE_FILE_SIZE) {
+    throw new Error("Image file is too large");
+  }
+  const mimeType = ext === ".png"
+    ? "image/png"
+    : ext === ".gif"
+      ? "image/gif"
+      : ext === ".webp"
+        ? "image/webp"
+        : ext === ".bmp"
+          ? "image/bmp"
+          : "image/jpeg";
+  const buffer = fs.readFileSync(filePath);
+  return {
+    name: path.basename(filePath),
+    mimeType,
+    size: stat.size,
+    dataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
+    modifiedAt: stat.mtime.toISOString(),
+  };
+}
+
+async function buildProjectContext(rootPath, query, selectedPaths = []) {
   const root = toRealDir(rootPath);
   const queryTokens = String(query || "")
     .toLowerCase()
     .split(/[^a-z0-9_]+/i)
     .filter(Boolean);
 
-  const workspaceFiles = scanWorkspace(root);
+  const workspaceFiles = await scanWorkspace(root);
   const selectedSet = new Set((selectedPaths || []).filter(Boolean));
 
   const scored = workspaceFiles
@@ -457,7 +618,10 @@ function buildProjectContext(rootPath, query, selectedPaths = []) {
 
   for (const file of scored) {
     const { target } = resolveWorkspaceFile(root, file.path);
-    const content = readTextFileWithFallback(target).slice(0, MAX_CONTEXT_FILE_CHARS);
+    const ext = path.extname(file.path).toLowerCase();
+    const content = IMAGE_EXTENSIONS.has(ext)
+      ? `[image file: ${path.basename(file.path)}]`
+      : readTextFileWithFallback(target).slice(0, MAX_CONTEXT_FILE_CHARS);
     const block = `${file.path}:\n${content}`;
     if (totalChars + block.length > MAX_CONTEXT_TOTAL_CHARS) {
       break;
@@ -492,10 +656,10 @@ function buildDiffSummary(previousContent, nextContent) {
   };
 }
 
-function listWorkspaceFiles(rootPath, options = {}) {
+async function listWorkspaceFiles(rootPath, options = {}) {
   const query = String(options.query || "").toLowerCase();
   const limit = Math.min(Math.max(Number(options.limit || 50), 1), 200);
-  const files = scanWorkspace(rootPath)
+  const files = (await scanWorkspace(rootPath))
     .filter((file) => !query || file.path.toLowerCase().includes(query) || file.snippet.toLowerCase().includes(query))
     .slice(0, limit);
   return {
@@ -509,13 +673,13 @@ function listWorkspaceFiles(rootPath, options = {}) {
   };
 }
 
-function searchWorkspaceFiles(rootPath, query, limit = 20) {
+async function searchWorkspaceFiles(rootPath, query, limit = 20) {
   const normalizedQuery = String(query || "").trim().toLowerCase();
   if (!normalizedQuery) {
     return { matches: [], count: 0 };
   }
   const maxResults = Math.min(Math.max(Number(limit || 20), 1), 100);
-  const files = scanWorkspace(rootPath);
+  const files = await scanWorkspace(rootPath);
   const matches = [];
 
   for (const file of files) {
@@ -562,8 +726,9 @@ function readMultipleWorkspaceFiles(rootPath, filePaths = []) {
 }
 
 function prepareWorkspaceChanges(rootPath, changes = []) {
-  const previewToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const previewToken = createPreviewToken();
   const operations = [];
+  const preconditions = [];
   const summary = {
     changedFiles: [],
     createdFiles: [],
@@ -578,12 +743,15 @@ function prepareWorkspaceChanges(rootPath, changes = []) {
     if (action === "rename") {
       const source = resolveWorkspaceFile(rootPath, change.path).target;
       const target = resolveWorkspaceFile(rootPath, change.new_path).target;
+      preconditions.push({ target: source, path: change.path, hash: hashFileState(source) });
+      preconditions.push({ target, path: change.new_path, hash: hashFileState(target) });
       operations.push({ action, source, target, path: change.path, newPath: change.new_path });
       summary.renamedFiles.push({ from: change.path, to: change.new_path });
       continue;
     }
     if (action === "delete") {
       const target = resolveWorkspaceFile(rootPath, change.path).target;
+      preconditions.push({ target, path: change.path, hash: hashFileState(target) });
       operations.push({ action, target, path: change.path });
       summary.deletedFiles.push(change.path);
       continue;
@@ -591,6 +759,7 @@ function prepareWorkspaceChanges(rootPath, changes = []) {
 
     const targetPath = resolveWorkspaceFile(rootPath, change.path).target;
     const previousContent = fs.existsSync(targetPath) ? readTextFileWithFallback(targetPath) : "";
+    preconditions.push({ target: targetPath, path: change.path, hash: hashFileState(targetPath) });
     const nextContent = String(change.content || "");
     const diff = buildDiffSummary(previousContent, nextContent);
     operations.push({
@@ -608,38 +777,53 @@ function prepareWorkspaceChanges(rootPath, changes = []) {
   }
 
   summary.totalOperations = operations.length;
-  pendingWrites.set(previewToken, { type: "workspace_changes", operations });
+  pendingWrites.set(previewToken, {
+    type: "workspace_changes",
+    operations,
+    preconditions,
+    createdAt: Date.now(),
+  });
   return { previewToken, summary };
 }
 
 function applyWorkspaceChanges(previewToken) {
-  const pending = pendingWrites.get(previewToken);
-  if (!pending || pending.type !== "workspace_changes") {
-    return { error: "Invalid or expired workspace change token" };
-  }
+  const pending = consumePendingWrite(previewToken, "workspace_changes");
+  assertUnchanged(pending.preconditions);
 
   const changedFiles = [];
-  for (const operation of pending.operations) {
-    if (operation.action === "rename") {
-      fs.mkdirSync(path.dirname(operation.target), { recursive: true });
-      fs.renameSync(operation.source, operation.target);
-      changedFiles.push(operation.newPath);
-      continue;
-    }
-    if (operation.action === "delete") {
-      if (fs.existsSync(operation.target)) {
-        fs.unlinkSync(operation.target);
+  const snapshots = snapshotFiles(
+    pending.operations.flatMap((operation) => [operation.source, operation.target].filter(Boolean)),
+  );
+  try {
+    for (const operation of pending.operations) {
+      if (operation.action === "rename") {
+        if (!fs.existsSync(operation.source)) {
+          throw new Error(`Rename source no longer exists: ${operation.path}`);
+        }
+        if (fs.existsSync(operation.target)) {
+          throw new Error(`Rename target already exists: ${operation.newPath}`);
+        }
+        fs.mkdirSync(path.dirname(operation.target), { recursive: true });
+        fs.renameSync(operation.source, operation.target);
+        changedFiles.push(operation.newPath);
+        continue;
       }
-      changedFiles.push(operation.path);
-      continue;
-    }
+      if (operation.action === "delete") {
+        if (fs.existsSync(operation.target)) {
+          fs.unlinkSync(operation.target);
+        }
+        changedFiles.push(operation.path);
+        continue;
+      }
 
-    fs.mkdirSync(path.dirname(operation.target), { recursive: true });
-    fs.writeFileSync(operation.target, operation.nextContent, "utf-8");
-    changedFiles.push(operation.path);
+      atomicWriteFile(operation.target, operation.nextContent);
+      changedFiles.push(operation.path);
+    }
+  } catch (error) {
+    restoreSnapshots(snapshots);
+    throw error;
   }
 
-  pendingWrites.delete(previewToken);
   return { ok: true, changedFiles };
 }
 
@@ -692,8 +876,18 @@ ipcMain.handle("get-settings", () => ({
 
 ipcMain.handle("set-settings", (_, settings) => {
   const nextSettings = stripUndefinedValues({ ...settings });
-  if (Object.prototype.hasOwnProperty.call(nextSettings, "token")) {
-    nextSettings.token = encryptToken(String(nextSettings.token || ""));
+  if (Array.isArray(nextSettings.offlineQueue)) {
+    nextSettings.offlineQueueEncrypted = encryptToken(JSON.stringify(nextSettings.offlineQueue));
+    delete nextSettings.offlineQueue;
+    store.delete("offlineQueue");
+  }
+  if (!nextSettings.refreshToken) {
+    delete nextSettings.refreshToken;
+  }
+  for (const key of ["token", "refreshToken"]) {
+    if (Object.prototype.hasOwnProperty.call(nextSettings, key)) {
+      nextSettings[key] = encryptToken(String(nextSettings[key] || ""));
+    }
   }
   store.set(nextSettings);
   return {
@@ -702,9 +896,72 @@ ipcMain.handle("set-settings", (_, settings) => {
   };
 });
 
+ipcMain.handle("clear-desktop-session", () => {
+  store.set({ token: "", refreshToken: "" });
+  return { ok: true };
+});
+
+ipcMain.handle("activate-desktop-session", async (_, apiUrl, inviteToken, password) => {
+  const normalizedApiUrl = String(apiUrl || API_URL).replace(/\/$/, "");
+  const parsedApiUrl = new URL(normalizedApiUrl);
+  if (!TRUSTED_API_ORIGINS.has(parsedApiUrl.origin)) {
+    throw new Error("Untrusted API origin");
+  }
+  const response = await fetch(`${normalizedApiUrl}/auth/activate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-Type": "desktop",
+    },
+    body: JSON.stringify({ token: inviteToken, password }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token || !data.refresh_token) {
+    throw new Error(data.detail || "Failed to activate");
+  }
+  store.set({
+    token: encryptToken(data.access_token),
+    refreshToken: encryptToken(data.refresh_token),
+  });
+  return { accessToken: data.access_token };
+});
+
+ipcMain.handle("refresh-desktop-session", async (_, apiUrl) => {
+  const parsedApiUrl = new URL(String(apiUrl || API_URL));
+  if (!TRUSTED_API_ORIGINS.has(parsedApiUrl.origin)) {
+    throw new Error("Untrusted API origin");
+  }
+  const rawRefreshToken = decryptToken(String(store.get("refreshToken") || ""));
+  if (!rawRefreshToken) {
+    throw new Error("Missing refresh session");
+  }
+  const response = await fetch(`${String(apiUrl || API_URL).replace(/\/$/, "")}/auth/refresh`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-Type": "desktop",
+    },
+    body: JSON.stringify({ refresh_token: rawRefreshToken }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token || !data.refresh_token) {
+    store.set({ token: "", refreshToken: "" });
+    throw new Error(data.detail || "Session refresh failed");
+  }
+  store.set({
+    token: encryptToken(data.access_token),
+    refreshToken: encryptToken(data.refresh_token),
+  });
+  return { accessToken: data.access_token };
+});
+
 ipcMain.handle("parse-activation-url", (_, rawUrl) => parseActivationUrl(rawUrl));
 
 ipcMain.handle("get-update-status", () => ({ ...updateStatus }));
+ipcMain.handle("set-renderer-dirty-state", (_, isDirty) => {
+  rendererHasUnsavedChanges = Boolean(isDirty);
+  return { ok: true };
+});
 
 ipcMain.handle("check-for-updates", async () => {
   updateStatus.lastCheckedAt = new Date().toISOString();
@@ -736,7 +993,7 @@ ipcMain.handle("open-folder", async () => {
 
 ipcMain.handle("scan-folder", async (_, folderPath) => {
   try {
-    const files = scanWorkspace(folderPath);
+    const files = await scanWorkspace(folderPath);
     return { files, count: files.length };
   } catch (error) {
     return { files: [], error: error.message };
@@ -753,7 +1010,7 @@ ipcMain.handle("get-default-workspace-root", async () => {
 
 ipcMain.handle("list-files", async (_, rootPath, options) => {
   try {
-    return listWorkspaceFiles(rootPath, options || {});
+    return await listWorkspaceFiles(rootPath, options || {});
   } catch (error) {
     return { files: [], error: error.message };
   }
@@ -761,7 +1018,7 @@ ipcMain.handle("list-files", async (_, rootPath, options) => {
 
 ipcMain.handle("search-files", async (_, rootPath, query, limit) => {
   try {
-    return searchWorkspaceFiles(rootPath, query, limit);
+    return await searchWorkspaceFiles(rootPath, query, limit);
   } catch (error) {
     return { matches: [], error: error.message };
   }
@@ -785,6 +1042,15 @@ ipcMain.handle("read-file", async (_, rootPath, filePath) => {
   }
 });
 
+ipcMain.handle("read-image-file", async (_, rootPath, filePath) => {
+  try {
+    const { target } = resolveWorkspaceFile(rootPath, filePath);
+    return imageFileToDataUrl(target);
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
 ipcMain.handle("read-multiple-files", async (_, rootPath, filePaths) => {
   try {
     return readMultipleWorkspaceFiles(rootPath, Array.isArray(filePaths) ? filePaths : []);
@@ -795,7 +1061,7 @@ ipcMain.handle("read-multiple-files", async (_, rootPath, filePaths) => {
 
 ipcMain.handle("build-project-context", async (_, rootPath, query, selectedPaths) => {
   try {
-    return buildProjectContext(rootPath, query, selectedPaths);
+    return await buildProjectContext(rootPath, query, selectedPaths);
   } catch (error) {
     return { context: "", files: [], error: error.message };
   }
@@ -805,12 +1071,15 @@ ipcMain.handle("prepare-file-write", async (_, rootPath, filePath, nextContent) 
   try {
     const { target } = resolveWorkspaceFile(rootPath, filePath);
     const previousContent = fs.existsSync(target) ? fs.readFileSync(target, "utf-8") : "";
-    const previewToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const previewToken = createPreviewToken();
     const summary = buildDiffSummary(previousContent, String(nextContent));
 
     pendingWrites.set(previewToken, {
+      type: "file_write",
       target,
       nextContent: String(nextContent),
+      preconditions: [{ target, path: filePath, hash: hashFileState(target) }],
+      createdAt: Date.now(),
     });
 
     return {
@@ -827,13 +1096,9 @@ ipcMain.handle("prepare-file-write", async (_, rootPath, filePath, nextContent) 
 
 ipcMain.handle("apply-file-write", async (_, previewToken) => {
   try {
-    const pending = pendingWrites.get(previewToken);
-    if (!pending) {
-      return { error: "Invalid or expired preview token" };
-    }
-
-    fs.writeFileSync(pending.target, pending.nextContent, "utf-8");
-    pendingWrites.delete(previewToken);
+    const pending = consumePendingWrite(previewToken, "file_write");
+    assertUnchanged(pending.preconditions);
+    atomicWriteFile(pending.target, pending.nextContent);
     return { ok: true };
   } catch (error) {
     return { error: error.message };

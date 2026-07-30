@@ -9,7 +9,7 @@ from app.core.config import settings
 
 celery_app = Celery(
     "fq_saas",
-    broker=settings.redis_url,
+    broker=settings.celery_broker_url,
     backend=settings.redis_url,
 )
 
@@ -37,6 +37,10 @@ celery_app.conf.update(
         },
         "evaluate-platform-alerts": {
             "task": "app.tasks.evaluate_platform_alerts",
+            "schedule": crontab(minute="*/10"),
+        },
+        "fail-stale-agent-runs": {
+            "task": "app.tasks.fail_stale_agent_runs",
             "schedule": crontab(minute="*/10"),
         },
     },

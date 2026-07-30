@@ -59,9 +59,16 @@
         <div class="chat-input-area">
             <div class="composer-shell">
                 <textarea id="message-input" class="form-control chat-input w-100" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
+                <div class="composer-attachments" id="composer-attachments"></div>
                 <div class="composer-toolbar">
                     <div class="composer-status" id="composer-status"></div>
                     <div class="composer-actions">
+                        <input id="image-attachment-input" type="file" accept="image/*" multiple hidden>
+                        <button class="btn btn-attach" id="btn-attach-image" title="إرفاق صورة" type="button">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M15.5 6.5L8 14C7.17 14.83 7.17 16.17 8 17C8.83 17.83 10.17 17.83 11 17L18 10C19.38 8.62 19.38 6.38 18 5C16.62 3.62 14.38 3.62 13 5L6 12C3.79 14.21 3.79 17.79 6 20C8.21 22.21 11.79 22.21 14 20L20 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                        </button>
                         <button class="btn btn-send" id="btn-send" title="إرسال">
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <path d="M4 12L20 4L13 20L11 13L4 12Z" fill="currentColor"></path>

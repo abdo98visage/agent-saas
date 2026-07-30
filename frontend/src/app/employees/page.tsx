@@ -110,7 +110,7 @@ export default function EmployeesPage() {
 
   const buildActivationLink = (inviteToken: string) => {
     if (typeof window === "undefined") return "";
-    const fallbackServer = `http://${window.location.hostname}:8001`;
+    const fallbackServer = window.location.origin;
     const configuredServer = process.env.NEXT_PUBLIC_API_ORIGIN;
     let server = fallbackServer;
 
@@ -134,7 +134,7 @@ export default function EmployeesPage() {
     try {
       const response = await adminApi.createDesktopInvite(editEmployee.id);
       const inviteToken = response.data.invite_token;
-      const activationLink = buildActivationLink(inviteToken);
+      const activationLink = response.data.activation_url || buildActivationLink(inviteToken);
       setEditDesktopInviteLink(activationLink);
       await navigator.clipboard.writeText(activationLink);
       toast.success(t("Activation link copied"));

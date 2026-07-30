@@ -48,15 +48,7 @@ def build_profile_sync_payload(
                 f"{instructions.rstrip()}\n"
             )
         else:
-            files[f"skills/{skill_slug}/SKILL.md"] = (
-                "---\n"
-                f"name: {skill}\n"
-                f"description: Profile-local skill for {skill}.\n"
-                "---\n\n"
-                f"# {skill}\n\n"
-                f"This profile declares the `{skill}` capability.\n"
-                "Prioritize this domain when the user's request matches it.\n"
-            )
+            raise ValueError(f"Missing active skill definition for profile skill: {skill}")
     return {
         "profile": {
             "id": str(profile.id),
@@ -74,6 +66,7 @@ def build_profile_sync_payload(
             "mcp_servers": profile.allowed_mcp_servers or [],
             "allowed_tools": profile.allowed_tools or [],
             "approval_required_tools": profile.approval_required_tools or [],
+            "runtime_toolsets": profile.runtime_toolsets or [],
             "memory_settings": profile.memory_settings or {},
         },
         "files": files,
@@ -94,8 +87,8 @@ class HermesProfileSyncService:
             profile.hermes_sync_error = None
             return {"status": "not_applicable"}
 
-        payload = build_profile_sync_payload(profile, skill_definitions)
         try:
+            payload = build_profile_sync_payload(profile, skill_definitions)
             result = await self.orchestrator.sync_profile(payload)
         except HermesOrchestratorUnavailable as exc:
             profile.hermes_sync_status = "not_configured"

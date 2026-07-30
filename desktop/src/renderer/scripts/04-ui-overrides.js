@@ -23,8 +23,68 @@
             }
         }
 
-        function setMessageElementContent(element, role, content) {
+        function normalizeMessageAttachments(attachments) {
+            return (Array.isArray(attachments) ? attachments : [])
+                .map((item) => {
+                    if (!item || typeof item !== "object") {
+                        return null;
+                    }
+                    let sourceUrl = String(item.data_url || "");
+                    if (!sourceUrl && item.signed_path) {
+                        sourceUrl = new URL(String(item.signed_path), state.settings.apiUrl || "http://localhost:8001/api").toString();
+                    }
+                    if (!sourceUrl.startsWith("data:image/") && !sourceUrl.startsWith("https://") && !sourceUrl.startsWith("http://")) {
+                        return null;
+                    }
+                    return { ...item, data_url: sourceUrl };
+                })
+                .filter(Boolean)
+                .slice(0, 4)
+                .map((item) => ({
+                    name: String(item.name || "image").slice(0, 255),
+                    mime_type: String(item.mime_type || "image/*").slice(0, 120),
+                    data_url: String(item.data_url || ""),
+                    size_bytes: Number(item.size_bytes || 0) || undefined,
+                    source: String(item.source || "").slice(0, 100) || undefined,
+                }));
+        }
+
+        function getMessageText(messageOrContent) {
+            if (messageOrContent && typeof messageOrContent === "object" && !Array.isArray(messageOrContent)) {
+                return String(messageOrContent.content || "");
+            }
+            return String(messageOrContent || "");
+        }
+
+        function getMessageAttachments(messageOrContent) {
+            if (messageOrContent && typeof messageOrContent === "object" && !Array.isArray(messageOrContent)) {
+                return normalizeMessageAttachments(messageOrContent.attachments);
+            }
+            return [];
+        }
+
+        function renderMessageAttachments(attachments) {
+            const safeAttachments = normalizeMessageAttachments(attachments);
+            if (!safeAttachments.length) {
+                return "";
+            }
+            return `
+                <div class="message-attachments-grid">
+                    ${safeAttachments.map((attachment) => `
+                        <figure class="message-attachment-card">
+                            <img src="${attachment.data_url}" alt="${escapeHtml(attachment.name)}" class="message-attachment-image">
+                            <figcaption class="message-attachment-caption">${escapeHtml(attachment.name)}</figcaption>
+                        </figure>
+                    `).join("")}
+                </div>
+            `;
+        }
+
+        function setMessageElementContent(element, role, messageOrContent) {
+            const content = getMessageText(messageOrContent);
+            const attachments = getMessageAttachments(messageOrContent);
             const body = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);
+            const attachmentsMarkup = renderMessageAttachments(attachments);
             const copyButton = role === "system" ? "" : `
                 <button class="message-copy-btn" type="button" title="${t("copy")}">
                     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -33,7 +93,7 @@
                     </svg>
                 </button>
             `;
-            element.innerHTML = `${copyButton}<div class="message-body">${body}</div><div class="timestamp">${new Date().toLocaleTimeString(getLocale())}</div>`;
+            element.innerHTML = `${copyButton}${attachmentsMarkup}<div class="message-body">${body}</div><div class="timestamp">${new Date().toLocaleTimeString(getLocale())}</div>`;
             const copyTrigger = element.querySelector(".message-copy-btn");
             copyTrigger?.addEventListener("click", async (event) => {
                 event.stopPropagation();
@@ -341,6 +401,69 @@
             return state.projectPath || state.fallbackWorkspacePath || "";
         }
 
+        function renderComposerAttachments() {
+            if (!els.composerAttachments) {
+                return;
+            }
+            const attachments = normalizeMessageAttachments(state.composerAttachments);
+            if (!attachments.length) {
+                els.composerAttachments.innerHTML = "";
+                els.composerAttachments.style.display = "none";
+                return;
+            }
+            els.composerAttachments.style.display = "grid";
+            els.composerAttachments.innerHTML = attachments.map((attachment, index) => `
+                <div class="composer-attachment-card">
+                    <img src="${attachment.data_url}" alt="${escapeHtml(attachment.name)}" class="composer-attachment-image">
+                    <button class="composer-attachment-remove" data-attachment-index="${index}" type="button" title="Remove image">×</button>
+                    <div class="composer-attachment-name">${escapeHtml(attachment.name)}</div>
+                </div>
+            `).join("");
+            document.querySelectorAll("[data-attachment-index]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const index = Number(button.dataset.attachmentIndex);
+                    state.composerAttachments.splice(index, 1);
+                    renderComposerAttachments();
+                });
+            });
+        }
+
+        async function readImageFileAsAttachment(file) {
+            return await new Promise((resolve, reject) => {
+                if (!file || !String(file.type || "").startsWith("image/")) {
+                    reject(new Error("Only image files are supported"));
+                    return;
+                }
+                if (Number(file.size || 0) > 6 * 1024 * 1024) {
+                    reject(new Error("Image file is too large"));
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error("Failed to read image file"));
+                reader.onload = () => resolve({
+                    name: file.name || "image",
+                    mime_type: file.type || "image/*",
+                    data_url: String(reader.result || ""),
+                    size_bytes: Number(file.size || 0) || undefined,
+                    source: "chat_upload",
+                });
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function addComposerAttachmentsFromFiles(files) {
+            const imageFiles = Array.from(files || []).filter((file) => String(file.type || "").startsWith("image/")).slice(0, 4);
+            if (!imageFiles.length) {
+                return;
+            }
+            const nextAttachments = [];
+            for (const file of imageFiles) {
+                nextAttachments.push(await readImageFileAsAttachment(file));
+            }
+            state.composerAttachments = normalizeMessageAttachments([...state.composerAttachments, ...nextAttachments]).slice(0, 4);
+            renderComposerAttachments();
+        }
+
         function buildWorkspaceDescriptor() {
             const effectiveWorkspacePath = getEffectiveWorkspacePath();
             return {
@@ -348,25 +471,59 @@
                 root_path: effectiveWorkspacePath,
                 selected_files: Array.from(state.selectedProjectFiles),
                 file_paths: state.projectFiles.map((file) => file.path).slice(0, 40),
+                image_paths: state.projectFiles.filter((file) => file.kind === "image").map((file) => file.path).slice(0, 100),
                 command_mode: els.composerCommandSelect?.value || state.settings.commandMode || "queue",
                 approval_mode: els.composerApprovalSelect?.value || state.settings.approvalMode || "ask_for_approval",
             };
         }
 
-        async function sendWebSocketMessage(text, profileNameOverride = "") {
-            const projectContext = await buildProjectContextForMessage(text);
-            const selectedProfileName = profileNameOverride || state.settings.profileName || undefined;
+        async function sendWebSocketMessage(text, profileNameOverride = "", attachmentsOverride = null, queuedItem = null) {
+            const sendItem = await createQueueItem(
+                text,
+                profileNameOverride,
+                normalizeMessageAttachments(attachmentsOverride ?? state.composerAttachments),
+                queuedItem,
+            );
+            const selectedProfileName = sendItem.profileName || state.settings.profileName || undefined;
             const payload = {
                 type: "user_message",
-                content: text,
-                project_context: projectContext || undefined,
+                content: sendItem.content,
+                client_message_id: sendItem.id,
+                project_context: sendItem.projectContext || undefined,
                 profile_name: selectedProfileName,
-                command_mode: els.composerCommandSelect?.value || state.settings.commandMode || "queue",
-                approval_mode: els.composerApprovalSelect?.value || state.settings.approvalMode || "ask_for_approval",
-                conversation_id: state.conversationResetPending ? null : (state.currentConversation || null),
-                workspace: buildWorkspaceDescriptor(),
+                attachments: normalizeMessageAttachments(sendItem.attachments),
+                command_mode: sendItem.workspace?.command_mode || "queue",
+                approval_mode: sendItem.workspace?.approval_mode || "ask_for_approval",
+                conversation_id: sendItem.conversationId,
+                workspace: sendItem.workspace,
             };
-            state.ws.send(JSON.stringify(payload));
+            return await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    state.pendingMessageAcks.delete(sendItem.id);
+                    const error = new Error("Timed out waiting for server acknowledgement");
+                    error.queueItem = sendItem;
+                    reject(error);
+                }, 6 * 60 * 1000);
+                state.pendingMessageAcks.set(sendItem.id, {
+                    resolve: (data) => {
+                        clearTimeout(timeout);
+                        resolve(data);
+                    },
+                    reject: (error) => {
+                        clearTimeout(timeout);
+                        error.queueItem = sendItem;
+                        reject(error);
+                    },
+                });
+                try {
+                    state.ws.send(JSON.stringify(payload));
+                } catch (error) {
+                    state.pendingMessageAcks.delete(sendItem.id);
+                    clearTimeout(timeout);
+                    error.queueItem = sendItem;
+                    reject(error);
+                }
+            });
         }
 
         function handleWsMessage(data) {
@@ -630,6 +787,15 @@
                     <span class="project-session-meta">${new Date(conversation.created_at).toLocaleDateString(getLocale())}</span>
                 </button>
             `;
+        }
+
+        const originalNewConversation = typeof newConversation === "function" ? newConversation : null;
+        if (originalNewConversation) {
+            newConversation = function overrideNewConversation() {
+                state.composerAttachments = [];
+                renderComposerAttachments();
+                return originalNewConversation();
+            };
         }
 
         function renderContextSidebar() {

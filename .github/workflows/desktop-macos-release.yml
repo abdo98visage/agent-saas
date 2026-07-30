@@ -51,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate signed release configuration
+        run: npm run release:check
+
       - name: Build universal DMG and ZIP
         run: npm run build:release:mac
 

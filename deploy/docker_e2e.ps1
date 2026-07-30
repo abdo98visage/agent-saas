@@ -43,7 +43,7 @@ try {
     throw "API did not become healthy on http://localhost:8002"
   }
 
-  .\deploy\smoke_test.ps1 -BaseUrl "http://localhost:8002"
+  .\deploy\smoke_test.ps1 -BaseUrl "http://localhost:8002" -Provider "openai"
 }
 finally {
   if (-not $KeepRunning) {

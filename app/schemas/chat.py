@@ -1,6 +1,14 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
+
+
+class ChatAttachment(BaseModel):
+    name: str
+    mime_type: str
+    data_url: str
+    size_bytes: Optional[int] = None
+    source: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -9,6 +17,7 @@ class ChatMessage(BaseModel):
     agent_template_name: str = "default"
     project_context: Optional[str] = None
     profile_name: Optional[str] = None
+    attachments: list[ChatAttachment] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):

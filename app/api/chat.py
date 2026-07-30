@@ -1,8 +1,8 @@
 from uuid import UUID, uuid4
 from typing import Optional
-from datetime import date
+import logging
 from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
@@ -12,12 +12,18 @@ from app.api.auth import get_current_user
 from app.models.user import User
 from app.models.session import Session
 from app.models.message import Message
-from app.models.kpi import KPI
 from app.schemas.chat import ChatMessage
 from app.services.agent_service import AgentService
+from app.services.token_tracker import (
+    check_token_quota,
+    reserve_request_quota,
+    TokenQuotaExceeded,
+)
+from app.services.attachments import attachments_for_response, resolve_signed_attachment
 
 router = APIRouter()
 agent_service = AgentService()
+logger = logging.getLogger("fqsaas.chat")
 
 
 async def generate_sse(events):
@@ -25,6 +31,16 @@ async def generate_sse(events):
     import json
     async for event in events:
         yield f"event: {event.get('type', 'message')}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+@router.get("/attachments/{token}")
+async def download_attachment(token: str):
+    """Serve a blob only through a short-lived tamper-proof URL."""
+    try:
+        target = resolve_signed_attachment(token)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return FileResponse(target, headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.post("/message")
@@ -39,14 +55,14 @@ async def send_message(
     agent_template_name = request.agent_template_name
     project_context = request.project_context
     profile_name = request.profile_name
+    attachments = [item.model_dump() for item in request.attachments]
 
     if not user.is_activated:
         raise HTTPException(status_code=403, detail="Account not activated. Please activate first.")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account deactivated. Contact admin.")
 
-    from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
-    if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
+    if not await reserve_request_quota(db, str(user.id), user.max_requests_per_day):
         raise HTTPException(
             status_code=429,
             detail="Daily request quota exceeded. Contact admin."
@@ -56,6 +72,7 @@ async def send_message(
             status_code=429,
             detail="Daily token quota exceeded. Contact admin."
         )
+    await db.commit()
 
     # SECURITY: Audit user action
     from app.models.audit_log import AuditLog
@@ -99,26 +116,16 @@ async def send_message(
             agent_template_name=agent_template_name,
             project_context=project_context,
             profile_name=profile_name,
+            attachments=attachments,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
-
-    # Track KPI: increment daily messages
-    await _track_kpi(db, user.id)
-
-    # Track token usage
-    if result.get("tokens_used"):
-        await record_token_usage(
-            db,
-            str(user.id),
-            result.get("model", ""),
-            result["tokens_used"],
-            float(result.get("total_cost", 0.0) or 0.0),
-            provider=result.get("provider") or settings.llm_provider,
-            profile_id=result.get("profile_id"),
-        )
+    except TokenQuotaExceeded:
+        raise HTTPException(status_code=429, detail="Daily token quota exceeded. Contact admin.")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid agent request")
+    except Exception:
+        error_id = str(uuid4())
+        logger.exception("Agent request failed error_id=%s", error_id)
+        raise HTTPException(status_code=500, detail=f"Agent request failed. Reference: {error_id}")
 
     return {
         "conversation_id": conversation_id,
@@ -127,6 +134,7 @@ async def send_message(
         "tokens_used": result.get("tokens_used"),
         "model": result.get("model"),
         "profile_name": result.get("profile_name"),
+        "attachments": result.get("attachments", []),
     }
 
 
@@ -142,14 +150,14 @@ async def send_message_stream(
     agent_template_name = request.agent_template_name
     project_context = request.project_context
     profile_name = request.profile_name
+    attachments = [item.model_dump() for item in request.attachments]
 
     if not user.is_activated:
         raise HTTPException(status_code=403, detail="Account not activated. Please activate first.")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account deactivated. Contact admin.")
 
-    from app.services.token_tracker import check_request_quota, check_token_quota, record_token_usage
-    if not await check_request_quota(db, str(user.id), user.max_requests_per_day):
+    if not await reserve_request_quota(db, str(user.id), user.max_requests_per_day):
         raise HTTPException(
             status_code=429,
             detail="Daily request quota exceeded. Contact admin."
@@ -159,6 +167,7 @@ async def send_message_stream(
             status_code=429,
             detail="Daily token quota exceeded. Contact admin."
         )
+    await db.commit()
 
     # SECURITY: Audit user action
     from app.models.audit_log import AuditLog
@@ -209,31 +218,24 @@ async def send_message_stream(
                     agent_template_name=agent_template_name,
                     project_context=project_context,
                     profile_name=profile_name,
+                    attachments=attachments,
                 )
                 try:
                     async for chunk in stream:
-                        if chunk.get("type") == "done" and chunk.get("tokens_used"):
-                            await record_token_usage(
-                                stream_db,
-                                str(user_id),
-                                chunk.get("model", ""),
-                                chunk["tokens_used"],
-                                float(chunk.get("total_cost", 0.0) or 0.0),
-                                provider=chunk.get("provider") or settings.llm_provider,
-                                profile_id=chunk.get("profile_id"),
-                            )
                         event_type = chunk.get("type", "message")
                         data = {k: v for k, v in chunk.items() if k != "type"}
                         yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
                 finally:
                     await stream.aclose()
 
-                # Track KPI
-                await _track_kpi(stream_db, user_id)
-
-        except Exception as e:
+        except TokenQuotaExceeded:
             import json
-            yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': 'Daily token quota exceeded'}, ensure_ascii=False)}\n\n"
+        except Exception:
+            import json
+            error_id = str(uuid4())
+            logger.exception("Agent stream failed error_id=%s", error_id)
+            yield f"event: error\ndata: {json.dumps({'error': 'Agent request failed', 'error_id': error_id}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -295,10 +297,10 @@ async def get_messages(
     result = await db.execute(
         select(Message)
         .where(Message.session_id == conversation_id)
-        .order_by(Message.created_at.asc())
+        .order_by(Message.created_at.desc())
         .limit(limit)
     )
-    messages = result.scalars().all()
+    messages = list(reversed(result.scalars().all()))
     return {
         "conversation_id": str(conversation_id),
         "messages": [
@@ -308,6 +310,7 @@ async def get_messages(
                 "content": m.content,
                 "tokens_used": m.tokens_used,
                 "created_at": str(m.created_at),
+                "attachments": attachments_for_response(m.attachments),
             }
             for m in messages
         ],
@@ -334,22 +337,3 @@ async def update_conversation_title(
         raise HTTPException(status_code=404, detail="Conversation not found")
     session_obj.title = title
     return {"conversation_id": str(conversation_id), "title": title}
-
-
-async def _track_kpi(db: AsyncSession, user_id):
-    """Track KPI: increment daily messages."""
-    today = date.today().isoformat()
-    user_id_str = str(user_id)
-    result = await db.execute(
-        select(KPI).where(KPI.user_id == user_id_str, KPI.date == today)
-    )
-    kpi = result.scalar_one_or_none()
-    if kpi:
-        kpi.messages_sent += 1
-    else:
-        kpi = KPI(
-            user_id=user_id_str,
-            date=today,
-            messages_sent=1,
-        )
-        db.add(kpi)

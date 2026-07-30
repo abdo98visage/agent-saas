@@ -104,6 +104,24 @@
                 return;
             }
 
+            const targetFile = (state.projectFiles || []).find((file) => file.path === filePath);
+            if (targetFile?.kind === "image" && window.electronAPI.readImageFile) {
+                const imageResult = await window.electronAPI.readImageFile(state.projectPath, filePath);
+                if (imageResult.error) {
+                    els.writePreviewStatus.textContent = imageResult.error;
+                    return;
+                }
+
+                state.currentFilePath = filePath;
+                state.pendingWriteToken = null;
+                els.btnApplyWrite.disabled = true;
+                els.currentFilePath.textContent = filePath;
+                els.fileEditor.value = `[image] ${imageResult.name} (${(imageResult.size / 1024).toFixed(1)} KB)`;
+                void window.electronAPI.setDirtyState(false);
+                els.writePreviewStatus.innerHTML = `<img src="${imageResult.dataUrl}" alt="${escapeHtml(imageResult.name)}" style="max-width:100%;border-radius:12px;margin-top:8px;">`;
+                return;
+            }
+
             const result = await window.electronAPI.readFile(state.projectPath, filePath);
             if (result.error) {
                 els.writePreviewStatus.textContent = result.error;
@@ -115,6 +133,7 @@
             els.btnApplyWrite.disabled = true;
             els.currentFilePath.textContent = filePath;
             els.fileEditor.value = result.content;
+            void window.electronAPI.setDirtyState(false);
             els.writePreviewStatus.textContent = `تم تحميل الملف (${(result.size / 1024).toFixed(1)} KB)`;
         }
 
@@ -152,6 +171,7 @@
             }
 
             state.pendingWriteToken = null;
+            void window.electronAPI.setDirtyState(false);
             els.btnApplyWrite.disabled = true;
             els.writePreviewStatus.textContent = "تم حفظ التعديل بعد الموافقة.";
             await refreshProjectFiles();
@@ -581,6 +601,9 @@
         els.btnApplyWrite.addEventListener("click", () => {
             void applyPreparedWrite();
         });
+        els.fileEditor.addEventListener("input", () => {
+            void window.electronAPI.setDirtyState(true);
+        });
         els.btnCheckUpdates.addEventListener("click", () => {
             void checkForUpdates();
         });
@@ -623,20 +646,13 @@
             statusEl.innerHTML = "<span class=\"text-info\">جارٍ التفعيل...</span>";
 
             try {
-                const response = await fetch(`${apiUrl}/auth/activate`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ token, password }),
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.detail || "Failed to activate");
-                }
+                const data = await window.electronAPI.activateSession(apiUrl, token, password);
 
                 state.settings = await window.electronAPI.setSettings({
                     ...state.settings,
                     apiUrl,
-                    token: data.access_token,
+                    token: data.accessToken,
+                    activationToken: "",
                     template: "default",
                 });
 
