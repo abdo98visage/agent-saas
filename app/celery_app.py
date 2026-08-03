@@ -43,6 +43,22 @@ celery_app.conf.update(
             "task": "app.tasks.fail_stale_agent_runs",
             "schedule": crontab(minute="*/10"),
         },
+        "enqueue-due-agent-tasks": {
+            "task": "app.tasks.enqueue_due_agent_tasks",
+            "schedule": crontab(minute="*"),
+        },
+        "recover-stale-durable-tasks": {
+            "task": "app.tasks.recover_stale_durable_tasks",
+            "schedule": crontab(minute="*/2"),
+        },
+        "export-audit-events": {
+            "task": "app.tasks.export_audit_events",
+            "schedule": crontab(minute="*/2"),
+        },
+        "sync-knowledge-sources": {
+            "task": "app.tasks.sync_all_knowledge_sources",
+            "schedule": crontab(minute="*/15"),
+        },
     },
 )
 

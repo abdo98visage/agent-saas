@@ -3,14 +3,16 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
 import app.local_hermes_runtime_app as runtime_app
 
-from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS, normalize_runtime_toolsets
+from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS, effective_profile_policy, normalize_runtime_toolsets
 from app.local_hermes_runtime_app import (
+    _authorize_runtime,
     _config_yaml,
     _mcp_tool_identity,
     _mcp_proxy_runs,
@@ -19,6 +21,7 @@ from app.local_hermes_runtime_app import (
     _register_mcp_proxy,
     _runtime_env,
     _run_hermes_server_events,
+    _stage_runtime_profile,
     proxy_mcp_request,
     respond_approval,
 )
@@ -36,6 +39,12 @@ def test_profile_rejects_unknown_runtime_toolsets():
         ProfileCreate(name="Unsafe", slug="unsafe", runtime_toolsets=["shell"])
 
 
+@pytest.mark.parametrize("toolset", ["terminal", "code_execution"])
+def test_profile_rejects_prohibited_execution_toolsets(toolset: str):
+    with pytest.raises(ValueError, match="Prohibited runtime toolsets"):
+        ProfileCreate(name="Unsafe", slug="unsafe", runtime_toolsets=[toolset])
+
+
 def test_runtime_config_enables_only_profile_toolsets(tmp_path: Path):
     config = _config_yaml(
         {
@@ -50,10 +59,64 @@ def test_runtime_config_enables_only_profile_toolsets(tmp_path: Path):
     assert "    - terminal" in config
     assert "    - file" in config
     assert "    - code_execution" in config
+    assert "terminal:\n" not in config
 
 
 def test_runtime_toolsets_are_deduplicated():
     assert normalize_runtime_toolsets(["web", "web", "clarify"]) == ["web", "clarify"]
+
+
+def test_effective_profile_policy_is_versioned_and_never_allows_execution_tools():
+    class ProfilePolicyFixture:
+        id = "profile-1"
+        version = 4
+        runtime_type = "hermes"
+        runtime_toolsets = ["web", "clarify"]
+        allowed_tools = ["read_file", "read_file"]
+        approval_required_tools = ["read_file"]
+
+    policy = effective_profile_policy(ProfilePolicyFixture())
+    assert policy["policy_id"] == "profile-profile-1-v4"
+    assert policy["runtime_toolsets"] == ["web", "clarify"]
+    assert policy["prohibited_toolsets"] == ["code_execution", "terminal"]
+    assert policy["allowed_tools"] == ["read_file"]
+
+
+def test_runtime_private_api_requires_its_own_secret(monkeypatch):
+    monkeypatch.setattr(runtime_app, "RUNTIME_REQUIRE_SECRET", True)
+    monkeypatch.setattr(runtime_app, "RUNTIME_SECRET", "runtime-secret-123")
+    with pytest.raises(Exception) as missing:
+        _authorize_runtime(None)
+    assert getattr(missing.value, "status_code", None) == 403
+    with pytest.raises(Exception) as wrong:
+        _authorize_runtime("orchestrator-secret-456")
+    assert getattr(wrong.value, "status_code", None) == 403
+    _authorize_runtime("runtime-secret-123")
+
+
+def test_each_runtime_run_uses_an_isolated_ephemeral_workspace(tmp_path: Path):
+    source = tmp_path / "source"
+    (source / "workspace").mkdir(parents=True)
+    (source / "workspace" / "AGENTS.md").write_text("safe instructions", encoding="utf-8")
+    (source / "workspace" / "persistent-secret.txt").write_text("must not copy", encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(prefix="runtime-a-") as root_a, tempfile.TemporaryDirectory(
+        prefix="runtime-b-"
+    ) as root_b:
+        workspace_a = _stage_runtime_profile(source, Path(root_a) / "profile")
+        workspace_b = _stage_runtime_profile(source, Path(root_b) / "profile")
+        (workspace_a / "generated.txt").write_text("run a", encoding="utf-8")
+
+        assert workspace_a != workspace_b
+        assert (workspace_b / "AGENTS.md").read_text(encoding="utf-8") == "safe instructions"
+        assert not (workspace_b / "generated.txt").exists()
+        assert not (workspace_a / "persistent-secret.txt").exists()
+        assert not (workspace_b / "persistent-secret.txt").exists()
+        removed_a = Path(root_a)
+        removed_b = Path(root_b)
+
+    assert not removed_a.exists()
+    assert not removed_b.exists()
 
 
 def test_runtime_recognizes_current_hermes_mcp_tool_names():
@@ -90,6 +153,20 @@ def test_runtime_mcp_config_filters_tools_and_keeps_secret_out_of_yaml(tmp_path:
     env = _runtime_env(payload, tmp_path)
     assert env["MCP_GITHUB_TOKEN"] == "super-secret"
     assert env["HERMES_TUI_TOOLSETS"] == "github"
+
+
+def test_runtime_uses_only_run_scoped_model_proxy_token(tmp_path: Path):
+    payload = {
+        "provider": "openai",
+        "model": "model",
+        "api_key": "run-scoped-token",
+        "provider_base_url": "http://hermes-orchestrator:8788/internal/model/v1/chat/completions",
+        "profile": {"runtime_toolsets": []},
+    }
+    config = _config_yaml(payload, tmp_path, tmp_path / "workspace")
+    env = _runtime_env(payload, tmp_path)
+    assert "http://hermes-orchestrator:8788/internal/model/v1" in config
+    assert env["OPENAI_API_KEY"] == "run-scoped-token"
 
 
 def test_server_usage_is_normalized():
@@ -313,7 +390,8 @@ def test_interactive_mcp_proxy_waits_for_approval_then_forwards(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_runtime_approval_response_resolves_only_pending_decision():
+def test_runtime_approval_response_resolves_only_pending_decision(monkeypatch):
+    monkeypatch.setattr(runtime_app, "RUNTIME_REQUIRE_SECRET", False)
     async def scenario():
         future = asyncio.get_running_loop().create_future()
         key = ("run-3", "approval-3")

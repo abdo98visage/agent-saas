@@ -54,11 +54,18 @@ fi
 
 profiles_stage="$APP_HOME/data/hermes/profiles.restore-$RESTORE_ID"
 attachments_stage="$APP_HOME/data/attachments.restore-$RESTORE_ID"
-mkdir -p "$profiles_stage" "$attachments_stage"
+knowledge_stage="$APP_HOME/data/knowledge.restore-$RESTORE_ID"
+mkdir -p "$profiles_stage" "$attachments_stage" "$knowledge_stage"
+knowledge_restored=false
 gpg --batch --decrypt "$BACKUP_DIR/hermes-profiles.tar.gz.gpg" \
   | tar -C "$profiles_stage" --strip-components=1 -xzf -
 gpg --batch --decrypt "$BACKUP_DIR/attachments.tar.gz.gpg" \
   | tar -C "$attachments_stage" --strip-components=1 -xzf -
+if [[ -f "$BACKUP_DIR/knowledge.tar.gz.gpg" ]]; then
+  gpg --batch --decrypt "$BACKUP_DIR/knowledge.tar.gz.gpg" \
+    | tar -C "$knowledge_stage" --strip-components=1 -xzf -
+  knowledge_restored=true
+fi
 
 "${COMPOSE[@]}" exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
   -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('$POSTGRES_DB', '$TEMP_DB') AND pid <> pg_backend_pid();" \
@@ -69,6 +76,10 @@ mv "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/hermes/profiles.before-$REST
 mv "$profiles_stage" "$APP_HOME/data/hermes/profiles"
 mv "$APP_HOME/data/attachments" "$APP_HOME/data/attachments.before-$RESTORE_ID"
 mv "$attachments_stage" "$APP_HOME/data/attachments"
+if [[ "$knowledge_restored" == "true" ]]; then
+  [[ -d "$APP_HOME/data/knowledge" ]] && mv "$APP_HOME/data/knowledge" "$APP_HOME/data/knowledge.before-$RESTORE_ID"
+  mv "$knowledge_stage" "$APP_HOME/data/knowledge"
+fi
 
 "${COMPOSE[@]}" up -d
 SERVICES_STOPPED=false

@@ -1495,6 +1495,12 @@ async def get_audit_log(
     return {"audit_log": [{
         "id": l.id, "user_id": l.user_id, "action": l.action,
         "details": l.details, "ip_address": l.ip_address,
+        "event_category": l.event_category, "actor_type": l.actor_type,
+        "subject_type": l.subject_type, "subject_id": l.subject_id,
+        "correlation_id": l.correlation_id, "trace_id": l.trace_id,
+        "run_id": l.run_id, "task_id": l.task_id, "session_id": l.session_id,
+        "policy_id": l.policy_id, "reason": l.reason,
+        "previous_hash": l.previous_hash, "event_hash": l.event_hash,
         "created_at": str(l.created_at),
     } for l in logs], "count": len(logs)}
 

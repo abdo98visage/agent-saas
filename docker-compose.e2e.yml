@@ -17,10 +17,11 @@ services:
     image: agentsaas-api:e2e
     pull_policy: never
     user: "0:0"
-    command: sh -c "mkdir -p /data/attachments /data/hermes/profiles && chown -R 10001:10001 /data/attachments /data/hermes/profiles"
+    command: sh -c "mkdir -p /data/attachments /data/hermes/profiles /data/knowledge && chown -R 10001:10001 /data/attachments /data/hermes/profiles /data/knowledge"
     volumes:
       - attachment_data_e2e:/data/attachments
       - hermes_profiles:/data/hermes/profiles
+      - knowledge_data_e2e:/data/knowledge
 
   api:
     image: agentsaas-api:e2e
@@ -35,8 +36,11 @@ services:
       HERMES_ORCHESTRATOR_URL: http://hermes-orchestrator:8788
       HERMES_ORCHESTRATOR_SECRET: ${HERMES_ORCHESTRATOR_SECRET}
       ATTACHMENT_STORAGE_ROOT: /data/attachments
+      TELEGRAM_WEBHOOK_SECRET: desktop-e2e-telegram-webhook-secret-2026
+      KNOWLEDGE_ALLOWED_ROOTS: '["/data/knowledge"]'
     volumes:
       - attachment_data_e2e:/data/attachments
+      - knowledge_data_e2e:/data/knowledge:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -89,6 +93,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      KNOWLEDGE_ALLOWED_ROOTS: '["/data/knowledge"]'
+    volumes:
+      - knowledge_data_e2e:/data/knowledge:ro
     depends_on:
       db:
         condition: service_healthy
@@ -109,7 +116,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: celery -A app.celery_app beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
     networks:
       - app_net
 
@@ -120,8 +127,12 @@ services:
       HERMES_WORKSPACE_ROOT: /data/hermes/profiles
       HERMES_PORT: 8787
       HERMES_INTERNAL_URL: http://hermes-runtime:8787
+      HERMES_RUNTIME_SECRET: ${HERMES_RUNTIME_SECRET:-desktop-e2e-hermes-runtime-secret-2026}
       HERMES_ORCHESTRATOR_SECRET: ${HERMES_ORCHESTRATOR_SECRET}
       HERMES_ORCHESTRATOR_REQUIRE_SECRET: "true"
+      HERMES_MODEL_PROXY_URL: http://hermes-orchestrator:8788/internal/model/v1/chat/completions
+      OPENAI_BASE_URL: http://host.docker.internal:60000/v1/chat/completions
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimax.io/v1/chat/completions}
       HERMES_MANAGED_EXTERNALLY: "true"
       HERMES_RUN_PATH: /runs
       HERMES_RUN_STREAM_PATH: /runs/stream
@@ -148,14 +159,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.hermes-runtime
-    env_file:
-      - .env.docker.local
     environment:
-      OPENAI_BASE_URL: http://host.docker.internal:60000/v1/chat/completions
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
       DEFAULT_MODEL: ${DEFAULT_MODEL}
       HERMES_PROFILES_ROOT: /data/hermes/profiles
       HERMES_RUN_TIMEOUT_SECONDS: 120
+      HERMES_RUNTIME_SECRET: ${HERMES_RUNTIME_SECRET:-desktop-e2e-hermes-runtime-secret-2026}
+      HERMES_RUNTIME_REQUIRE_SECRET: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
@@ -209,6 +218,7 @@ volumes:
   redis_data_e2e:
   hermes_profiles:
   attachment_data_e2e:
+  knowledge_data_e2e:
 
 networks:
   app_net:

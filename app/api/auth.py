@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.agent_template import AgentTemplate
 from app.models.profile import Profile
 from app.models.profile_user import ProfileUser
+from app.core.runtime_policy import effective_profile_policy
 from app.schemas.auth import BrowserSessionResponse, LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.schemas.user import UserResponse
 from app.core.config import settings
@@ -392,6 +393,7 @@ async def get_assigned_profiles(
                 "slug": profile.slug,
                 "priority": assignment.priority,
                 "runtime_type": profile.runtime_type,
+                "policy": effective_profile_policy(profile),
             }
             for assignment, profile in rows
         ],

@@ -11,7 +11,7 @@ Usage: agentsaas <command>
 Commands:
   status              Show service status
   logs [service]      Follow logs
-  update              Pull images and restart services
+  update <bundle> <public-key>  Verify and install an immutable offline release
   smoke               Run production smoke test
   backup              Create a backup
   restore <path>      Restore a backup directory
@@ -31,26 +31,8 @@ case "$command" in
     ;;
   update)
     cd "$APP_HOME"
-    ./backup.sh
-    ./production_readiness_check.sh
-    "${COMPOSE[@]}" pull
-    "${COMPOSE[@]}" up -d
-    echo "Waiting for API container health..."
-    deadline=$((SECONDS + 180))
-    while (( SECONDS < deadline )); do
-      health="$("${COMPOSE[@]}" ps api --format json 2>/dev/null | jq -r '.Health // empty' || true)"
-      if [[ "$health" == "healthy" ]]; then
-        break
-      fi
-      sleep 3
-    done
-    if [[ "${health:-}" != "healthy" ]]; then
-      "${COMPOSE[@]}" ps
-      "${COMPOSE[@]}" logs --tail=100 api
-      echo "API did not become healthy within 180 seconds." >&2
-      exit 1
-    fi
-    "${COMPOSE[@]}" exec -T api python -m scripts.bootstrap_production
+    [[ -n "${1:-}" && -n "${2:-}" ]] || { echo "Usage: agentsaas update BUNDLE_DIR COSIGN_PUBLIC_KEY" >&2; exit 1; }
+    ./upgrade.sh "$1" "$2"
     ;;
   smoke)
     cd "$APP_HOME"

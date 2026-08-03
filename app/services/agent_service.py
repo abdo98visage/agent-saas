@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 
 from app.core.config import settings
+from app.core.audit_context import current_trace_id
 from app.models.agent_template import AgentTemplate
 from app.models.session import Session
 from app.models.message import Message
@@ -27,6 +28,7 @@ from app.services.agent_runtime import AgentRuntimeRouter
 from app.services.mcp_policy_resolver import mcp_policy_resolver
 from app.services.pricing_service import pricing_service
 from app.services.attachments import normalize_image_attachments, persist_image_attachments
+from app.services.knowledge_service import render_knowledge_context, retrieve_knowledge
 from app.services.token_tracker import (
     release_token_reservation,
     reserve_token_quota,
@@ -291,8 +293,9 @@ class AgentService:
         model_name: str,
         provider: str,
     ) -> AgentRun:
+        run_id = uuid4()
         run = AgentRun(
-            id=uuid4(),
+            id=run_id,
             session_id=session_obj.id,
             user_id=user_id,
             profile_id=profile.id if profile else None,
@@ -302,6 +305,7 @@ class AgentService:
             started_at=datetime.utcnow(),
             model=model_name,
             provider=provider,
+            trace_id=current_trace_id() or run_id.hex,
         )
         db.add(run)
         await db.flush()
@@ -445,6 +449,9 @@ class AgentService:
         await self._enforce_profile_ready(profile, effective_provider)
         await self._enforce_profile_request_limit(db, profile)
         await self._enforce_profile_usage_limits(db, profile)
+        knowledge_items = await retrieve_knowledge(db, user_uuid, user_message, effective_provider, is_admin=user.role == "admin")
+        knowledge_context = render_knowledge_context(knowledge_items)
+        effective_project_context = "\n\n".join(item for item in (project_context, knowledge_context) if item)
         session_obj = await self._ensure_session(db, user_uuid, conversation_id, agent_template_name)
         if resolved_profile:
             session_obj.profile_name = resolved_profile
@@ -466,17 +473,17 @@ class AgentService:
         # 4. Build messages payload
         messages = [{"role": "system", "content": full_prompt}]
 
-        if project_context:
+        if effective_project_context:
             messages.append({
                 "role": "system",
-                "content": f"Project Context:\n{project_context}",
+                "content": f"Project Context:\n{effective_project_context}",
             })
 
         model_name = self._resolve_model_for_provider(model_name, effective_provider)
         runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
         mcp_servers = await mcp_policy_resolver.resolve(db, user_uuid, profile.id if profile else None) if runtime.runtime_type == "hermes" else []
         runtime_facts_context = self._runtime_facts_context(effective_provider, model_name, runtime.runtime_type)
-        merged_project_context = f"{project_context}\n\n{runtime_facts_context}" if project_context else runtime_facts_context
+        merged_project_context = f"{effective_project_context}\n\n{runtime_facts_context}" if effective_project_context else runtime_facts_context
         messages.append({
             "role": "system",
             "content": runtime_facts_context,
@@ -633,6 +640,9 @@ class AgentService:
             "total_cost": cost_calc.total_cost,
             "pricing_snapshot": cost_calc.pricing_snapshot,
             "attachments": assistant_msg.attachments or [],
+            "tools_used": tools_used,
+            "mcp_servers_used": mcp_servers_used,
+            "citations": [{key: value for key, value in item.items() if key != "content"} for item in knowledge_items],
         }
 
     async def run_agent_stream(
@@ -666,6 +676,9 @@ class AgentService:
         await self._enforce_profile_ready(profile, effective_provider)
         await self._enforce_profile_request_limit(db, profile)
         await self._enforce_profile_usage_limits(db, profile)
+        knowledge_items = await retrieve_knowledge(db, user_uuid, user_message, effective_provider, is_admin=user.role == "admin")
+        knowledge_context = render_knowledge_context(knowledge_items)
+        effective_project_context = "\n\n".join(item for item in (project_context, knowledge_context) if item)
         session_obj = await self._ensure_session(db, user_uuid, conversation_id, agent_template_name)
         if resolved_profile:
             session_obj.profile_name = resolved_profile
@@ -686,16 +699,16 @@ class AgentService:
 
         # 4. Build messages payload
         messages = [{"role": "system", "content": full_prompt}]
-        if project_context:
+        if effective_project_context:
             messages.append({
                 "role": "system",
-                "content": f"Project Context:\n{project_context}",
+                "content": f"Project Context:\n{effective_project_context}",
             })
         model_name = self._resolve_model_for_provider(model_name, effective_provider)
         runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
         mcp_servers = await mcp_policy_resolver.resolve(db, user_uuid, profile.id if profile else None) if runtime.runtime_type == "hermes" else []
         runtime_facts_context = self._runtime_facts_context(effective_provider, model_name, runtime.runtime_type)
-        merged_project_context = f"{project_context}\n\n{runtime_facts_context}" if project_context else runtime_facts_context
+        merged_project_context = f"{effective_project_context}\n\n{runtime_facts_context}" if effective_project_context else runtime_facts_context
         messages.append({
             "role": "system",
             "content": runtime_facts_context,
@@ -876,6 +889,7 @@ class AgentService:
             "conversation_id": str(user_msg.session_id),
             "tools_used": tools_used,
             "mcp_servers_used": mcp_servers_used,
+            "citations": [{key: value for key, value in item.items() if key != "content"} for item in knowledge_items],
         }
 
     async def _call_llm(

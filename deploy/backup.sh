@@ -38,9 +38,13 @@ tar -C "$APP_HOME/data" -czf - attachments \
   | gpg --batch --yes --trust-model always --encrypt --recipient "$RECIPIENT" \
       --output "$BACKUP_DIR/attachments.tar.gz.gpg"
 
+tar -C "$APP_HOME/data" -czf - knowledge \
+  | gpg --batch --yes --trust-model always --encrypt --recipient "$RECIPIENT" \
+      --output "$BACKUP_DIR/knowledge.tar.gz.gpg"
+
 (
   cd "$BACKUP_DIR"
-  sha256sum postgres.sql.gpg hermes-profiles.tar.gz.gpg attachments.tar.gz.gpg > manifest.sha256
+  sha256sum postgres.sql.gpg hermes-profiles.tar.gz.gpg attachments.tar.gz.gpg knowledge.tar.gz.gpg > manifest.sha256
 )
 
 echo "Encrypted backup created: $BACKUP_DIR"

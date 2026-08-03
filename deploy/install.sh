@@ -16,6 +16,10 @@ SMTP_PASSWORD=""
 API_IMAGE="${AGENTSAAS_API_IMAGE:-}"
 ADMIN_IMAGE="${AGENTSAAS_ADMIN_IMAGE:-}"
 HERMES_RUNTIME_IMAGE="${AGENTSAAS_HERMES_RUNTIME_IMAGE:-}"
+CADDY_IMAGE="${AGENTSAAS_CADDY_IMAGE:-}"
+POSTGRES_IMAGE="${AGENTSAAS_POSTGRES_IMAGE:-}"
+REDIS_IMAGE="${AGENTSAAS_REDIS_IMAGE:-}"
+BACKUP_RECIPIENT="${AGENTSAAS_BACKUP_RECIPIENT:-}"
 
 usage() {
   cat <<'USAGE'
@@ -33,6 +37,10 @@ Options:
   --api-image IMAGE
   --admin-image IMAGE
   --hermes-runtime-image IMAGE
+  --caddy-image IMAGE
+  --postgres-image IMAGE
+  --redis-image IMAGE
+  --backup-recipient GPG_KEY_ID
 USAGE
 }
 
@@ -51,6 +59,10 @@ while [[ $# -gt 0 ]]; do
     --api-image) API_IMAGE="${2:-}"; shift 2 ;;
     --admin-image) ADMIN_IMAGE="${2:-}"; shift 2 ;;
     --hermes-runtime-image) HERMES_RUNTIME_IMAGE="${2:-}"; shift 2 ;;
+    --caddy-image) CADDY_IMAGE="${2:-}"; shift 2 ;;
+    --postgres-image) POSTGRES_IMAGE="${2:-}"; shift 2 ;;
+    --redis-image) REDIS_IMAGE="${2:-}"; shift 2 ;;
+    --backup-recipient) BACKUP_RECIPIENT="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
   esac
@@ -67,10 +79,13 @@ if [[ "$VERSION" == "latest" ]]; then
   exit 1
 fi
 
-if [[ -z "$API_IMAGE" || -z "$ADMIN_IMAGE" || -z "$HERMES_RUNTIME_IMAGE" ]]; then
-  echo "Provide --api-image, --admin-image, and --hermes-runtime-image using immutable tags or digests." >&2
+if [[ -z "$API_IMAGE" || -z "$ADMIN_IMAGE" || -z "$HERMES_RUNTIME_IMAGE" || -z "$CADDY_IMAGE" || -z "$POSTGRES_IMAGE" || -z "$REDIS_IMAGE" ]]; then
+  echo "Provide all application and infrastructure images pinned by digest." >&2
   exit 1
 fi
+for image in "$API_IMAGE" "$ADMIN_IMAGE" "$HERMES_RUNTIME_IMAGE" "$CADDY_IMAGE" "$POSTGRES_IMAGE" "$REDIS_IMAGE"; do
+  [[ "$image" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Image is not pinned by sha256 digest: $image" >&2; exit 1; }
+done
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run this installer with sudo or as root." >&2
@@ -119,8 +134,8 @@ download_asset() {
 }
 
 prepare_files() {
-  mkdir -p "$APP_HOME/deploy" "$APP_HOME/data/postgres" "$APP_HOME/data/redis" "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/attachments" "$APP_HOME/backups"
-  chown -R 10001:10001 "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/attachments"
+  mkdir -p "$APP_HOME/deploy" "$APP_HOME/data/postgres" "$APP_HOME/data/redis" "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/attachments" "$APP_HOME/data/knowledge" "$APP_HOME/backups"
+  chown -R 10001:10001 "$APP_HOME/data/hermes/profiles" "$APP_HOME/data/attachments" "$APP_HOME/data/knowledge"
 
   download_asset "docker-compose.release.yml" "$APP_HOME/compose.yml"
   download_asset "deploy/Caddyfile" "$APP_HOME/deploy/Caddyfile"
@@ -145,11 +160,13 @@ write_env() {
     ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
   fi
 
-  local secret_key fernet_key postgres_password hermes_secret telegram_webhook_secret
+  local secret_key fernet_key postgres_password hermes_secret runtime_secret metrics_token telegram_webhook_secret
   secret_key="$(random_hex)"
   fernet_key="$(random_fernet)"
   postgres_password="$(random_hex)"
   hermes_secret="$(random_hex)"
+  runtime_secret="$(random_hex)"
+  metrics_token="$(random_hex)"
   telegram_webhook_secret=""
   if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
     telegram_webhook_secret="$(random_hex)"
@@ -195,6 +212,7 @@ OLLAMA_BASE_URL=http://ollama:11434
 
 HERMES_ORCHESTRATOR_URL=http://hermes-orchestrator:8788
 HERMES_ORCHESTRATOR_SECRET=$hermes_secret
+HERMES_RUNTIME_SECRET=$runtime_secret
 HERMES_ORCHESTRATOR_REQUIRE_SECRET=true
 HERMES_PORT=8787
 HERMES_INTERNAL_URL=http://hermes-runtime:8787
@@ -210,6 +228,7 @@ TELEGRAM_WEBHOOK_URL=https://$DOMAIN/api/telegram/webhook
 SENTRY_DSN=$SENTRY_DSN
 SENTRY_ENVIRONMENT=production
 SENTRY_TRACES_SAMPLE_RATE=0.1
+METRICS_TOKEN=$metrics_token
 
 SMTP_HOST=$SMTP_HOST
 SMTP_PORT=587
@@ -223,7 +242,10 @@ AGENTSAAS_DATA_DIR=$APP_HOME/data
 AGENTSAAS_API_IMAGE=$API_IMAGE
 AGENTSAAS_ADMIN_IMAGE=$ADMIN_IMAGE
 AGENTSAAS_HERMES_RUNTIME_IMAGE=$HERMES_RUNTIME_IMAGE
-AGENTSAAS_BACKUP_RECIPIENT=${AGENTSAAS_BACKUP_RECIPIENT:-}
+AGENTSAAS_CADDY_IMAGE=$CADDY_IMAGE
+AGENTSAAS_POSTGRES_IMAGE=$POSTGRES_IMAGE
+AGENTSAAS_REDIS_IMAGE=$REDIS_IMAGE
+AGENTSAAS_BACKUP_RECIPIENT=$BACKUP_RECIPIENT
 EOF
 }
 

@@ -41,6 +41,8 @@ $requiredKeys = @(
   "REDIS_URL=",
   "LLM_PROVIDER=",
   "HERMES_ORCHESTRATOR_SECRET=",
+  "HERMES_RUNTIME_SECRET=",
+  "METRICS_TOKEN=",
   "HERMES_ORCHESTRATOR_URL=",
   "TELEGRAM_WEBHOOK_URL=",
   "RATE_LIMIT_BACKEND=",
@@ -123,6 +125,20 @@ if ($envContent -notmatch "LLM_PROVIDER=(minimax|openai|ollama)") {
 $secretMatch = [regex]::Match($envContent, "(?m)^HERMES_ORCHESTRATOR_SECRET=(.+)$")
 if (-not $secretMatch.Success -or $secretMatch.Groups[1].Value.Trim().Length -lt 32) {
   Fail "HERMES_ORCHESTRATOR_SECRET must be set to at least 32 characters."
+}
+
+$runtimeSecretMatch = [regex]::Match($envContent, "(?m)^HERMES_RUNTIME_SECRET=(.+)$")
+if (-not $runtimeSecretMatch.Success -or $runtimeSecretMatch.Groups[1].Value.Trim().Length -lt 32) {
+  Fail "HERMES_RUNTIME_SECRET must be set to at least 32 characters."
+}
+
+if ($secretMatch.Groups[1].Value.Trim() -eq $runtimeSecretMatch.Groups[1].Value.Trim()) {
+  Fail "HERMES_RUNTIME_SECRET must differ from HERMES_ORCHESTRATOR_SECRET."
+}
+
+$metricsTokenMatch = [regex]::Match($envContent, "(?m)^METRICS_TOKEN=(.+)$")
+if (-not $metricsTokenMatch.Success -or $metricsTokenMatch.Groups[1].Value.Trim().Length -lt 32) {
+  Fail "METRICS_TOKEN must be set to at least 32 characters."
 }
 
 $allowedOriginsMatch = [regex]::Match($envContent, "(?m)^ALLOWED_ORIGINS=(.+)$")

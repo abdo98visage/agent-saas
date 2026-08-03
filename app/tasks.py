@@ -24,6 +24,120 @@ from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.services.alert_service import alert_service
 
+
+def _run_worker_async(awaitable):
+    """Run async task code on a fresh loop and release pooled connections before it closes."""
+    import asyncio
+    from app.core.db import engine
+
+    async def runner():
+        try:
+            return await awaitable
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(runner())
+
+
+@celery_app.task(bind=True, acks_late=True, reject_on_worker_lost=True, name="app.tasks.run_durable_agent_task")
+def run_durable_agent_task(self, task_id: str):
+    """Execute one durable task under a database-backed worker lease."""
+    from app.services.durable_task_service import execute_durable_task
+
+    return _run_worker_async(execute_durable_task(UUID(task_id), str(self.request.id)))
+
+
+@celery_app.task(name="app.tasks.enqueue_due_agent_tasks")
+def enqueue_due_agent_tasks():
+    """Materialize due schedules exactly once and enqueue their durable tasks."""
+    from app.services.durable_task_service import enqueue_due_schedules
+
+    task_ids = _run_worker_async(enqueue_due_schedules())
+    for task_id in task_ids:
+        run_durable_agent_task.delay(task_id)
+    return {"enqueued": len(task_ids), "task_ids": task_ids}
+
+
+@celery_app.task(name="app.tasks.recover_stale_durable_tasks")
+def recover_stale_durable_tasks():
+    """Recover tasks abandoned after a worker crash without replaying unsafe effects."""
+    from app.services.durable_task_service import recover_stale_tasks
+
+    result = _run_worker_async(recover_stale_tasks())
+    for task_id in result.pop("task_ids", []):
+        run_durable_agent_task.delay(task_id)
+    return result
+
+
+@celery_app.task(bind=True, max_retries=8, name="app.tasks.export_audit_events")
+def export_audit_events(self):
+    """Export immutable audit events with an exponential retry and durable checkpoint."""
+    from app.services.audit_service import export_audit_batch
+
+    try:
+        return _run_worker_async(_export_audit_with_session(export_audit_batch))
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=min(900, 15 * (2 ** self.request.retries)))
+
+
+async def _export_audit_with_session(exporter):
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        return await exporter(session)
+
+
+@celery_app.task(bind=True, max_retries=5, name="app.tasks.sync_knowledge_source")
+def sync_knowledge_source(self, source_id: str):
+    """Incrementally synchronize one administrator-approved local knowledge source."""
+    try:
+        return _run_worker_async(_sync_knowledge_source(UUID(source_id)))
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=min(900, 30 * (2 ** self.request.retries)))
+
+
+async def _sync_knowledge_source(source_id: UUID):
+    from app.core.db import async_session
+    from app.models.knowledge import KnowledgeSource
+    from app.services.knowledge_service import sync_local_source
+
+    async with async_session.begin() as db:
+        source = await db.get(KnowledgeSource, source_id)
+        if not source or not source.is_active:
+            return {"status": "not_available"}
+        source.sync_status = "syncing"
+    try:
+        async with async_session.begin() as db:
+            source = await db.get(KnowledgeSource, source_id)
+            return await sync_local_source(db, source)
+    except Exception as exc:
+        async with async_session.begin() as db:
+            source = await db.get(KnowledgeSource, source_id)
+            if source:
+                source.sync_status = "failed"
+                source.sync_error = str(exc)[:1000]
+        raise
+
+
+@celery_app.task(name="app.tasks.sync_all_knowledge_sources")
+def sync_all_knowledge_sources():
+    """Queue all active local sources; individual jobs remain independently retryable."""
+    source_ids = _run_worker_async(_active_local_knowledge_source_ids())
+    for source_id in source_ids:
+        sync_knowledge_source.delay(source_id)
+    return {"queued": len(source_ids)}
+
+
+async def _active_local_knowledge_source_ids():
+    from app.core.db import async_session
+    from app.models.knowledge import KnowledgeSource
+
+    async with async_session() as db:
+        result = await db.execute(select(KnowledgeSource.id).where(
+            KnowledgeSource.is_active.is_(True), KnowledgeSource.source_type == "local_folder",
+        ))
+        return [str(item) for item in result.scalars().all()]
+
 @celery_app.task(name="app.tasks.fail_stale_agent_runs")
 def fail_stale_agent_runs():
     """Finalize runs abandoned by process crashes or lost clients."""

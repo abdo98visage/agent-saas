@@ -38,6 +38,7 @@ from app.services.token_tracker import (
 )
 from app.services.presence_service import presence_service
 from app.services.attachments import normalize_image_attachments, persist_image_attachments
+from app.services.knowledge_service import render_knowledge_context, retrieve_knowledge
 
 router = APIRouter()
 agent_service = AgentService()
@@ -427,6 +428,9 @@ async def _run_cowork_loop(
         profile = await agent_service.resolve_user_profile(db, user.id, profile_name=effective_profile_name)
         allowed_cowork_tools = _profile_cowork_tools(profile)
         effective_provider, api_key, _api_key_id = await agent_service._resolve_runtime_provider_and_key(db, user.id, profile)
+        knowledge_items = await retrieve_knowledge(db, user.id, user_message, effective_provider, is_admin=user.role == "admin")
+        knowledge_context = render_knowledge_context(knowledge_items)
+        project_context = "\n\n".join(item for item in (project_context, knowledge_context) if item)
         await agent_service._enforce_profile_ready(profile, effective_provider)
         await agent_service._enforce_profile_request_limit(db, profile)
         await agent_service._enforce_profile_usage_limits(db, profile)
@@ -680,6 +684,7 @@ async def _run_cowork_loop(
                 "total_cost": cost_calc.total_cost,
                 "pricing_snapshot": cost_calc.pricing_snapshot,
                 "conversation_id": str(session_obj.id),
+                "citations": [{key: value for key, value in item.items() if key != "content"} for item in knowledge_items],
             }
 
         async with async_session() as failed_db:

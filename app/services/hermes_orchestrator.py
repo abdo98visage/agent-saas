@@ -21,10 +21,16 @@ class HermesOrchestratorClient:
     def configured(self) -> bool:
         return bool(self.base_url)
 
-    def _headers(self) -> dict[str, str]:
+    def _headers(self, payload: Optional[dict[str, Any]] = None) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.secret:
             headers["X-Hermes-Orchestrator-Secret"] = self.secret
+        payload = payload or {}
+        if payload.get("correlation_id"):
+            headers["X-Correlation-ID"] = str(payload["correlation_id"])
+        trace_id = str(payload.get("trace_id") or "")
+        if len(trace_id) == 32:
+            headers["traceparent"] = f"00-{trace_id}-{trace_id[:16]}-01"
         return headers
 
     async def _request(self, method: str, path: str, json: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -34,7 +40,7 @@ class HermesOrchestratorClient:
             response = await client.request(
                 method,
                 f"{self.base_url}{path}",
-                headers=self._headers(),
+                headers=self._headers(json),
                 json=json,
             )
             response.raise_for_status()
@@ -96,7 +102,7 @@ class HermesOrchestratorClient:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/runs/stream",
-                headers=self._headers(),
+                headers=self._headers(payload),
                 json=payload,
             ) as response:
                 response.raise_for_status()

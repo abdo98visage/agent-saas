@@ -14,7 +14,7 @@ function parseArgs() {
     adminEmail: "admin@company.com",
     adminPassword: "admin123",
     employeePassword: "Employee123",
-    provider: "minimax",
+    provider: "openai",
     model: "Qwen3.6-27B-IQ4_XS.gguf",
     port: 9333,
     profileName: "",
@@ -23,6 +23,7 @@ function parseArgs() {
     mcpOnly: false,
     dev: false,
     visible: false,
+    telegramWebhookSecret: "desktop-e2e-telegram-webhook-secret-2026",
   };
   for (let index = 2; index < process.argv.length; index += 1) {
     const arg = process.argv[index];
@@ -41,6 +42,7 @@ function parseArgs() {
     else if (arg === "--mcp-only") args.mcpOnly = true;
     else if (arg === "--dev") args.dev = true;
     else if (arg === "--visible") args.visible = true;
+    else if (arg === "--telegram-webhook-secret") args.telegramWebhookSecret = next, index += 1;
   }
   return args;
 }
@@ -51,8 +53,8 @@ function assert(condition, message) {
   }
 }
 
-async function apiRequest(baseUrl, method, apiPath, body, token) {
-  const headers = { Accept: "application/json" };
+async function apiRequest(baseUrl, method, apiPath, body, token, extraHeaders = {}) {
+  const headers = { Accept: "application/json", ...extraHeaders };
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
@@ -202,7 +204,7 @@ async function createDesktopEmployee(args) {
       runtime_type: "hermes",
       agents_md: "# Desktop E2E\nValidate packaged desktop execution.",
       soul_md: "Reliable desktop QA assistant.",
-      skills: ["desktop", "qa"],
+      skills: [],
       system_prompt: "Respond briefly for packaged desktop validation.",
       max_tokens_per_day: 100000,
       max_requests_per_day: 1000,
@@ -382,8 +384,7 @@ async function main() {
           if (!state.isStreaming && last && last.role === "assistant" && last.content.trim().length > 0) {
             return last.content;
           }
-          const rendered = [...document.querySelectorAll(".message.assistant")].at(-1);
-          return !state.isStreaming && rendered && rendered.textContent.trim().length > 0 ? rendered.textContent : "";
+          return "";
         })()
       `),
       60000,
@@ -503,7 +504,7 @@ async function main() {
     const chatId = 910000000 + Number.parseInt(crypto.randomBytes(2).toString("hex"), 16);
     await apiRequest(args.apiUrl, "POST", "/api/telegram/webhook", {
       message: { chat: { id: chatId }, text: `/bind ${bindCode}` },
-    });
+    }, undefined, { "X-Telegram-Bot-Api-Secret-Token": args.telegramWebhookSecret });
     await cdp.evaluate("document.getElementById('btn-tg-bind').click()");
     const telegramStatus = await waitFor(
       () => cdp.evaluate("document.getElementById('tg-bind-status').textContent"),

@@ -57,7 +57,7 @@ services:
       - redis
     volumes:
       - ./app:/app/app
-    command: celery -A app.celery_app beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
 
   db:
     image: postgres:15-alpine

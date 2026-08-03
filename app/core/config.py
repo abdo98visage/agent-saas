@@ -100,6 +100,8 @@ class Settings(BaseSettings):
     mcp_connect_timeout_seconds: float = 10.0
     mcp_tool_timeout_seconds: float = 30.0
     mcp_approval_timeout_seconds: float = 120.0
+    durable_task_lease_seconds: int = 90
+    durable_task_approval_timeout_minutes: int = 60
 
     # Telegram
     telegram_bot_token: str = ""
@@ -112,6 +114,17 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.0
     alert_notification_emails: str = ""
     alert_notification_cooldown_minutes: int = 60
+    metrics_token: str = ""
+    audit_export_url: str = ""
+    audit_export_token: str = ""
+    audit_export_batch_size: int = 200
+    audit_export_timeout_seconds: float = 10.0
+    knowledge_allowed_roots: list[str] = [".data/knowledge"]
+    knowledge_max_file_bytes: int = 5 * 1024 * 1024
+    knowledge_chunk_chars: int = 1200
+    knowledge_chunk_overlap_chars: int = 150
+    knowledge_retrieval_limit: int = 5
+    knowledge_retrieval_max_chars: int = 6000
 
     # SMTP / Email
     smtp_host: str = ""

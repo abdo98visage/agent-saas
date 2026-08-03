@@ -7,14 +7,16 @@ managed by Compose/Kubernetes, so lifecycle endpoints must not require Docker CL
 import json
 import os
 import re
+import secrets
 import subprocess
+import time
 from pathlib import Path
 import shutil
 from typing import Any
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 
@@ -29,10 +31,20 @@ HERMES_RUN_PATH = os.getenv("HERMES_RUN_PATH", "/runs")
 HERMES_RUN_STREAM_PATH = os.getenv("HERMES_RUN_STREAM_PATH", "/runs/stream")
 HERMES_APPROVAL_PATH = os.getenv("HERMES_APPROVAL_PATH", "/approvals")
 HERMES_HEALTH_PATH = os.getenv("HERMES_HEALTH_PATH", "/health")
+HERMES_RUNTIME_SECRET = os.getenv("HERMES_RUNTIME_SECRET", "")
 HERMES_DOCKER_NETWORK = os.getenv("HERMES_DOCKER_NETWORK", "")
 HERMES_PUBLISH_PORT = os.getenv("HERMES_PUBLISH_PORT", "false").lower() == "true"
 HERMES_REQUEST_TIMEOUT_SECONDS = float(os.getenv("HERMES_REQUEST_TIMEOUT_SECONDS", "120"))
 HERMES_MANAGED_EXTERNALLY = os.getenv("HERMES_MANAGED_EXTERNALLY", "false").lower() == "true"
+HERMES_MODEL_PROXY_URL = os.getenv(
+    "HERMES_MODEL_PROXY_URL",
+    "http://hermes-orchestrator:8788/internal/model/v1/chat/completions",
+)
+OPENAI_UPSTREAM_URL = os.getenv("OPENAI_BASE_URL", "")
+MINIMAX_UPSTREAM_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1/chat/completions")
+MODEL_PROXY_TOKEN_TTL_SECONDS = int(os.getenv("MODEL_PROXY_TOKEN_TTL_SECONDS", "600"))
+
+_model_proxy_runs: dict[str, dict[str, Any]] = {}
 
 app = FastAPI(title="AgentSaaS Agent Orchestrator", version="0.1.0")
 
@@ -95,6 +107,17 @@ def _hermes_url(path: str) -> str:
     return f"{HERMES_INTERNAL_URL.rstrip('/')}/{path.lstrip('/')}"
 
 
+def _runtime_headers(payload: dict[str, Any] | None = None) -> dict[str, str]:
+    headers = {"X-Hermes-Runtime-Secret": HERMES_RUNTIME_SECRET} if HERMES_RUNTIME_SECRET else {}
+    payload = payload or {}
+    if payload.get("correlation_id"):
+        headers["X-Correlation-ID"] = str(payload["correlation_id"])
+    trace_id = str(payload.get("trace_id") or "")
+    if len(trace_id) == 32:
+        headers["traceparent"] = f"00-{trace_id}-{trace_id[:16]}-01"
+    return headers
+
+
 async def _hermes_health() -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -124,6 +147,83 @@ def _normalize_run_result(result: dict[str, Any]) -> dict[str, Any]:
         "mcp_servers_used": result.get("mcp_servers_used") or result.get("mcp_servers") or [],
         "total_cost": result.get("total_cost") or result.get("cost") or 0.0,
     }
+
+
+def _prepare_runtime_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    provider = str(payload.get("provider") or "").strip().lower()
+    api_key = str(payload.get("api_key") or "")
+    if provider not in {"openai", "minimax"}:
+        return dict(payload), None
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Provider credential is required")
+    token = secrets.token_urlsafe(32)
+    _model_proxy_runs[token] = {
+        "provider": provider,
+        "api_key": api_key,
+        "expires_at": time.monotonic() + MODEL_PROXY_TOKEN_TTL_SECONDS,
+    }
+    runtime_payload = dict(payload)
+    runtime_payload["api_key"] = token
+    runtime_payload["provider_base_url"] = HERMES_MODEL_PROXY_URL
+    return runtime_payload, token
+
+
+def _provider_proxy_session(token: str) -> dict[str, Any]:
+    session = _model_proxy_runs.get(token)
+    if not session or float(session.get("expires_at") or 0) <= time.monotonic():
+        _model_proxy_runs.pop(token, None)
+        raise HTTPException(status_code=401, detail="Invalid or expired model proxy token")
+    return session
+
+
+@app.post("/internal/model/v1/chat/completions")
+async def proxy_model_request(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    token = token or str(x_api_key or "").strip()
+    session = _provider_proxy_session(token)
+    provider = session["provider"]
+    upstream_url = OPENAI_UPSTREAM_URL if provider == "openai" else MINIMAX_UPSTREAM_URL
+    if not upstream_url:
+        raise HTTPException(status_code=503, detail="Model upstream is not configured")
+    body = await request.body()
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=HERMES_REQUEST_TIMEOUT_SECONDS, write=30.0, pool=10.0)
+    )
+    upstream_request = client.build_request(
+        "POST",
+        upstream_url,
+        headers={
+            "Authorization": f"Bearer {session['api_key']}",
+            "Content-Type": request.headers.get("content-type", "application/json"),
+            "Accept": request.headers.get("accept", "application/json"),
+        },
+        content=body,
+    )
+    try:
+        upstream_response = await client.send(upstream_request, stream=True)
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="Model upstream unavailable") from exc
+
+    async def body_stream():
+        try:
+            async for chunk in upstream_response.aiter_raw():
+                yield chunk
+        finally:
+            await upstream_response.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        body_stream(),
+        status_code=upstream_response.status_code,
+        media_type=upstream_response.headers.get("content-type", "application/json").split(";", 1)[0],
+    )
 
 
 def _resolve_profile_path(base: Path, relative_path: str) -> Path:
@@ -336,20 +436,29 @@ async def delete_profile(payload: dict[str, Any], x_hermes_orchestrator_secret: 
 @app.post("/runs")
 async def run_agent(payload: dict[str, Any], x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    runtime_payload, model_proxy_token = _prepare_runtime_payload(payload)
     try:
         async with httpx.AsyncClient(timeout=HERMES_REQUEST_TIMEOUT_SECONDS) as client:
-            response = await client.post(_hermes_url(HERMES_RUN_PATH), json=payload)
+            response = await client.post(
+                _hermes_url(HERMES_RUN_PATH),
+                json=runtime_payload,
+                headers=_runtime_headers(runtime_payload),
+            )
             response.raise_for_status()
             return _normalize_run_result(response.json())
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail="Agent runtime rejected the request") from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Agent runtime unavailable") from exc
+    finally:
+        if model_proxy_token:
+            _model_proxy_runs.pop(model_proxy_token, None)
 
 
 @app.post("/runs/stream")
 async def run_agent_stream(payload: dict[str, Any], x_hermes_orchestrator_secret: str | None = Header(default=None)):
     _authorize(x_hermes_orchestrator_secret)
+    runtime_payload, model_proxy_token = _prepare_runtime_payload(payload)
 
     async def event_generator():
         try:
@@ -360,7 +469,12 @@ async def run_agent_stream(payload: dict[str, Any], x_hermes_orchestrator_secret
                 pool=5.0,
             )
             async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("POST", _hermes_url(HERMES_RUN_STREAM_PATH), json=payload) as response:
+                async with client.stream(
+                    "POST",
+                    _hermes_url(HERMES_RUN_STREAM_PATH),
+                    json=runtime_payload,
+                    headers=_runtime_headers(runtime_payload),
+                ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
                         if not line:
@@ -374,6 +488,9 @@ async def run_agent_stream(payload: dict[str, Any], x_hermes_orchestrator_secret
         except Exception:
             error = json.dumps({"type": "error", "error": "Agent runtime stream failed"}, ensure_ascii=False)
             yield f"data: {error}\n\n"
+        finally:
+            if model_proxy_token:
+                _model_proxy_runs.pop(model_proxy_token, None)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -386,7 +503,11 @@ async def respond_approval(payload: dict[str, Any], x_hermes_orchestrator_secret
         raise HTTPException(status_code=400, detail="Invalid approval decision")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(_hermes_url(HERMES_APPROVAL_PATH), json=payload)
+            response = await client.post(
+                _hermes_url(HERMES_APPROVAL_PATH),
+                json=payload,
+                headers=_runtime_headers(),
+            )
             response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as exc:

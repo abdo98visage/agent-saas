@@ -25,14 +25,13 @@
 
 أهم ما يجب إضافته، بالترتيب، هو:
 
-1. هوية مؤسسية: OIDC/SAML، Active Directory/LDAP، SCIM/JIT، مجموعات وRBAC دقيق.
-2. سياسة مركزية إلزامية تصل إلى Desktop وRuntime وتفشل بشكل مغلق عند غيابها.
-3. عزل تنفيذي مستقل لكل Run/Task، بدلاً من الاكتفاء بحاوية Runtime محصّنة مشتركة.
-4. طبقة Enterprise Knowledge & Connectors تحافظ على صلاحيات المصدر، والفهرسة، والمراجع، والحذف.
-5. Durable Tasks: مهام طويلة ومجدولة وقابلة للاستئناف بعد إعادة التشغيل.
-6. Audit/Compliance/Data Governance قابلة للتصدير إلى SIEM، مع retention وlegal hold وDLP.
-7. حزمة تشغيل On‑Premise حقيقية: HA، air-gap، private registry، upgrade/rollback، DR وقياس RPO/RTO.
-8. Observability & Evaluation: traces لكل Run، metrics، quality regression، وتقييم قبل ترقية Profile أو model.
+1. سياسة مركزية إلزامية تصل إلى Desktop وRuntime وتفشل بشكل مغلق عند غيابها.
+2. عزل تنفيذي مستقل لكل Run/Task، بدلاً من الاكتفاء بحاوية Runtime محصّنة مشتركة.
+3. طبقة Enterprise Knowledge & Connectors تحافظ على صلاحيات المصدر، والفهرسة، والمراجع، والحذف.
+4. Durable Tasks: مهام طويلة ومجدولة وقابلة للاستئناف بعد إعادة التشغيل.
+5. Audit/Compliance/Data Governance قابلة للتصدير إلى SIEM، مع retention وlegal hold وDLP.
+6. حزمة تشغيل On‑Premise حقيقية: HA، air-gap، private registry، upgrade/rollback، DR وقياس RPO/RTO.
+7. Observability & Evaluation: traces لكل Run، metrics، quality regression، وتقييم قبل ترقية Profile أو model.
 
 أما الميزات مثل التحكم العام بالكمبيوتر، الهاتف، الذاكرة الشخصية العامة، ومتجر Plugins مفتوح فلا ينبغي أن تسبق هذه البنود. بعضها مفيد، لكنه ليس شرطاً أولياً، وبعضه يرفع المخاطر في بيئات الشركات.
 
@@ -99,11 +98,16 @@
 
 هناك migrations، readiness، refresh sessions، WS tickets، حماية للمرفقات، idempotency، timeouts، stale-run cleanup، Redis presence، CI، container hardening، backup/restore، وإرشادات release/signing. هذه ليست تفاصيل تجميلية؛ هي أساس صالح للتطور.
 
+#### و. المصادقة المحلية مناسبة لنموذج المنتج الحالي
+
+المصادقة الحالية ليست ناقصة بسبب غياب SSO. يوجد login محلي، activation/invite، lockout، access token محدود المدة، refresh session دوّارة لمدة 30 يوماً، إبطال للجلسة، وتخزين Desktop للـrefresh token باستخدام `safeStorage`. يجدد Desktop الـaccess token تلقائياً، ولذلك انتهاء access token لا يعني إخراج المستخدم كل عدة ساعات.
+
+SSO عبر OIDC/SAML يبقى تكاملاً اختيارياً فقط إذا طلبه عميل مستقبلي لديه Identity Provider. ليس شرطاً أمنياً ولا فجوة مطلوبة للنموذج الحالي ذي دوري `admin` و`employee`.
+
 ### 3.2 الحدود الحالية المهمة
 
-- الهوية محلية بدورين رئيسيين `admin` و`employee`، ولا يوجد مسار مؤسسي كامل لـSSO/SCIM/LDAP/groups/custom roles.
 - النشر مستقل لكل شركة، لكنه لا يملك بعد **deployment identity/config bundle/license/lifecycle plane** واضحاً.
-- Runtime محصّن كخدمة، لكن لا توجد دلالة واضحة على sandbox/container/VM مستقل لكل Run مع سياسة موارد وشبكة وأسرار مؤقتة.
+- Runtime محصّن كخدمة، لكن لا توجد دلالة واضحة على sandbox/container/VM مستقل لكل Run مع filesystem وشبكة وأسرار معزولة.
 - Sessions وتجربة العمل تتمحور حول المحادثة، وليس حول Task دائم له state machine وcheckpoint وretry schedule.
 - MCP ممتاز كـtool transport/control plane، لكنه ليس بحد ذاته enterprise knowledge ingestion أو search index أو ACL-aware retrieval.
 - Audit وKPIs موجودان، لكن لا توجد طبقة تصدير مستمرة وموثوقة إلى SIEM ولا retention/legal hold/DLP كاملة.
@@ -128,7 +132,7 @@
 - مشاريع تحتوي ملفات وروابط وتعليمات وذاكرة مرتبطة بالمشروع.
 - computer use للتعامل مع التطبيقات عند السماح به.
 - موافقات للأدوات، وإمكانية منع “always allow” للأدوات ذات الأثر، وسياسة “الأكثر تقييداً هو الفائز”.
-- تحكم Enterprise عبر groups/custom roles وبعض مفاتيح MDM، وسياسات network egress، trusted-device requirements وrecent sign-in للجلسات البعيدة.
+- تحكم Enterprise على مستوى المنظمة والجهاز، وسياسات network egress وtrusted-device requirements وrecent sign-in للجلسات البعيدة.
 - تصدير أحداث Cowork عبر OpenTelemetry إلى أدوات المراقبة وSIEM.
 
 لكن توجد حدود يجب عدم تجاهلها:
@@ -155,7 +159,7 @@
 - plugins وskills وMCP وhooks، مع قيود إدارية على المصادر والخوادم والسياسات.
 - SDK، App Server، non-interactive mode وGitHub Action للاستخدام البرمجي وCI.
 - managed configuration تُفرض على Desktop/CLI/IDE، مع requirements لا يستطيع المستخدم تجاوزها وfail-closed عند غياب bundle موثوق.
-- groups/SCIM/RBAC، analytics وCompliance API لفصل تقارير التبني عن سجلات التحقيق والتدقيق.
+- analytics وCompliance API لفصل تقارير التبني عن سجلات التحقيق والتدقيق.
 
 Codex مرجع قوي للعزل، التحقق، Git workflow، السياسات المحلية والواجهات البرمجية. لكنه منتج coding-first، لذلك لا يلزم نسخ كل عناصره إلى منصة موظفين رقميين عامة.
 
@@ -173,7 +177,7 @@ Codex مرجع قوي للعزل، التحقق، Git workflow، السياسا�
 | عزل لكل تشغيل | **جزئي**: runtime container محصّن وشبكة منفصلة | isolated remote environment أو local VM | cloud containers/OS sandbox/worktree | **فجوة حرجة** |
 | سياسة موافقات وأدوات | **موجود جزئياً بقوة** على Profile/MCP | tool approvals وقيود org/role | sandbox + approvals + auto review + requirements | أضف policy distribution وdecision trace |
 | سياسة شبكة دقيقة | **جزئي**: فصل شبكات؛ egress allowlist خارجي | org network/egress controls | allow/deny destination policy | **P0 للنشر الحساس** |
-| هوية مؤسسية | **غير موجودة**: local login/invite | SSO/JIT/SCIM/groups/custom roles | workspace SSO/SCIM/groups/RBAC | **فجوة بيع واعتماد P0** |
+| المصادقة | **موجودة ومناسبة**: local login/invite + rotating refresh sessions | تكاملات دخول مؤسسية إضافية | تكاملات دخول مؤسسية إضافية | لا يلزم تغييرها؛ SSO اختياري عند طلب عميل محدد |
 | إدارة Desktop/الجهاز | **جزئي**: signing/updater scaffolding | MDM keys وtrusted-device controls | managed config وWindows MDM deployment | **فجوة P0** |
 | معرفة مؤسسية مفهرسة بصلاحيات | **غير موجودة كطبقة مستقلة**؛ MCP ينفذ الأدوات | connectors/plugins ومصادر عمل | plugins/apps/connectors/MCP | **فجوة P0/P1 حسب use case** |
 | Git/worktree/review | **غير موجود كمسار منتج** | ليس محور Cowork | قوي ومتكامل | **P1** للبروفايلات التقنية فقط |
@@ -185,61 +189,13 @@ Codex مرجع قوي للعزل، التحقق، Git workflow، السياسا�
 | Evaluations/regression | **غير ظاهر كمنظومة منتج** | ليست أهم ميزة ظاهرة في Cowork | review/validation workflows؛ يمكن دمجه برمجياً | **فجوة حرجة للجودة** |
 | API/SDK/CLI/CI مستقرة | FastAPI داخلي، لا public automation contract واضح | connectors/plugins؛ ليس runner عاماً | SDK/App Server/non-interactive/GitHub Action | **P1** |
 | HA/Air-gap/upgrade/DR | **جزئي**: Compose + backup/restore scripts | خدمة سحابية؛ ليست مرجع On‑Prem | خدمة/عميل سحابي؛ ليست مرجع On‑Prem | هنا يجب أن تتفوق المنصة |
-| حصص وتكلفة حسب مستخدم/Profile | **موجود بقوة** | spend controls واستهلاك Enterprise | usage/spend analytics | حافظ عليها ووسعها للمجموعة والقسم |
+| حصص وتكلفة حسب مستخدم/Profile | **موجود بقوة** | spend controls واستهلاك Enterprise | usage/spend analytics | حافظ عليها ضمن المستخدم والـProfile الحاليين |
 
 ---
 
 ## 6. الفجوات الحرجة التي يجب إضافتها
 
-## P0-1 — الهوية المؤسسية وإدارة دورة حياة المستخدم
-
-### لماذا هي حرجة؟
-
-أول سؤال من بنك أو جهة حكومية أو شركة كبيرة لن يكون “هل يدعم MCP؟”، بل:
-
-- هل يدخل الموظف بحساب الشركة؟
-- هل يُسحب وصوله فور تعطيله في Active Directory؟
-- هل يمكن إعطاء قسم المالية أدوات تختلف عن قسم التطوير؟
-- هل يمكن فرض MFA وسياسة جلسة وIP allowlist؟
-- من يستطيع رؤية المحادثات أو تعديل Profiles أو إدارة connectors؟
-
-الدوران الحاليان `admin/employee` لا يكفيان. كما أن invitation lifecycle منفصل عن HR/IdP يؤدي إلى حسابات يتيمة وتأخير في الإلغاء.
-
-### الموجود حالياً
-
-- Local email/password، activation/invite، access/refresh sessions، lockout.
-- صلاحية إدارية عامة وفصل بيانات المستخدم بواسطة `user_id`.
-- Department وProfile assignments.
-
-### الحد الأدنى الصحيح المطلوب
-
-1. OIDC أولاً، ثم SAML 2.0 عند حاجة العملاء؛ لا يلزم بناء IdP.
-2. تكامل Active Directory/Entra ID/Keycloak/Okta عبر معيار، وليس provider-specific hacks.
-3. JIT provisioning وخيار SCIM 2.0 للمزامنة والإلغاء والمجموعات.
-4. Groups من مصدر موثوق وربط المجموعة بـProfiles، MCP servers، models، quotas وcapabilities.
-5. RBAC بقدرات مستقلة، مثل:
-   - Platform Owner
-   - Security Admin
-   - Identity Admin
-   - Agent/Profile Admin
-   - Connector Admin
-   - Auditor/Read-only
-   - Employee
-6. Service accounts لعمليات CI والتكامل، مع scopes وانتهاء وتدوير.
-7. MFA/step-up auth للعمليات الحساسة، session lifetime، device/session revocation.
-8. Emergency local admin “break glass” مع حفظ سري خارج الخدمة وتدقيق صارم.
-
-### معيار القبول
-
-- تعطيل مستخدم في IdP يمنع access token الجديد ويلغي الجلسات ضمن زمن معلوم ومختبر.
-- group membership changes تغيّر القدرات تلقائياً ولا تعتمد على تعديل يدوي.
-- لا يستطيع أي role إدارة مجال خارج صلاحياته.
-- يوجد تقرير يوضح effective permissions للمستخدم ولماذا مُنحت.
-- يعمل تسجيل الدخول في بيئة لا تحتوي اتصالاً بالإنترنت الخارجي عند استخدام IdP داخلي.
-
----
-
-## P0-2 — Policy Plane مركزية وملزمة للـDesktop والـRuntime
+## P0-1 — Policy Plane مركزية وملزمة للـDesktop والـRuntime
 
 ### لماذا هي حرجة؟
 
@@ -256,7 +212,7 @@ Codex يميز بوضوح بين managed defaults وadmin-enforced requirements�
 ### الحد الأدنى الصحيح المطلوب
 
 1. Policy bundle موقعة وversioned صادرة من Dashboard/Control Plane.
-2. precedence معلن: platform hard limits ← company policy ← group policy ← profile policy ← user preference.
+2. precedence معلن: platform hard limits ← company policy ← profile policy ← user preference.
 3. **Most restrictive wins** في الأدوات والشبكة والموافقات، إلا عند وجود استثناء إداري موثق.
 4. fail-closed للقدرات الحساسة إذا كانت السياسة مفقودة أو منتهية أو غير متوافقة.
 5. سياسات تشمل:
@@ -275,14 +231,14 @@ Codex يميز بوضوح بين managed defaults وadmin-enforced requirements�
 
 ### معيار القبول
 
-- تعديل policy لمجموعة يصل إلى الأجهزة ويظهر رقم نسخته.
+- تعديل policy يصل إلى الأجهزة المعنية ويظهر رقم نسخته.
 - جهاز لا يستطيع التحقق من توقيع السياسة لا يشغّل capability حساسة.
 - لا يستطيع employee تجاوز policy بتعديل ملف محلي أو request payload.
 - كل Agent Run يسجل policy version وprofile version وclient version.
 
 ---
 
-## P0-3 — عزل تنفيذي مستقل لكل Run/Task
+## P0-2 — عزل تنفيذي مستقل لكل Run/Task
 
 ### لماذا هي حرجة؟
 
@@ -302,10 +258,9 @@ Cowork يستخدم بيئات معزولة/VM محلية، وCodex يستخدم
    - container مستقل أو sandbox process قوي؛
    - filesystem مؤقت؛
    - mount للمدخلات المطلوبة فقط؛
-   - UID/namespace مستقل؛
-   - CPU/RAM/PID/time limits.
+   - UID/namespace مستقل عند استخدام container.
 2. Network policy لكل Run/Profile، لا مجرد شبكة Compose مشتركة.
-3. secrets broker يحقن credential قصير العمر للأداة المطلوبة فقط، ولا يكتب السر داخل prompt أو disk.
+3. secrets broker لا يضع مفتاح المزود أو MCP الأصلي داخل prompt أو ملفات الـworkspace. إذا كانت الخدمة الخارجية تدعم token تنفيذياً مؤقتاً فيُستخدم داخل الـRun؛ وإلا يبقى المفتاح الدائم في الخادم وتُنفذ المكالمة عبر وسيط المنصة. هذا لا علاقة له بجلسة دخول مستخدم Desktop ولا يسبب تسجيل خروجه.
 4. workspace snapshot/checkpoint وcleanup مؤكد بعد النجاح والفشل والإلغاء.
 5. لا تشغيل terminal/code execution على host مباشرة.
 6. فصل agent loop عن execution sandbox حتى يبقى التحكم والإلغاء والمراقبة متاحاً عند تعطل sandbox.
@@ -325,7 +280,7 @@ Cowork يستخدم بيئات معزولة/VM محلية، وCodex يستخدم
 
 ---
 
-## P0-4 — Enterprise Knowledge & Connectors، وليس MCP فقط
+## P0-3 — Enterprise Knowledge & Connectors، وليس MCP فقط
 
 ### الفرق المهم
 
@@ -370,7 +325,7 @@ MCP يجيب عن: **كيف يكتشف الوكيل أداة ويناديها؟*
 
 ---
 
-## P0-5 — Durable Tasks والمهام المجدولة
+## P0-4 — Durable Tasks والمهام المجدولة
 
 ### لماذا هي حرجة؟
 
@@ -408,7 +363,7 @@ Celery الحالي يؤدي مهام صيانة ولا يقدم هذا العق
 
 ---
 
-## P0-6 — Compliance Audit وData Governance
+## P0-5 — Compliance Audit وData Governance
 
 ### الموجود حالياً
 
@@ -448,7 +403,7 @@ Celery الحالي يؤدي مهام صيانة ولا يقدم هذا العق
 
 ---
 
-## P0-7 — دورة حياة On‑Premise: Air‑gap، HA، Upgrade وDR
+## P0-6 — دورة حياة On‑Premise: Air‑gap، HA، Upgrade وDR
 
 ### لماذا يجب أن تتفوق المنصة هنا؟
 
@@ -496,7 +451,7 @@ Claude Cowork وCodex يقدمان خدمات سحابية وعملاء محلي
 
 ---
 
-## P0-8 — Observability وAgent Evaluation
+## P0-7 — Observability وAgent Evaluation
 
 ### لماذا logs وKPIs الحالية لا تكفي؟
 
@@ -518,7 +473,7 @@ Claude Cowork وCodex يقدمان خدمات سحابية وعملاء محلي
    - TTFT وtotal latency
    - model/tool/MCP error rate
    - approval wait time
-   - token/cost per profile/group/task
+   - token/cost per profile/user/task
    - sandbox startup/cleanup failures
    - schedule success/misfire
 4. structured logs مع redaction وsampling وسياسة retention.
@@ -580,7 +535,7 @@ Cowork يبرز لأنه لا يكتفي بنص؛ يسلم ملفاً قابلا
 المنصة تدعم مزودين وallowed providers ومفاتيح وتسعيراً، لكن المنتج المؤسسي يحتاج:
 
 - model catalog مركزي مع status، context/output limits، modalities، location وتصنيف اعتماد.
-- allowlist حسب group/profile/data classification.
+- allowlist حسب profile/user/data classification.
 - routing policy: primary/fallback، quality tier، cost ceiling وhealth circuit breaker.
 - منع fallback إلى مزود خارجي عندما تكون البيانات مصنفة داخلية.
 - version pinning أو approved aliases، مع canary/eval قبل الترقية.
@@ -594,7 +549,7 @@ Cowork يبرز لأنه لا يكتفي بنص؛ يسلم ملفاً قابلا
 
 الجلسة الخاصة بالمستخدم لا تكفي لكل عمليات الشركة. المطلوب:
 
-- shared project/workspace حسب group مع صلاحيات view/comment/run/approve/admin.
+- shared project/workspace لموظفين محددين مع صلاحيات بسيطة مثل view/comment/run/approve.
 - task owner وassignee وwatchers.
 - handoff من موظف إلى آخر أو إلى فريق مراجعة مع حفظ السياق والآثار.
 - approval inbox للمالية/القانون/الأمن، مع SLA وdelegation وexpiry.
@@ -619,7 +574,7 @@ Cowork يبرز لأنه لا يكتفي بنص؛ يسلم ملفاً قابلا
 2. توقيع وفحص provenance وhashes.
 3. validation قبل النشر: schema، dependency، secrets scan، tool annotations واختبارات smoke.
 4. states: draft/staging/approved/deprecated/revoked.
-5. rollout حسب group وring، مع rollback.
+5. rollout حسب Profile أو مستخدمين محددين أو release ring، مع rollback.
 6. منع employee من إضافة marketplace أو package source غير معتمد.
 7. lockfile للإصدارات وعدم جلب dependency من الإنترنت أثناء runtime.
 8. kill switch لموصل أو Skill متضررة.
@@ -732,8 +687,8 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 
 ```text
 ┌───────────────────────────────────────────────────────────────┐
-│ Company Identity & Device Plane                               │
-│ OIDC/SAML/SCIM • Groups/RBAC • Device trust • Managed policy │
+│ Device & Managed Policy Plane                                 │
+│ Device trust • Signed policy • Version control • Revocation  │
 └──────────────────────────────┬────────────────────────────────┘
                                │
 ┌──────────────────────────────▼────────────────────────────────┐
@@ -778,16 +733,13 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 
 **النطاق:**
 
-1. OIDC/SAML + groups + RBAC + service accounts.
-2. SCIM/JIT أو تكامل directory حسب أول عميل.
-3. signed managed policy للـDesktop والـRuntime.
-4. device enrollment/version enforcement/revocation.
-5. egress enforcement لكل Profile/Run.
-6. audit taxonomy + SIEM exporter.
+1. signed managed policy للـDesktop والـRuntime.
+2. device enrollment/version enforcement/revocation.
+3. egress enforcement لكل Profile/Run.
+4. audit taxonomy + SIEM exporter.
 
 **بوابة الخروج:**
 
-- اختبار deprovisioning وeffective permissions.
 - محاولة تجاوز policy من Desktop وAPI تفشل.
 - أحداث التدقيق تصل SIEM دون فقد.
 - security review لنموذج التهديد ومفاتيح التشفير.
@@ -805,7 +757,7 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 **بوابة الخروج:**
 
 - crash/restart/cancel/retry/idempotency tests.
-- isolation/leakage/resource exhaustion tests.
+- isolation/leakage/cancellation tests.
 - schedule/timezone/misfire tests.
 - load/soak مع SLO معلن.
 
@@ -857,7 +809,6 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 
 ### Must Have قبل بيع Enterprise On‑Premise واسع
 
-- SSO/directory lifecycle/groups/RBAC.
 - managed policy وdevice/version enforcement.
 - per-run isolation وegress enforcement.
 - durable/scheduled tasks مع approvals وresume.
@@ -894,11 +845,10 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 2. هل العقد “لا اتصال خارجي إطلاقاً”، أم يسمح بمزودي model خارجيين عبر egress proxy؟
 3. هل Desktop إلزامي، أم توجد فئة مستخدمين تعمل من Web فقط؟
 4. هل أول use case أعمال معرفة، تطوير برمجيات، support operations أم خليط؟
-5. ما أنظمة الهوية الأكثر شيوعاً لدى العملاء: Entra ID، Keycloak، ADFS، Okta أم LDAP مباشر؟
-6. ما مصادر المعرفة الأعلى أولوية؟
-7. هل مطلوب Kubernetes/HA من أول عميل، أم Compose tier مدعوم يكفي للبداية؟
-8. من يتحمل تشغيل النماذج المحلية وسعتها: فريقك أم IT لدى العميل؟
-9. ما متطلبات retention والتدقيق وRPO/RTO لكل tier تجاري؟
+5. ما مصادر المعرفة الأعلى أولوية؟
+6. هل مطلوب Kubernetes/HA من أول عميل، أم Compose tier مدعوم يكفي للبداية؟
+7. من يتحمل تشغيل النماذج المحلية وسعتها: فريقك أم IT لدى العميل؟
+8. ما متطلبات retention والتدقيق وRPO/RTO لكل tier تجاري؟
 
 ---
 
@@ -910,7 +860,6 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 | اعتبار MCP هو كل integration strategy | غياب ACL/sync/freshness/governance | فصل Action MCP عن Knowledge Connector |
 | تنفيذ scheduling كـcron يستدعي chat endpoint | تكرار أفعال وضياع state والموافقات | Task state machine + durable queue + idempotency |
 | sandbox على مستوى الخدمة فقط | تسريب بين التشغيلات وتأثير متبادل | per-run isolation وephemeral workspace |
-| SSO بلا deprovisioning/groups | حسابات يتيمة وإدارة يدوية | SCIM/JIT + group mapping + session revocation |
 | تخزين كل prompts في logs | توسع نطاق البيانات الحساسة | metadata افتراضياً، redaction وموافقة على content capture |
 | بناء HA شكلي | تعطل DB/storage يبقي نقطة فشل | تعريف dependency topology واختبار failover فعلي |
 | كثرة connectors غير المختبرة | مخاطر supply chain وتسريب | عدد صغير، signing، permissions واختبارات عقد |
@@ -964,9 +913,6 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 - [Use plugins in Claude](https://support.claude.com/en/articles/13837440-use-plugins-in-claude)
 - [Manage plugins for your organization](https://support.claude.com/en/articles/13837433-manage-plugins-for-your-organization)
 - [How Anthropic contains Claude across products](https://www.anthropic.com/engineering/how-we-contain-claude)
-- [Set up single sign-on](https://support.claude.com/en/articles/13132885-set-up-single-sign-on-sso)
-- [SCIM sync for Enterprise organizations](https://support.claude.com/en/articles/14499648-how-scim-sync-works-for-enterprise-organizations)
-- [Roles and permissions](https://support.claude.com/en/articles/9267276-roles-and-permissions)
 - [Claude Enterprise plan](https://support.claude.com/en/articles/9797531-what-is-the-enterprise-plan)
 
 ### 16.3 ChatGPT Codex — مصادر OpenAI الرسمية
@@ -987,7 +933,6 @@ Hermes يدعم قدرات delegation، لكن فتحها دون حوكمة قد
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server)
 - [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
 - [Managed configuration](https://learn.chatgpt.com/docs/enterprise/managed-configuration)
-- [Groups and provisioning](https://learn.chatgpt.com/docs/enterprise/groups-and-provisioning)
 - [Governance](https://learn.chatgpt.com/docs/enterprise/governance)
 - [Compliance API and audit events](https://learn.chatgpt.com/docs/enterprise/compliance-api)
 - [Workspace analytics](https://learn.chatgpt.com/docs/enterprise/workspace-analytics)

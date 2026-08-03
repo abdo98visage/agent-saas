@@ -135,6 +135,7 @@ async def send_message(
         "model": result.get("model"),
         "profile_name": result.get("profile_name"),
         "attachments": result.get("attachments", []),
+        "citations": result.get("citations", []),
     }
 
 

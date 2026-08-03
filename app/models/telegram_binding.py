@@ -11,7 +11,9 @@ class TelegramBinding(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "telegram_bindings"
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
-    telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    # Zero represents a pending, not-yet-bound record. PostgreSQL enforces
+    # uniqueness only for non-zero chat IDs through a partial unique index.
+    telegram_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     binding_token: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     binding_token_expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     session_id: Mapped[UUID | None] = mapped_column(

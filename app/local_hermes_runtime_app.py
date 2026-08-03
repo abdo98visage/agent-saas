@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import re
+import secrets
 import signal
 import shutil
 import tempfile
@@ -16,12 +17,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 import websockets
 from app.core.config import settings
-from app.core.runtime_policy import RUNTIME_TOOLSETS, SAFE_RUNTIME_TOOLSETS, normalize_runtime_toolsets
+from app.core.runtime_policy import ALL_RUNTIME_TOOLSETS, SAFE_RUNTIME_TOOLSETS, normalize_runtime_toolsets
 from app.services.attachments import normalize_image_attachments
 from app.services.mcp_security import McpEndpointRejected, validate_mcp_destination
 
@@ -32,6 +33,8 @@ MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "")
 MCP_PROXY_BASE_URL = os.getenv("MCP_PROXY_BASE_URL", "http://127.0.0.1:8787").rstrip("/")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3-14b")
+RUNTIME_SECRET = os.getenv("HERMES_RUNTIME_SECRET", "")
+RUNTIME_REQUIRE_SECRET = os.getenv("HERMES_RUNTIME_REQUIRE_SECRET", "true").lower() == "true"
 INLINE_TEXT_EXTENSIONS = {
     ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".xml", ".html", ".css",
     ".js", ".ts", ".py", ".sql", ".toml", ".ini", ".cfg", ".conf",
@@ -99,6 +102,13 @@ def _register_mcp_proxy(payload: dict[str, Any]) -> tuple[dict[str, Any], str | 
     return {**payload, "mcp_servers": proxy_servers}, token
 
 app = FastAPI(title="AgentSaaS Agent Runtime", version="0.2.0")
+
+
+def _authorize_runtime(secret: str | None) -> None:
+    if RUNTIME_REQUIRE_SECRET and not RUNTIME_SECRET:
+        raise HTTPException(status_code=503, detail="Agent runtime secret is not configured")
+    if RUNTIME_SECRET and not secrets.compare_digest(secret or "", RUNTIME_SECRET):
+        raise HTTPException(status_code=403, detail="Invalid agent runtime secret")
 
 
 def _proxy_auth_headers(server: dict[str, Any]) -> dict[str, str]:
@@ -297,27 +307,22 @@ def _config_yaml(payload: dict[str, Any], profile_home: Path, runtime_workspace:
     provider = payload.get("provider") or "custom"
     model = payload.get("model") or DEFAULT_MODEL
     provider_name = _provider_name(provider)
+    provider_base_url = str(payload.get("provider_base_url") or "").strip()
     mcp_servers = payload.get("mcp_servers") or []
     lines = [
         "model:",
         f"  provider: {provider_name}",
         f"  default: {json.dumps(model)}",
     ]
-    if provider_name == "custom" and OPENAI_COMPAT_BASE_URL:
-        lines.append(f"  base_url: {json.dumps(OPENAI_COMPAT_BASE_URL.rsplit('/chat/completions', 1)[0])}")
+    if provider_name == "custom" and (provider_base_url or OPENAI_COMPAT_BASE_URL):
+        base_url = provider_base_url or OPENAI_COMPAT_BASE_URL
+        lines.append(f"  base_url: {json.dumps(base_url.rsplit('/chat/completions', 1)[0])}")
         lines.append("  api_key: ${OPENAI_API_KEY}")
-    elif provider_name == "minimax" and MINIMAX_BASE_URL:
-        lines.append(f"  base_url: {json.dumps(MINIMAX_BASE_URL)}")
+    elif provider_name == "minimax" and (provider_base_url or MINIMAX_BASE_URL):
+        lines.append(f"  base_url: {json.dumps(provider_base_url or MINIMAX_BASE_URL)}")
     elif provider_name == "ollama" and OLLAMA_BASE_URL:
         lines.append(f"  base_url: {json.dumps(OLLAMA_BASE_URL)}")
     lines.append(f"mcp_discovery_timeout: {float(settings.mcp_connect_timeout_seconds) + 2.0}")
-    lines.extend(
-        [
-            "terminal:",
-            "  backend: local",
-            f"  cwd: {json.dumps(str(runtime_workspace))}",
-        ]
-    )
     configured_toolsets = normalize_runtime_toolsets(
         (payload.get("profile") or {}).get("runtime_toolsets", list(SAFE_RUNTIME_TOOLSETS))
     )
@@ -326,7 +331,7 @@ def _config_yaml(payload: dict[str, Any], profile_home: Path, runtime_workspace:
         for server in mcp_servers
         if str(server.get("slug") or "").strip()
     ]
-    disabled_toolsets = sorted(RUNTIME_TOOLSETS - set(configured_toolsets))
+    disabled_toolsets = sorted(ALL_RUNTIME_TOOLSETS - set(configured_toolsets))
     lines.append("platform_toolsets:")
     if platform_toolsets:
         lines.append("  cli:")
@@ -1155,7 +1160,11 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
 
 
 @app.post("/runs")
-async def run_agent(payload: dict[str, Any]):
+async def run_agent(
+    payload: dict[str, Any],
+    x_hermes_runtime_secret: str | None = Header(default=None),
+):
+    _authorize_runtime(x_hermes_runtime_secret)
     runtime_result = await _run_hermes_result({**payload, "interactive_approvals": False})
     content = runtime_result["content"]
     usage = runtime_result.get("usage") or {
@@ -1185,7 +1194,11 @@ async def run_agent(payload: dict[str, Any]):
 
 
 @app.post("/runs/stream")
-async def run_agent_stream(payload: dict[str, Any]):
+async def run_agent_stream(
+    payload: dict[str, Any],
+    x_hermes_runtime_secret: str | None = Header(default=None),
+):
+    _authorize_runtime(x_hermes_runtime_secret)
     payload = {**payload, "interactive_approvals": True}
     cowork = payload.get("cowork") or {}
 
@@ -1239,7 +1252,11 @@ async def run_agent_stream(payload: dict[str, Any]):
 
 
 @app.post("/approvals")
-async def respond_approval(payload: dict[str, Any]):
+async def respond_approval(
+    payload: dict[str, Any],
+    x_hermes_runtime_secret: str | None = Header(default=None),
+):
+    _authorize_runtime(x_hermes_runtime_secret)
     run_id = str(payload.get("run_id") or "").strip()
     approval_id = str(payload.get("approval_id") or "").strip()
     decision = str(payload.get("decision") or "").strip()

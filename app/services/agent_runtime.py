@@ -3,7 +3,8 @@ from typing import Any, AsyncGenerator, Optional
 from app.models.profile import Profile
 from app.models.user import User
 from app.services.hermes_orchestrator import HermesOrchestratorClient, hermes_orchestrator
-from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS
+from app.core.runtime_policy import effective_profile_policy
+from app.core.audit_context import current_correlation_id, current_trace_id
 
 
 class DirectLLMRuntime:
@@ -57,6 +58,8 @@ class HermesRuntime:
         mcp_servers: Optional[list[dict[str, Any]]] = None,
         run_id: Optional[str] = None,
     ) -> dict[str, Any]:
+        policy = effective_profile_policy(profile)
+        trace_id = current_trace_id() or (str(run_id).replace("-", "") if run_id else None)
         return {
             "employee": {
                 "id": str(user.id),
@@ -70,11 +73,8 @@ class HermesRuntime:
                 "name": profile.name,
                 "version": profile.version,
                 "hermes_profile_id": profile.hermes_profile_id,
-                "runtime_toolsets": (
-                    getattr(profile, "runtime_toolsets", None)
-                    if getattr(profile, "runtime_toolsets", None) is not None
-                    else list(SAFE_RUNTIME_TOOLSETS)
-                ),
+                "runtime_toolsets": policy["runtime_toolsets"],
+                "policy_id": policy["policy_id"],
             },
             "session_id": session_id,
             "history": conversation_history or [],
@@ -86,6 +86,8 @@ class HermesRuntime:
             "api_key": api_key,
             "mcp_servers": mcp_servers or [],
             "run_id": run_id,
+            "trace_id": trace_id,
+            "correlation_id": current_correlation_id() or run_id,
         }
 
     async def complete(

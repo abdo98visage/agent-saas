@@ -23,7 +23,8 @@ except ImportError:  # optional until runtime deps are refreshed
     FastApiIntegration = None
 
 from app.core.config import settings
-from app.api import health, auth, chat, admin, telegram, websocket_chat, mcp_admin, mcp_user
+from app.core.audit_context import correlation_id_context, trace_id_context
+from app.api import health, auth, chat, admin, telegram, websocket_chat, mcp_admin, mcp_user, durable_tasks, observability, evaluations, knowledge
 
 # Structured request logging
 logger = logging.getLogger("fqsaas.requests")
@@ -93,7 +94,8 @@ app.add_middleware(
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Client-Type", "X-CSRF-Token"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Client-Type", "X-CSRF-Token", "X-Correlation-ID", "traceparent"],
+    expose_headers=["X-Correlation-ID", "traceparent"],
     max_age=3600,  # Cache preflight for 1 hour
 )
 
@@ -106,26 +108,28 @@ app.add_middleware(
 async def request_logging_middleware(request: Request, call_next):
     """Structured request/response logging for observability."""
     start = time.perf_counter()
-    request_id = str(uuid.uuid4())[:8]
+    incoming_correlation = request.headers.get("X-Correlation-ID", "")
+    correlation_id = incoming_correlation if 0 < len(incoming_correlation) <= 64 and incoming_correlation.isascii() else str(uuid.uuid4())
+    traceparent = request.headers.get("traceparent", "")
+    parts = traceparent.split("-")
+    trace_id = parts[1].lower() if len(parts) == 4 and len(parts[1]) == 32 and all(char in "0123456789abcdefABCDEF" for char in parts[1]) else uuid.uuid4().hex
+    correlation_token = correlation_id_context.set(correlation_id)
+    trace_token = trace_id_context.set(trace_id)
     client_ip = request.client.host if request.client else "unknown"
-
-    response = await call_next(request)
-
-    latency_ms = (time.perf_counter() - start) * 1000
-
-    # Log structured JSON to stdout
-    log_entry = {
-        "event": "http_request",
-        "request_id": request_id,
-        "method": request.method,
-        "path": request.url.path,
-        "status": response.status_code,
-        "ip": client_ip,
-        "latency_ms": round(latency_ms, 1),
-    }
-    logger.info(json.dumps(log_entry, ensure_ascii=False))
-
-    return response
+    try:
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["traceparent"] = f"00-{trace_id}-{uuid.uuid4().hex[:16]}-01"
+        latency_ms = (time.perf_counter() - start) * 1000
+        logger.info(json.dumps({
+            "event": "http_request", "correlation_id": correlation_id, "trace_id": trace_id,
+            "method": request.method, "path": request.url.path, "status": response.status_code,
+            "ip": client_ip, "latency_ms": round(latency_ms, 1),
+        }, ensure_ascii=False))
+        return response
+    finally:
+        correlation_id_context.reset(correlation_token)
+        trace_id_context.reset(trace_token)
 
 
 # ==================== Rate limiting middleware ====================
@@ -154,6 +158,9 @@ async def rate_limit_middleware(request: Request, call_next):
             count = await redis_client.incr(key)
             if count == 1:
                 await redis_client.expire(key, int(_RATE_WINDOW))
+        except Exception:
+            redis_client = None
+        else:
             if count > limit:
                 return JSONResponse(
                     status_code=429,
@@ -162,8 +169,6 @@ async def rate_limit_middleware(request: Request, call_next):
                     },
                 )
             return await call_next(request)
-        except Exception:
-            pass
 
     now = time.time()
     window_start = now - _RATE_WINDOW
@@ -191,6 +196,10 @@ app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(mcp_admin.router, prefix="/api/admin/mcp", tags=["Admin MCP"])
 app.include_router(mcp_user.router, prefix="/api/auth/mcp", tags=["MCP"])
+app.include_router(durable_tasks.router, prefix="/api/tasks", tags=["Durable Tasks"])
+app.include_router(observability.router, prefix="/api", tags=["Observability"])
+app.include_router(evaluations.router, prefix="/api", tags=["Evaluations"])
+app.include_router(knowledge.router, prefix="/api", tags=["Knowledge"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["Telegram"])
 app.include_router(websocket_chat.router, prefix="/api/chat", tags=["WebSocket"])
 

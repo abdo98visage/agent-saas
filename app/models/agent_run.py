@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
+from app.core.audit_context import current_trace_id
 
 
 class AgentRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -31,6 +32,7 @@ class AgentRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     mcp_servers_used: Mapped[list] = mapped_column(JSONB, default=list)
     error_code: Mapped[str] = mapped_column(String(100), nullable=True)
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    trace_id: Mapped[str] = mapped_column(String(64), default=current_trace_id, nullable=True, index=True)
 
     events: Mapped[list["AgentRunEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
