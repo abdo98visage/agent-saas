@@ -363,12 +363,17 @@ async def _fail_active_cowork_run(user_id: UUID, conversation_id: str, exc: Exce
             )
 
 
-async def _wait_for_client_event(websocket: WebSocket, user: WebSocketUser, allowed_types: set[str]) -> dict:
+async def _wait_for_client_event(
+    websocket: WebSocket,
+    user: WebSocketUser,
+    allowed_types: set[str],
+    timeout_seconds: float = CLIENT_EVENT_TIMEOUT_SECONDS,
+) -> dict:
     while True:
         try:
             raw = await asyncio.wait_for(
                 websocket.receive_text(),
-                timeout=CLIENT_EVENT_TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
             raise RuntimeError("Timed out waiting for the desktop client") from exc
@@ -1069,6 +1074,42 @@ async def websocket_chat(
                                     "message_id": assistant_msg_id,
                                     "client_message_id": str(client_message_id) if client_message_id else None,
                                 })
+                            elif event_type in {"mcp_tool_started", "mcp_tool_completed", "mcp_tool_failed"}:
+                                await websocket.send_json({
+                                    **chunk,
+                                    "client_message_id": str(client_message_id) if client_message_id else None,
+                                })
+                            elif event_type == "mcp_approval_required":
+                                approval_id = str(chunk.get("approval_id") or "")
+                                run_id = str(chunk.get("run_id") or "")
+                                await websocket.send_json({
+                                    **chunk,
+                                    "client_message_id": str(client_message_id) if client_message_id else None,
+                                })
+                                decision = "deny"
+                                try:
+                                    try:
+                                        response = await _wait_for_client_event(
+                                            websocket,
+                                            user,
+                                            {"mcp_approval_response"},
+                                            timeout_seconds=max(1, settings.mcp_approval_timeout_seconds - 1),
+                                        )
+                                    except RuntimeError:
+                                        response = {}
+                                    if (
+                                        str(response.get("run_id") or "") == run_id
+                                        and str(response.get("approval_id") or "") == approval_id
+                                        and response.get("decision") in {"approve", "deny"}
+                                    ):
+                                        decision = response["decision"]
+                                finally:
+                                    if run_id and approval_id:
+                                        await hermes_orchestrator.respond_approval(
+                                            run_id,
+                                            approval_id,
+                                            decision,
+                                        )
                             elif event_type == "done":
                                 assistant_msg_id = chunk.get("message_id") or assistant_msg_id
                                 model_name = chunk.get("model", "")
@@ -1089,6 +1130,8 @@ async def websocket_chat(
                                     "profile_id": resolved_profile_id,
                                     "profile_name": resolved_profile,
                                     "conversation_id": active_conversation_id,
+                                    "tools_used": chunk.get("tools_used", []),
+                                    "mcp_servers_used": chunk.get("mcp_servers_used", []),
                                     "client_message_id": str(client_message_id) if client_message_id else None,
                                 }
                     finally:

@@ -15,10 +15,12 @@ from app.models.alert_event import AlertEvent
 from app.models.skill_definition import SkillDefinition
 from app.models.auth_session import AuthSession
 from app.models.token_reservation import TokenReservation
+from app.models.mcp import McpServer, McpConnection, ProfileMcpBinding
 
 __all__ = [
     "User", "Session", "Message", "AgentTemplate",
     "TelegramBinding", "AuditLog", "KPI", "UserActivity",
     "Profile", "ProfileUser", "UserApiKey", "AgentRun", "AgentRunEvent", "ProviderPricing", "AlertEvent",
     "SkillDefinition", "AuthSession", "TokenReservation",
+    "McpServer", "McpConnection", "ProfileMcpBinding",
 ]

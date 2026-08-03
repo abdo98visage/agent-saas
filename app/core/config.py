@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     hermes_request_timeout_seconds: float = 120.0
     dependency_health_timeout_seconds: float = 3.0
     agent_run_stale_minutes: int = 30
+    mcp_enabled: bool = True
+    mcp_connect_timeout_seconds: float = 10.0
+    mcp_tool_timeout_seconds: float = 30.0
+    mcp_approval_timeout_seconds: float = 120.0
 
     # Telegram
     telegram_bot_token: str = ""

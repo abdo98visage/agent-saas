@@ -17,6 +17,12 @@ function parseArgs() {
     provider: "minimax",
     model: "Qwen3.6-27B-IQ4_XS.gguf",
     port: 9333,
+    profileName: "",
+    profileSlug: "",
+    mcpServerSlug: "",
+    mcpOnly: false,
+    dev: false,
+    visible: false,
   };
   for (let index = 2; index < process.argv.length; index += 1) {
     const arg = process.argv[index];
@@ -29,6 +35,12 @@ function parseArgs() {
     else if (arg === "--provider") args.provider = next, index += 1;
     else if (arg === "--model") args.model = next, index += 1;
     else if (arg === "--port") args.port = Number(next), index += 1;
+    else if (arg === "--profile-name") args.profileName = next, index += 1;
+    else if (arg === "--profile-slug") args.profileSlug = next, index += 1;
+    else if (arg === "--mcp-server-slug") args.mcpServerSlug = next, index += 1;
+    else if (arg === "--mcp-only") args.mcpOnly = true;
+    else if (arg === "--dev") args.dev = true;
+    else if (arg === "--visible") args.visible = true;
   }
   return args;
 }
@@ -122,7 +134,7 @@ class CdpClient {
           this.pending.delete(id);
           reject(new Error(`CDP command timed out: ${method}`));
         }
-      }, 30000);
+      }, 90000);
     });
   }
 
@@ -170,33 +182,43 @@ async function createDesktopEmployee(args) {
     temperature: 0.1,
     system_prompt: "Reply with a short direct final answer.",
   }, adminToken);
-  const profileName = `Desktop Hermes ${suffix}`;
-  const profileSlug = `desktop-hermes-${suffix}`;
+  let profileName = `Desktop Hermes ${suffix}`;
+  let profileSlug = `desktop-hermes-${suffix}`;
   const employeeEmail = `desktop-${suffix}@example.com`;
-
-  const profile = await apiRequest(args.apiUrl, "POST", "/api/admin/profiles", {
-    name: profileName,
-    slug: profileSlug,
-    runtime_type: "hermes",
-    agents_md: "# Desktop E2E\nValidate packaged desktop execution.",
-    soul_md: "Reliable desktop QA assistant.",
-    skills: ["desktop", "qa"],
-    system_prompt: "Respond briefly for packaged desktop validation.",
-    max_tokens_per_day: 100000,
-    max_requests_per_day: 1000,
-    daily_cost_budget: 100000,
-    allowed_providers: [args.provider],
-    allowed_tools: ["local_runtime"],
-    allowed_mcp_servers: [],
-  }, adminToken);
-
-  await apiRequest(args.apiUrl, "POST", "/api/admin/api-keys", {
-    owner_type: "profile",
-    profile_id: profile.id,
-    provider: args.provider,
-    api_key: "sk-desktop-e2e-profile-key",
-    daily_budget: 100000,
-  }, adminToken);
+  let profile;
+  if (args.profileName || args.profileSlug) {
+    const profiles = await apiRequest(args.apiUrl, "GET", "/api/admin/profiles", undefined, adminToken);
+    profile = profiles.profiles.find((item) => (
+      (args.profileSlug && item.slug === args.profileSlug)
+      || (args.profileName && item.name === args.profileName)
+    ));
+    assert(profile, `Profile not found: ${args.profileSlug || args.profileName}`);
+    profileName = profile.name;
+    profileSlug = profile.slug;
+  } else {
+    profile = await apiRequest(args.apiUrl, "POST", "/api/admin/profiles", {
+      name: profileName,
+      slug: profileSlug,
+      runtime_type: "hermes",
+      agents_md: "# Desktop E2E\nValidate packaged desktop execution.",
+      soul_md: "Reliable desktop QA assistant.",
+      skills: ["desktop", "qa"],
+      system_prompt: "Respond briefly for packaged desktop validation.",
+      max_tokens_per_day: 100000,
+      max_requests_per_day: 1000,
+      daily_cost_budget: 100000,
+      allowed_providers: [args.provider],
+      allowed_tools: ["local_runtime"],
+      allowed_mcp_servers: [],
+    }, adminToken);
+    await apiRequest(args.apiUrl, "POST", "/api/admin/api-keys", {
+      owner_type: "profile",
+      profile_id: profile.id,
+      provider: args.provider,
+      api_key: "sk-desktop-e2e-profile-key",
+      daily_budget: 100000,
+    }, adminToken);
+  }
 
   const employee = await apiRequest(args.apiUrl, "POST", "/api/admin/employees", {
     email: employeeEmail,
@@ -213,6 +235,25 @@ async function createDesktopEmployee(args) {
     priority: 0,
   }, adminToken);
 
+  await apiRequest(args.apiUrl, "POST", "/api/admin/api-keys", {
+    owner_type: "user",
+    user_id: employee.id,
+    provider: args.provider,
+    api_key: "sk-desktop-e2e-user-key",
+    daily_budget: 100000,
+  }, adminToken);
+
+  let mcpServerId = "";
+  if (args.mcpServerSlug) {
+    const serverResponse = await apiRequest(args.apiUrl, "GET", "/api/admin/mcp/servers", undefined, adminToken);
+    const server = serverResponse.servers.find((item) => item.slug === args.mcpServerSlug);
+    assert(server, `MCP server not found: ${args.mcpServerSlug}`);
+    const bindingResponse = await apiRequest(args.apiUrl, "GET", `/api/admin/mcp/profiles/${profile.id}/bindings`, undefined, adminToken);
+    const binding = bindingResponse.bindings.find((item) => item.server_id === server.id);
+    assert(binding?.is_active && binding.allowed_tools.length > 0, `MCP server is not enabled for profile: ${profileName}`);
+    mcpServerId = server.id;
+  }
+
   return {
     adminToken,
     profileName,
@@ -220,6 +261,7 @@ async function createDesktopEmployee(args) {
     employeeEmail,
     employeeId: employee.id,
     inviteToken: employee.invite_token,
+    mcpServerId,
   };
 }
 
@@ -229,7 +271,10 @@ function jsString(value) {
 
 async function main() {
   const args = parseArgs();
-  assert(fs.existsSync(args.exePath), `Desktop EXE not found: ${args.exePath}`);
+  const launchPath = args.dev
+    ? path.resolve("desktop", "node_modules", "electron", "dist", "electron.exe")
+    : args.exePath;
+  assert(fs.existsSync(launchPath), `Desktop executable not found: ${launchPath}`);
 
   const employee = await createDesktopEmployee(args);
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentsaas-desktop-user-"));
@@ -240,13 +285,13 @@ async function main() {
   fs.writeFileSync(path.join(workspaceDir, ".env.local"), "SECRET=should-not-be-scanned\n", "utf-8");
 
   const desktopApiUrl = `${args.apiUrl.replace(/\/$/, "")}/api`;
-  const child = spawn(args.exePath, [
-    `--remote-debugging-port=${args.port}`,
-    `--user-data-dir=${userDataDir}`,
-  ], {
+  const childArgs = args.dev
+    ? [path.resolve("desktop"), `--remote-debugging-port=${args.port}`, `--user-data-dir=${userDataDir}`]
+    : [`--remote-debugging-port=${args.port}`, `--user-data-dir=${userDataDir}`];
+  const child = spawn(launchPath, childArgs, {
     env: { ...process.env, API_URL: desktopApiUrl },
     stdio: "ignore",
-    windowsHide: true,
+    windowsHide: !args.visible,
   });
 
   let cdp;
@@ -265,14 +310,22 @@ async function main() {
     await cdp.evaluate(`
       (async () => {
         const settings = await window.electronAPI.getSettings();
-        if (settings.token) {
-          state.settings = await window.electronAPI.setSettings({
-            ...settings,
-            token: "",
-            offlineQueue: [],
-            selectedProjectFiles: [],
-          });
-        }
+        state.settings = await window.electronAPI.setSettings({
+          ...settings,
+          token: "",
+          offlineQueue: [],
+          selectedProjectFiles: [],
+          projects: [{
+            id: "desktop-e2e-project",
+            name: "Desktop E2E",
+            path: ${jsString(workspaceDir)},
+            selectedFiles: [],
+            createdAt: new Date().toISOString(),
+            lastOpenedAt: new Date().toISOString(),
+          }],
+          currentProjectId: "desktop-e2e-project",
+          projectPath: ${jsString(workspaceDir)},
+        });
         document.getElementById("act-api-url").value = ${jsString(desktopApiUrl)};
         document.getElementById("activation-panel").style.display = "flex";
       })()
@@ -314,8 +367,9 @@ async function main() {
     await waitFor(
       () => cdp.evaluate(`
         (() => {
-          const last = state.currentMessages[state.currentMessages.length - 1];
-          return Boolean(last && last.role === "user" && last.content.includes("packaged desktop E2E response"));
+          return state.currentMessages.some((message) => (
+            message.role === "user" && message.content.includes("packaged desktop E2E response")
+          ));
         })()
       `),
       10000,
@@ -336,6 +390,79 @@ async function main() {
       "desktop WebSocket chat response",
     );
     assert(assistantContent.trim().length > 0, "Desktop chat did not render Hermes response");
+
+    if (args.mcpServerSlug) {
+      await cdp.evaluate(`
+        (async () => {
+          window.__mcpE2eEvents = [];
+          const originalHandler = handleWsMessage;
+          handleWsMessage = (data) => {
+            window.__mcpE2eEvents.push(data);
+            return originalHandler(data);
+          };
+          document.getElementById("settings-panel").style.display = "block";
+          await loadAvailableMcpServers();
+        })()
+      `);
+      await waitFor(
+        () => cdp.evaluate(`state.availableMcpServers.some((server) => server.slug === ${jsString(args.mcpServerSlug)})`),
+        15000,
+        "desktop MCP availability",
+      );
+      await cdp.evaluate(`
+        (() => {
+          const server = state.availableMcpServers.find((item) => item.slug === ${jsString(args.mcpServerSlug)});
+          const button = document.querySelector('[data-mcp-id="' + server.server_id + '"]');
+          if (!button) throw new Error("MCP connect button was not rendered");
+          button.click();
+        })()
+      `);
+      await waitFor(
+        () => cdp.evaluate(`state.availableMcpServers.some((server) => server.slug === ${jsString(args.mcpServerSlug)} && server.connection?.status === "connected")`),
+        30000,
+        "desktop MCP connection",
+      );
+      await cdp.evaluate(`
+        (() => {
+          document.getElementById("settings-panel").style.display = "none";
+          document.getElementById("message-input").value = "You must use the Context7 resolve-library-id MCP tool exactly once to resolve FastAPI, then answer with the resolved library ID. Do not answer from memory.";
+          void sendMessage();
+          return true;
+        })()
+      `);
+      await waitFor(
+        () => cdp.evaluate(`window.__mcpE2eEvents.some((event) => event.type === "mcp_approval_required" && event.tool === "resolve-library-id")`),
+        90000,
+        "desktop MCP approval prompt",
+      );
+      await cdp.evaluate(`
+        (() => {
+          const buttons = [...document.querySelectorAll(".message.system button.btn-primary-custom")].filter((button) => !button.disabled);
+          const approve = buttons.at(-1);
+          if (!approve) throw new Error("MCP approval button was not rendered");
+          approve.click();
+        })()
+      `);
+      const mcpDone = await waitFor(
+        () => cdp.evaluate(`
+          (() => {
+            const events = window.__mcpE2eEvents || [];
+            const completed = events.some((event) => event.type === "mcp_tool_completed" && event.tool === "resolve-library-id");
+            const done = [...events].reverse().find((event) => event.type === "done");
+            return completed && done ? done : null;
+          })()
+        `),
+        120000,
+        "desktop MCP tool completion",
+      );
+      assert(mcpDone.mcp_servers_used.includes(args.mcpServerSlug), "Completed run did not report the MCP server");
+      console.log("PASS desktop MCP catalog and connect UI");
+      console.log("PASS desktop MCP approval UI");
+      console.log("PASS Hermes live MCP tool call");
+      if (args.mcpOnly) {
+        return;
+      }
+    }
 
     const projectResult = await cdp.evaluate(`
       (async () => {
@@ -406,8 +533,13 @@ async function main() {
     if (!child.killed) {
       child.kill();
     }
-    fs.rmSync(userDataDir, { recursive: true, force: true });
-    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    for (const directory of [userDataDir, workspaceDir]) {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      } catch (_) {
+        // Windows may retain Electron/Crashpad handles briefly after Browser.close().
+      }
+    }
   }
 }
 

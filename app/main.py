@@ -23,7 +23,7 @@ except ImportError:  # optional until runtime deps are refreshed
     FastApiIntegration = None
 
 from app.core.config import settings
-from app.api import health, auth, chat, admin, telegram, websocket_chat
+from app.api import health, auth, chat, admin, telegram, websocket_chat, mcp_admin, mcp_user
 
 # Structured request logging
 logger = logging.getLogger("fqsaas.requests")
@@ -189,6 +189,8 @@ app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(mcp_admin.router, prefix="/api/admin/mcp", tags=["Admin MCP"])
+app.include_router(mcp_user.router, prefix="/api/auth/mcp", tags=["MCP"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["Telegram"])
 app.include_router(websocket_chat.router, prefix="/api/chat", tags=["WebSocket"])
 

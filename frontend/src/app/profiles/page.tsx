@@ -303,7 +303,7 @@ export default function ProfilesPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>{t("MCP Servers")}</Label>
-                  <Input disabled value={formData.allowed_mcp_servers} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
+                  <Input disabled value={formData.allowed_mcp_servers} placeholder="تدار من قسم MCP" className={disabledFieldClassName} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("Allowed Tools")}</Label>
@@ -311,7 +311,7 @@ export default function ProfilesPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>{t("Approval Tools")}</Label>
-                  <Input disabled value={formData.approval_required_tools} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
+                  <Input disabled value={formData.approval_required_tools} placeholder="تدار من قسم MCP" className={disabledFieldClassName} />
                 </div>
               </div>
               <Button className="w-full kos-gradient-btn text-white" onClick={handleCreate}>
@@ -483,7 +483,7 @@ export default function ProfilesPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t("MCP Servers")}</Label>
-                <Input disabled value={editFormData.allowed_mcp_servers} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
+                <Input disabled value={editFormData.allowed_mcp_servers} placeholder="تدار من قسم MCP" className={disabledFieldClassName} />
               </div>
               <div className="space-y-2">
                 <Label>{t("Allowed Tools")}</Label>
@@ -491,7 +491,7 @@ export default function ProfilesPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t("Approval Tools")}</Label>
-                <Input disabled value={editFormData.approval_required_tools} placeholder="غير مفعلة حالياً" className={disabledFieldClassName} />
+                <Input disabled value={editFormData.approval_required_tools} placeholder="تدار من قسم MCP" className={disabledFieldClassName} />
               </div>
             </div>
             <div className="flex items-center justify-between">

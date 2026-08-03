@@ -182,6 +182,10 @@
                 document.getElementById("btn-tg-bind")?.closest(".input-group"),
                 document.getElementById("tg-bind-status"),
             ];
+            const mcpNodes = [
+                els.mcpSettingsStatus,
+                els.mcpSettingsList,
+            ];
             const workspaceNodes = [
                 els.currentFilePath,
                 els.fileEditor,
@@ -208,6 +212,7 @@
             const container = document.createElement("div");
             container.append(
                 buildSettingsCategory(getLocale() === "en" ? "General" : "عام", "general", generalNodes),
+                buildSettingsCategory(t("mcpConnections"), "mcp", mcpNodes),
                 buildSettingsCategory(getLocale() === "en" ? "Telegram" : "ربط التلجرام", "telegram", telegramNodes),
                 buildSettingsCategory(getLocale() === "en" ? "Files and changes" : "الملفات والتعديلات", "workspace", workspaceNodes),
                 buildSettingsCategory(getLocale() === "en" ? "System and execution" : "النظام والتنفيذ", "system", systemNodes),

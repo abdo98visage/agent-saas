@@ -564,9 +564,12 @@
             els.settingProfile.value = state.settings.profileName;
             els.profileBadge.textContent = state.settings.profileName || state.settings.template || "default";
             await persistSettings();
+            await loadAvailableMcpServers();
         });
         els.settingProfile.addEventListener("change", () => {
             els.composerProfileSelect.value = els.settingProfile.value.trim();
+            state.settings.profileName = els.settingProfile.value.trim();
+            void loadAvailableMcpServers();
         });
 
         els.messageInput.addEventListener("keydown", (event) => {

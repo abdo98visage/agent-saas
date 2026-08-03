@@ -8,6 +8,8 @@
             currentMessages: [],
             currentUser: null,
             assignedProfiles: [],
+            availableMcpServers: [],
+            mcpLoadError: "",
             projects: [],
             conversationProjectMap: {},
             currentProjectId: null,
@@ -66,6 +68,9 @@
             settingLanguage: document.getElementById("setting-language"),
             settingProfile: document.getElementById("setting-profile"),
             settingProfileStatus: document.getElementById("setting-profile-status"),
+            mcpSettingsHeading: document.getElementById("mcp-settings-heading"),
+            mcpSettingsStatus: document.getElementById("mcp-settings-status"),
+            mcpSettingsList: document.getElementById("mcp-settings-list"),
             btnOpenFolder: document.getElementById("btn-open-folder"),
             btnOpenFolderLive: document.getElementById("btn-open-folder-live"),
             btnSaveSettings: document.getElementById("btn-save-settings"),
@@ -149,6 +154,12 @@
                 assistantRole: "الوكيل",
                 systemRole: "النظام",
                 copy: "نسخ",
+                mcpConnections: "اتصالات MCP",
+                mcpUnavailable: "لا توجد خوادم MCP متاحة لهذا البروفايل.",
+                connect: "ربط",
+                disconnect: "فصل",
+                connected: "متصل",
+                credential: "رمز الاتصال",
             },
             en: {
                 newChat: "New Chat",
@@ -184,6 +195,12 @@
                 assistantRole: "Agent",
                 systemRole: "System",
                 copy: "Copy",
+                mcpConnections: "MCP connections",
+                mcpUnavailable: "No MCP servers are available for this profile.",
+                connect: "Connect",
+                disconnect: "Disconnect",
+                connected: "Connected",
+                credential: "Connection credential",
             },
         };
 
@@ -387,6 +404,88 @@
             }
 
             renderAssignedProfiles();
+        }
+
+        function renderMcpConnections() {
+            if (!els.mcpSettingsList || !els.mcpSettingsStatus) {
+                return;
+            }
+            if (els.mcpSettingsHeading) {
+                els.mcpSettingsHeading.innerHTML = `<i class="bi bi-plug"></i> ${t("mcpConnections")}`;
+            }
+            const servers = Array.isArray(state.availableMcpServers) ? state.availableMcpServers : [];
+            els.mcpSettingsStatus.textContent = servers.length
+                ? `${servers.length} MCP`
+                : (state.mcpLoadError || t("mcpUnavailable"));
+            els.mcpSettingsList.innerHTML = servers.map((server) => {
+                const connected = server.connection?.status === "connected";
+                const requiresCredential = server.credential_mode === "user" && server.auth_type !== "none";
+                const tools = Array.isArray(server.allowed_tools) ? server.allowed_tools : [];
+                return `
+                    <div class="status-box mb-2" data-mcp-server="${escapeHtml(server.server_id)}">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                            <div>
+                                <div class="fw-semibold">${escapeHtml(server.name)}</div>
+                                <div class="small text-muted">${escapeHtml(server.description || server.slug || "")}</div>
+                            </div>
+                            <span class="badge ${connected ? "bg-success" : "bg-secondary"}">${connected ? t("connected") : server.connection?.status || "MCP"}</span>
+                        </div>
+                        <div class="small text-muted mb-2">${tools.map((tool) => escapeHtml(tool)).join(", ")}</div>
+                        ${server.connection?.last_error ? `<div class="small text-danger mb-2">${escapeHtml(server.connection.last_error)}</div>` : ""}
+                        ${requiresCredential && !connected ? `<input type="password" class="form-control form-control-sm mb-2" data-mcp-credential="${escapeHtml(server.server_id)}" placeholder="${t("credential")}">` : ""}
+                        <button class="btn btn-sm ${connected ? "btn-outline-secondary" : "btn-primary-custom"} w-100" data-mcp-action="${connected ? "disconnect" : "connect"}" data-mcp-id="${escapeHtml(server.server_id)}" type="button">
+                            ${connected ? t("disconnect") : t("connect")}
+                        </button>
+                    </div>
+                `;
+            }).join("");
+            els.mcpSettingsList.querySelectorAll("[data-mcp-action]").forEach((button) => {
+                button.addEventListener("click", () => void changeMcpConnection(button));
+            });
+        }
+
+        async function loadAvailableMcpServers() {
+            if (!state.settings.token || !state.settings.profileName) {
+                state.availableMcpServers = [];
+                state.mcpLoadError = "";
+                renderMcpConnections();
+                return;
+            }
+            try {
+                const profileName = encodeURIComponent(state.settings.profileName);
+                const data = await apiRequest(`/auth/mcp/available?profile_name=${profileName}`);
+                state.availableMcpServers = data.servers || [];
+                state.mcpLoadError = "";
+            } catch (error) {
+                state.availableMcpServers = [];
+                state.mcpLoadError = error.message;
+            }
+            renderMcpConnections();
+        }
+
+        async function changeMcpConnection(button) {
+            const serverId = button.dataset.mcpId;
+            const action = button.dataset.mcpAction;
+            let errorMessage = "";
+            button.disabled = true;
+            try {
+                if (action === "disconnect") {
+                    await apiRequest(`/auth/mcp/connections/${encodeURIComponent(serverId)}`, { method: "DELETE" });
+                } else {
+                    const credentialInput = els.mcpSettingsList?.querySelector(`[data-mcp-credential="${CSS.escape(serverId)}"]`);
+                    await apiRequest(`/auth/mcp/connections/${encodeURIComponent(serverId)}`, {
+                        method: "POST",
+                        body: JSON.stringify({ credential: credentialInput?.value || null }),
+                    });
+                }
+            } catch (error) {
+                errorMessage = error.message;
+            } finally {
+                await loadAvailableMcpServers();
+                if (errorMessage && els.mcpSettingsStatus) {
+                    els.mcpSettingsStatus.textContent = errorMessage;
+                }
+            }
         }
 
         async function persistSettings() {

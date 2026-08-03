@@ -29,6 +29,7 @@
             await refreshUpdateStatus();
             await loadCurrentUser();
             await loadAssignedProfiles();
+            await loadAvailableMcpServers();
             await refreshProjectFiles();
         }
 
@@ -68,7 +69,8 @@
             }
             await loadCurrentUser();
             await loadConversations();
-            renderAssignedProfiles();
+            await loadAssignedProfiles();
+            await loadAvailableMcpServers();
             toggleSettingsPanel(false);
         }
 
@@ -158,6 +160,42 @@
             }
         }
 
+        function renderMcpApproval(data) {
+            const element = appendSystemMessage(data.description || `${data.server || "MCP"}: ${data.tool || "tool"}`);
+            const controls = document.createElement("div");
+            controls.className = "d-flex gap-2 mt-2";
+            const approve = document.createElement("button");
+            approve.type = "button";
+            approve.className = "btn btn-sm btn-primary-custom flex-fill";
+            approve.textContent = getLocale() === "en" ? "Approve once" : "موافقة لمرة واحدة";
+            const deny = document.createElement("button");
+            deny.type = "button";
+            deny.className = "btn btn-sm btn-outline-secondary flex-fill";
+            deny.textContent = getLocale() === "en" ? "Deny" : "رفض";
+            const respond = (decision) => {
+                approve.disabled = true;
+                deny.disabled = true;
+                if (state.ws?.readyState === WebSocket.OPEN) {
+                    state.ws.send(JSON.stringify({
+                        type: "mcp_approval_response",
+                        run_id: data.run_id,
+                        approval_id: data.approval_id,
+                        decision,
+                    }));
+                }
+                controls.replaceChildren(document.createTextNode(
+                    decision === "approve"
+                        ? (getLocale() === "en" ? "Approved once" : "تمت الموافقة لمرة واحدة")
+                        : (getLocale() === "en" ? "Denied" : "تم الرفض")
+                ));
+            };
+            approve.addEventListener("click", () => respond("approve"));
+            deny.addEventListener("click", () => respond("deny"));
+            controls.append(approve, deny);
+            element.appendChild(controls);
+            scrollBottom();
+        }
+
         function handleWsMessage(data) {
             switch (data.type) {
                 case "start":
@@ -191,6 +229,20 @@
                 case "approval_required":
                     clearTransientSystemMessage();
                     appendSystemMessage(data.summary || data.title || "The agent requested approval for a local change.");
+                    break;
+                case "mcp_tool_started":
+                    showTransientSystemMessage(`${data.server}: ${data.tool}`);
+                    break;
+                case "mcp_tool_completed":
+                    clearTransientSystemMessage();
+                    break;
+                case "mcp_tool_failed":
+                    clearTransientSystemMessage();
+                    appendSystemMessage(`${data.server}: ${data.tool} failed`);
+                    break;
+                case "mcp_approval_required":
+                    clearTransientSystemMessage();
+                    renderMcpApproval(data);
                     break;
                 case "apply_request":
                     clearTransientSystemMessage();

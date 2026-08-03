@@ -27,6 +27,7 @@ HERMES_WORKSPACE_ROOT = Path(os.getenv("HERMES_WORKSPACE_ROOT", "/data/hermes/pr
 HERMES_INTERNAL_URL = os.getenv("HERMES_INTERNAL_URL", f"http://{HERMES_CONTAINER}:{HERMES_PORT}")
 HERMES_RUN_PATH = os.getenv("HERMES_RUN_PATH", "/runs")
 HERMES_RUN_STREAM_PATH = os.getenv("HERMES_RUN_STREAM_PATH", "/runs/stream")
+HERMES_APPROVAL_PATH = os.getenv("HERMES_APPROVAL_PATH", "/approvals")
 HERMES_HEALTH_PATH = os.getenv("HERMES_HEALTH_PATH", "/health")
 HERMES_DOCKER_NETWORK = os.getenv("HERMES_DOCKER_NETWORK", "")
 HERMES_PUBLISH_PORT = os.getenv("HERMES_PUBLISH_PORT", "false").lower() == "true"
@@ -375,3 +376,21 @@ async def run_agent_stream(payload: dict[str, Any], x_hermes_orchestrator_secret
             yield f"data: {error}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/approvals")
+async def respond_approval(payload: dict[str, Any], x_hermes_orchestrator_secret: str | None = Header(default=None)):
+    _authorize(x_hermes_orchestrator_secret)
+    decision = str(payload.get("decision") or "").strip()
+    if decision not in {"approve", "deny"}:
+        raise HTTPException(status_code=400, detail="Invalid approval decision")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(_hermes_url(HERMES_APPROVAL_PATH), json=payload)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as exc:
+        status_code = 404 if exc.response.status_code == 404 else 502
+        raise HTTPException(status_code=status_code, detail="MCP approval is no longer pending") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Agent runtime approval channel unavailable") from exc

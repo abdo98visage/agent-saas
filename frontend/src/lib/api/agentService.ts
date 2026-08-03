@@ -162,6 +162,46 @@ export interface SkillDefinition {
   updated_at: string;
 }
 
+export interface McpToolDefinition {
+  name: string;
+  description?: string;
+  input_schema?: Record<string, unknown>;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  url: string;
+  auth_type: "none" | "bearer" | "api_key";
+  credential_mode: "platform" | "user";
+  api_key_header: string;
+  is_active: boolean;
+  discovered_tools: McpToolDefinition[];
+  tools_schema_hash: string | null;
+  last_checked_at: string | null;
+  last_error: string | null;
+  binding_count: number;
+  platform_connection: {
+    credential_hint: string | null;
+    status: string;
+    last_error: string | null;
+  } | null;
+}
+
+export interface ProfileMcpBinding {
+  id: string;
+  profile_id: string;
+  server_id: string;
+  server_name: string;
+  server_slug: string;
+  server_active: boolean;
+  allowed_tools: string[];
+  approval_required_tools: string[];
+  is_active: boolean;
+}
+
 export interface ProfileAssignment {
   id: string;
   user_id: string;
@@ -268,6 +308,31 @@ export const adminApi = {
 
   deleteSkill: (skillId: string) =>
     apiClient.delete(`/admin/skills/${skillId}`),
+
+  // MCP control plane
+  getMcpServers: () =>
+    apiClient.get("/admin/mcp/servers"),
+
+  createMcpServer: (data: Record<string, unknown>) =>
+    apiClient.post("/admin/mcp/servers", data),
+
+  updateMcpServer: (serverId: string, data: Record<string, unknown>) =>
+    apiClient.put(`/admin/mcp/servers/${serverId}`, data),
+
+  discoverMcpServer: (serverId: string, credential?: string) =>
+    apiClient.post(`/admin/mcp/servers/${serverId}/discover`, { credential: credential || null }),
+
+  deleteMcpServer: (serverId: string) =>
+    apiClient.delete(`/admin/mcp/servers/${serverId}`),
+
+  getProfileMcpBindings: (profileId: string) =>
+    apiClient.get(`/admin/mcp/profiles/${profileId}/bindings`),
+
+  saveProfileMcpBinding: (profileId: string, data: Record<string, unknown>) =>
+    apiClient.post(`/admin/mcp/profiles/${profileId}/bindings`, data),
+
+  deleteProfileMcpBinding: (profileId: string, serverId: string) =>
+    apiClient.delete(`/admin/mcp/profiles/${profileId}/bindings/${serverId}`),
 
   createProfile: (data: Partial<Profile>) =>
     apiClient.post("/admin/profiles", data),

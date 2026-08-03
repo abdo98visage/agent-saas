@@ -30,6 +30,7 @@ const navItems = [
   { href: "/profiles", label: "Profiles", icon: Bot },
   { href: "/skills", label: "Skills", icon: Wrench },
   { href: "/assignments", label: "Assignments", icon: Plug },
+  { href: "/mcp", label: "MCP", icon: ServerCog },
   { href: "/sessions", label: "Sessions", icon: MessageSquare },
   { href: "/kpis", label: "KPIs", icon: BarChart3 },
   { href: "/api-keys", label: "API Keys", icon: Key },

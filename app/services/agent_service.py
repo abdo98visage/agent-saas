@@ -24,6 +24,7 @@ from app.models.user_api_key import UserApiKey
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.services.api_key_resolver import api_key_resolver
 from app.services.agent_runtime import AgentRuntimeRouter
+from app.services.mcp_policy_resolver import mcp_policy_resolver
 from app.services.pricing_service import pricing_service
 from app.services.attachments import normalize_image_attachments, persist_image_attachments
 from app.services.token_tracker import (
@@ -473,6 +474,7 @@ class AgentService:
 
         model_name = self._resolve_model_for_provider(model_name, effective_provider)
         runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
+        mcp_servers = await mcp_policy_resolver.resolve(db, user_uuid, profile.id if profile else None) if runtime.runtime_type == "hermes" else []
         runtime_facts_context = self._runtime_facts_context(effective_provider, model_name, runtime.runtime_type)
         merged_project_context = f"{project_context}\n\n{runtime_facts_context}" if project_context else runtime_facts_context
         messages.append({
@@ -516,6 +518,8 @@ class AgentService:
                     provider=effective_provider,
                     conversation_history=history_messages,
                     attachments=self._sanitize_attachments(attachments),
+                    mcp_servers=mcp_servers,
+                    run_id=str(run.id),
                 )
                 response_text = runtime_result.get("content", "")
                 tools_used = runtime_result.get("tools_used", [])
@@ -689,6 +693,7 @@ class AgentService:
             })
         model_name = self._resolve_model_for_provider(model_name, effective_provider)
         runtime = self._runtime_router().direct if force_direct_runtime else self._runtime_router().for_profile(profile)
+        mcp_servers = await mcp_policy_resolver.resolve(db, user_uuid, profile.id if profile else None) if runtime.runtime_type == "hermes" else []
         runtime_facts_context = self._runtime_facts_context(effective_provider, model_name, runtime.runtime_type)
         merged_project_context = f"{project_context}\n\n{runtime_facts_context}" if project_context else runtime_facts_context
         messages.append({
@@ -762,8 +767,13 @@ class AgentService:
                     provider=effective_provider,
                     conversation_history=history_messages,
                     attachments=self._sanitize_attachments(attachments),
+                    mcp_servers=mcp_servers,
+                    run_id=str(run.id),
                 ):
                     db.add(AgentRunEvent(run_id=run.id, event_type=event.get("type", "event"), payload=event))
+                    if event.get("type") in {"mcp_tool_started", "mcp_tool_completed", "mcp_tool_failed", "mcp_approval_required"}:
+                        yield event
+                        continue
                     chunk = event.get("content", "")
                     if event.get("type") == "done":
                         tools_used = event.get("tools_used", [])
@@ -864,6 +874,8 @@ class AgentService:
             "total_cost": cost_calc.total_cost,
             "pricing_snapshot": cost_calc.pricing_snapshot,
             "conversation_id": str(user_msg.session_id),
+            "tools_used": tools_used,
+            "mcp_servers_used": mcp_servers_used,
         }
 
     async def _call_llm(

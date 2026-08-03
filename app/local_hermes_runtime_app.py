@@ -16,24 +16,213 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+import httpx
 import websockets
+from app.core.config import settings
 from app.core.runtime_policy import RUNTIME_TOOLSETS, SAFE_RUNTIME_TOOLSETS, normalize_runtime_toolsets
 from app.services.attachments import normalize_image_attachments
+from app.services.mcp_security import McpEndpointRejected, validate_mcp_destination
 
 
 HERMES_PROFILES_ROOT = Path(os.getenv("HERMES_PROFILES_ROOT", "/data/hermes/profiles"))
 OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "")
+MCP_PROXY_BASE_URL = os.getenv("MCP_PROXY_BASE_URL", "http://127.0.0.1:8787").rstrip("/")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3-14b")
 INLINE_TEXT_EXTENSIONS = {
     ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".xml", ".html", ".css",
     ".js", ".ts", ".py", ".sql", ".toml", ".ini", ".cfg", ".conf",
 }
 
+_pending_approvals: dict[tuple[str, str], asyncio.Future[str]] = {}
+_mcp_proxy_runs: dict[str, dict[str, Any]] = {}
+
+
+def _hermes_mcp_tool_name(server_slug: str, tool_name: str) -> str:
+    normalize = lambda value: re.sub(r"[^a-zA-Z0-9_]", "_", value)
+    return f"mcp__{normalize(server_slug)}__{normalize(tool_name)}"
+
+
+def _mcp_tool_identity(tool_name: str, servers: list[dict[str, Any]]) -> tuple[str, str] | None:
+    matches: list[tuple[int, str, str]] = []
+    for server in servers:
+        slug = str(server.get("slug") or "")
+        for original in server.get("allowed_tools") or []:
+            registered = _hermes_mcp_tool_name(slug, str(original))
+            if registered == tool_name:
+                matches.append((len(registered), slug, str(original)))
+    if not matches:
+        return None
+    _, slug, original = max(matches)
+    return slug, original
+
+
+def _mcp_approval_tool_names(payload: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for server in payload.get("mcp_servers") or []:
+        for tool in server.get("approval_required_tools") or []:
+            names.append(_hermes_mcp_tool_name(str(server.get("slug") or ""), str(tool)))
+    return names
+
+
+def _register_mcp_proxy(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    servers = payload.get("mcp_servers") or []
+    if not servers:
+        return payload, None
+    token = uuid4().hex
+    proxy_servers: list[dict[str, Any]] = []
+    server_map: dict[str, dict[str, Any]] = {}
+    for server in servers:
+        slug = str(server.get("slug") or "").strip()
+        if not slug:
+            continue
+        server_map[slug] = dict(server)
+        proxy_servers.append({
+            **server,
+            "url": f"{MCP_PROXY_BASE_URL}/internal/mcp/{slug}",
+            "auth_type": "none",
+            "credential": "",
+            "credential_env": "",
+            "proxy_token": token,
+        })
+    if not server_map:
+        return {**payload, "mcp_servers": []}, None
+    _mcp_proxy_runs[token] = {
+        "servers": server_map,
+        "approval_queue": asyncio.Queue(),
+        "interactive": bool(payload.get("interactive_approvals")),
+        "run_id": str(payload.get("run_id") or ""),
+    }
+    return {**payload, "mcp_servers": proxy_servers}, token
+
 app = FastAPI(title="AgentSaaS Agent Runtime", version="0.2.0")
+
+
+def _proxy_auth_headers(server: dict[str, Any]) -> dict[str, str]:
+    auth_type = str(server.get("auth_type") or "none")
+    credential = str(server.get("credential") or "")
+    if auth_type == "none":
+        return {}
+    if not credential:
+        raise HTTPException(status_code=503, detail="MCP credential is unavailable")
+    if auth_type in {"bearer", "oauth"}:
+        return {"Authorization": f"Bearer {credential}"}
+    if auth_type == "api_key":
+        return {str(server.get("api_key_header") or "X-API-Key"): credential}
+    raise HTTPException(status_code=503, detail="Unsupported MCP authentication type")
+
+
+def _denied_mcp_response(request_id: Any) -> JSONResponse:
+    return JSONResponse({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "content": [{"type": "text", "text": "MCP tool execution was denied by the user."}],
+            "isError": True,
+        },
+    })
+
+
+@app.api_route("/internal/mcp/{server_slug}", methods=["GET", "POST", "DELETE"])
+async def proxy_mcp_request(server_slug: str, request: Request):
+    run_token = request.headers.get("x-agentsaas-mcp-run", "")
+    run = _mcp_proxy_runs.get(run_token)
+    server = (run or {}).get("servers", {}).get(server_slug)
+    if run is None or server is None:
+        raise HTTPException(status_code=404, detail="MCP run proxy is unavailable")
+    body = await request.body()
+    if len(body) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="MCP request is too large")
+
+    if request.method == "POST" and body:
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid MCP JSON-RPC request")
+        messages = parsed if isinstance(parsed, list) else [parsed]
+        approval_tools = set(server.get("approval_required_tools") or [])
+        for message in messages:
+            if not isinstance(message, dict) or message.get("method") != "tools/call":
+                continue
+            params = message.get("params") or {}
+            tool_name = str(params.get("name") or "")
+            if tool_name not in approval_tools:
+                continue
+            if not run.get("interactive") or not run.get("run_id"):
+                return _denied_mcp_response(message.get("id"))
+            approval_id = uuid4().hex
+            future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+            await run["approval_queue"].put({
+                "approval_id": approval_id,
+                "run_id": run["run_id"],
+                "server": server_slug,
+                "tool": tool_name,
+                "description": f"Allow {server_slug}.{tool_name} to run once?",
+                "future": future,
+            })
+            try:
+                decision = await asyncio.wait_for(
+                    asyncio.shield(future),
+                    timeout=settings.mcp_approval_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                decision = "deny"
+                if not future.done():
+                    future.set_result(decision)
+            if decision != "approve":
+                return _denied_mcp_response(message.get("id"))
+
+    forwarded_headers = {
+        name: value
+        for name, value in request.headers.items()
+        if name.lower() in {"accept", "content-type", "mcp-session-id", "mcp-protocol-version", "last-event-id"}
+    }
+    forwarded_headers.update(_proxy_auth_headers(server))
+    timeout = httpx.Timeout(
+        connect=settings.mcp_connect_timeout_seconds,
+        read=None,
+        write=settings.mcp_tool_timeout_seconds,
+        pool=settings.mcp_connect_timeout_seconds,
+    )
+    client = httpx.AsyncClient(timeout=timeout, follow_redirects=False)
+    try:
+        upstream_url = await validate_mcp_destination(str(server.get("url") or ""))
+        upstream_request = client.build_request(
+            request.method,
+            upstream_url,
+            headers=forwarded_headers,
+            content=body,
+        )
+        upstream = await client.send(upstream_request, stream=True)
+    except McpEndpointRejected:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="MCP upstream destination was rejected")
+    except Exception:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="MCP upstream request failed")
+
+    response_headers = {
+        name: value
+        for name, value in upstream.headers.items()
+        if name.lower() in {"content-type", "mcp-session-id", "cache-control"}
+    }
+
+    async def response_body():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        response_body(),
+        status_code=upstream.status_code,
+        headers=response_headers,
+    )
 
 
 @app.get("/health")
@@ -108,6 +297,7 @@ def _config_yaml(payload: dict[str, Any], profile_home: Path, runtime_workspace:
     provider = payload.get("provider") or "custom"
     model = payload.get("model") or DEFAULT_MODEL
     provider_name = _provider_name(provider)
+    mcp_servers = payload.get("mcp_servers") or []
     lines = [
         "model:",
         f"  provider: {provider_name}",
@@ -120,6 +310,7 @@ def _config_yaml(payload: dict[str, Any], profile_home: Path, runtime_workspace:
         lines.append(f"  base_url: {json.dumps(MINIMAX_BASE_URL)}")
     elif provider_name == "ollama" and OLLAMA_BASE_URL:
         lines.append(f"  base_url: {json.dumps(OLLAMA_BASE_URL)}")
+    lines.append(f"mcp_discovery_timeout: {float(settings.mcp_connect_timeout_seconds) + 2.0}")
     lines.extend(
         [
             "terminal:",
@@ -130,15 +321,63 @@ def _config_yaml(payload: dict[str, Any], profile_home: Path, runtime_workspace:
     configured_toolsets = normalize_runtime_toolsets(
         (payload.get("profile") or {}).get("runtime_toolsets", list(SAFE_RUNTIME_TOOLSETS))
     )
+    platform_toolsets = configured_toolsets + [
+        str(server.get("slug") or "").strip()
+        for server in mcp_servers
+        if str(server.get("slug") or "").strip()
+    ]
     disabled_toolsets = sorted(RUNTIME_TOOLSETS - set(configured_toolsets))
     lines.append("platform_toolsets:")
-    if configured_toolsets:
+    if platform_toolsets:
         lines.append("  cli:")
-        lines.extend(f"    - {item}" for item in configured_toolsets)
+        lines.extend(f"    - {item}" for item in platform_toolsets)
     else:
         lines.append("  cli: []")
     lines.extend(["agent:", "  disabled_toolsets:"])
     lines.extend(f"    - {item}" for item in disabled_toolsets)
+    if mcp_servers:
+        lines.append("mcp_servers:")
+        for server in mcp_servers:
+            slug = str(server.get("slug") or "").strip()
+            url = str(server.get("url") or "").strip()
+            allowed_tools = [str(item).strip() for item in (server.get("allowed_tools") or []) if str(item).strip()]
+            if not slug or not url or not allowed_tools:
+                raise ValueError("Invalid MCP runtime configuration")
+            lines.extend([
+                f"  {json.dumps(slug)}:",
+                f"    url: {json.dumps(url)}",
+                f"    timeout: {float(settings.mcp_tool_timeout_seconds)}",
+                f"    connect_timeout: {float(settings.mcp_connect_timeout_seconds)}",
+            ])
+            credential_env = str(server.get("credential_env") or "").strip()
+            auth_type = str(server.get("auth_type") or "none")
+            if auth_type != "none":
+                if not credential_env:
+                    raise ValueError("Invalid MCP credential configuration")
+                header_name = "Authorization" if auth_type in {"bearer", "oauth"} else str(server.get("api_key_header") or "X-API-Key")
+                header_value = f"Bearer ${{{credential_env}}}" if auth_type in {"bearer", "oauth"} else f"${{{credential_env}}}"
+                lines.extend([
+                    "    headers:",
+                    f"      {json.dumps(header_name)}: {json.dumps(header_value)}",
+                ])
+            proxy_token = str(server.get("proxy_token") or "")
+            if proxy_token:
+                lines.extend([
+                    "    headers:",
+                    f"      \"X-AgentSaaS-MCP-Run\": {json.dumps(proxy_token)}",
+                ])
+            lines.extend([
+                "    tools:",
+                "      include:",
+            ])
+            lines.extend(f"        - {json.dumps(item)}" for item in allowed_tools)
+            lines.extend([
+                "      prompts: false",
+                "      resources: false",
+                "    sampling:",
+                "      enabled: false",
+                "    supports_parallel_tool_calls: false",
+            ])
     return "\n".join(lines) + "\n"
 
 
@@ -159,6 +398,15 @@ def _runtime_env(payload: dict[str, Any], profile_home: Path) -> dict[str, str]:
     }
     env["HOME"] = str(profile_home)
     env["HERMES_HOME"] = str(profile_home)
+    configured_toolsets = normalize_runtime_toolsets(
+        (payload.get("profile") or {}).get("runtime_toolsets", list(SAFE_RUNTIME_TOOLSETS))
+    )
+    mcp_toolsets = [
+        str(server.get("slug") or "").strip()
+        for server in payload.get("mcp_servers") or []
+        if str(server.get("slug") or "").strip()
+    ]
+    env["HERMES_TUI_TOOLSETS"] = ",".join(configured_toolsets + mcp_toolsets)
     api_key = payload.get("api_key") or ""
     provider = payload.get("provider") or ""
     if provider == "openai":
@@ -173,6 +421,11 @@ def _runtime_env(payload: dict[str, Any], profile_home: Path) -> dict[str, str]:
             env["MINIMAX_API_KEY"] = api_key
     elif provider == "ollama" and OLLAMA_BASE_URL:
         env["OLLAMA_BASE_URL"] = OLLAMA_BASE_URL
+    for server in payload.get("mcp_servers") or []:
+        credential_env = str(server.get("credential_env") or "").strip()
+        credential = str(server.get("credential") or "")
+        if credential_env and credential:
+            env[credential_env] = credential
     return env
 
 
@@ -662,6 +915,7 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
             **payload,
             "runtime_attachment_paths": _stage_attachments(payload, runtime_workspace_path),
         }
+        runtime_payload, mcp_proxy_token = _register_mcp_proxy(runtime_payload)
         (runtime_profile_home / "config.yaml").write_text(
             _config_yaml(runtime_payload, runtime_profile_home, runtime_workspace_path),
             encoding="utf-8",
@@ -671,23 +925,29 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
         server_token = uuid4().hex
         server_env = _runtime_env(runtime_payload, runtime_profile_home)
         server_env["HERMES_DASHBOARD_SESSION_TOKEN"] = server_token
-        process = await asyncio.create_subprocess_exec(
-            "hermes",
-            "serve",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "0",
-            "--skip-build",
-            cwd=runtime_workspace_path,
-            env=server_env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "hermes",
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+                "--skip-build",
+                cwd=runtime_workspace_path,
+                env=server_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+        except BaseException:
+            if mcp_proxy_token:
+                _mcp_proxy_runs.pop(mcp_proxy_token, None)
+            raise
         stderr_lines: list[str] = []
         stderr_task = asyncio.create_task(_drain_process_stream(process.stderr, stderr_lines))
         stdout_task = None
+        gateway_message_task = None
         try:
             port = await _server_ready_port(process)
             stdout_lines: list[str] = []
@@ -735,20 +995,53 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
                 complete_payload: dict[str, Any] | None = None
                 pending_text = ""
                 raw_streamed_text = ""
+                tools_used: set[str] = set()
+                mcp_servers_used: set[str] = set()
                 deadline = (
                     asyncio.get_running_loop().time()
                     + float(os.getenv("HERMES_RUN_TIMEOUT_SECONDS", "120"))
                 )
+                proxy_queue = (_mcp_proxy_runs.get(mcp_proxy_token) or {}).get("approval_queue") if mcp_proxy_token else None
+                gateway_message_task = asyncio.create_task(websocket.recv())
                 while complete_payload is None:
                     remaining = deadline - asyncio.get_running_loop().time()
                     if remaining <= 0:
                         raise asyncio.TimeoutError("Hermes Server run timed out")
-                    message = json.loads(
-                        await asyncio.wait_for(
-                            websocket.recv(),
-                            timeout=remaining,
-                        )
+                    proxy_task = asyncio.create_task(proxy_queue.get()) if proxy_queue is not None else None
+                    waiters = {gateway_message_task}
+                    if proxy_task is not None:
+                        waiters.add(proxy_task)
+                    done, _ = await asyncio.wait(
+                        waiters,
+                        timeout=remaining,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
+                    if not done:
+                        if proxy_task is not None:
+                            proxy_task.cancel()
+                        raise asyncio.TimeoutError("Hermes Server run timed out")
+                    if proxy_task is not None and proxy_task in done:
+                        approval = proxy_task.result()
+                        future = approval.pop("future")
+                        key = (str(approval["run_id"]), str(approval["approval_id"]))
+                        if not future.done():
+                            deadline = max(
+                                deadline,
+                                asyncio.get_running_loop().time() + settings.mcp_approval_timeout_seconds + 5,
+                            )
+                            _pending_approvals[key] = future
+                            future.add_done_callback(lambda _future, approval_key=key: _pending_approvals.pop(approval_key, None))
+                            yield {
+                                "type": "mcp_approval_required",
+                                **approval,
+                                "choices": ["approve", "deny"],
+                            }
+                        continue
+                    if proxy_task is not None:
+                        proxy_task.cancel()
+                        await asyncio.gather(proxy_task, return_exceptions=True)
+                    message = json.loads(gateway_message_task.result())
+                    gateway_message_task = asyncio.create_task(websocket.recv())
                     if message.get("id") == submit_id:
                         if message.get("error"):
                             raise RuntimeError(message["error"].get("message") or "Hermes prompt failed")
@@ -771,6 +1064,38 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
                                 "all": True,
                             },
                         }))
+                    elif event_type == "tool.start":
+                        tool_name = str(event_payload.get("name") or "")
+                        if tool_name:
+                            tools_used.add(tool_name)
+                        identity = _mcp_tool_identity(tool_name, payload.get("mcp_servers") or [])
+                        if identity:
+                            mcp_servers_used.add(identity[0])
+                            yield {
+                                "type": "mcp_tool_started",
+                                "run_id": str(payload.get("run_id") or ""),
+                                "call_id": str(event_payload.get("tool_id") or ""),
+                                "server": identity[0],
+                                "tool": identity[1],
+                            }
+                    elif event_type == "tool.complete":
+                        tool_name = str(event_payload.get("name") or "")
+                        if tool_name:
+                            tools_used.add(tool_name)
+                        identity = _mcp_tool_identity(tool_name, payload.get("mcp_servers") or [])
+                        if identity:
+                            mcp_servers_used.add(identity[0])
+                            result = event_payload.get("result")
+                            failed = isinstance(result, dict) and bool(result.get("isError") or result.get("error"))
+                            yield {
+                                "type": "mcp_tool_failed" if failed else "mcp_tool_completed",
+                                "run_id": str(payload.get("run_id") or ""),
+                                "call_id": str(event_payload.get("tool_id") or ""),
+                                "server": identity[0],
+                                "tool": identity[1],
+                                "duration_ms": int(float(event_payload.get("duration_s") or 0) * 1000),
+                                "summary": str(event_payload.get("summary") or "")[:1000],
+                            }
                     elif event_type == "message.delta":
                         delta = str(event_payload.get("text") or "")
                         raw_streamed_text += delta
@@ -808,6 +1133,8 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
                     "type": "complete",
                     "content": safe_text,
                     "usage": _normalized_server_usage(complete_payload.get("usage")),
+                    "tools_used": sorted(tools_used),
+                    "mcp_servers_used": sorted(mcp_servers_used),
                 }
         except BaseException as exc:
             if isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
@@ -815,19 +1142,21 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
             details = "".join(stderr_lines).strip()
             raise RuntimeError(details or str(exc)) from exc
         finally:
+            if mcp_proxy_token:
+                _mcp_proxy_runs.pop(mcp_proxy_token, None)
             await _stop_process(process)
-            for task in (stdout_task, stderr_task):
+            for task in (gateway_message_task, stdout_task, stderr_task):
                 if task is not None:
                     task.cancel()
             await asyncio.gather(
-                *(task for task in (stdout_task, stderr_task) if task is not None),
+                *(task for task in (gateway_message_task, stdout_task, stderr_task) if task is not None),
                 return_exceptions=True,
             )
 
 
 @app.post("/runs")
 async def run_agent(payload: dict[str, Any]):
-    runtime_result = await _run_hermes_result(payload)
+    runtime_result = await _run_hermes_result({**payload, "interactive_approvals": False})
     content = runtime_result["content"]
     usage = runtime_result.get("usage") or {
         "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
@@ -857,6 +1186,7 @@ async def run_agent(payload: dict[str, Any]):
 
 @app.post("/runs/stream")
 async def run_agent_stream(payload: dict[str, Any]):
+    payload = {**payload, "interactive_approvals": True}
     cowork = payload.get("cowork") or {}
 
     async def events():
@@ -877,6 +1207,8 @@ async def run_agent_stream(payload: dict[str, Any]):
         else:
             content = ""
             usage = {}
+            tools_used: list[str] = []
+            mcp_servers_used: list[str] = []
             async for event in _run_hermes_server_events(payload):
                 if event.get("type") == "delta":
                     chunk_content = event.get("content", "")
@@ -885,12 +1217,16 @@ async def run_agent_stream(payload: dict[str, Any]):
                         yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
                 elif event.get("type") == "complete":
                     usage = event.get("usage") or {}
+                    tools_used = event.get("tools_used") or []
+                    mcp_servers_used = event.get("mcp_servers_used") or []
+                else:
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         done = {
             "type": "done",
             "content": "",
             "upstream_target": _upstream_target(payload),
-            "tools_used": ["hermes-agent"],
-            "mcp_servers_used": [],
+            "tools_used": ["hermes-agent", *tools_used] if not cowork.get("protocol") == "cowork_v1" else ["hermes-agent"],
+            "mcp_servers_used": mcp_servers_used if not cowork.get("protocol") == "cowork_v1" else [],
             "total_cost": 0.0,
             "usage": usage or {
                 "input_tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
@@ -900,3 +1236,17 @@ async def run_agent_stream(payload: dict[str, Any]):
         yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@app.post("/approvals")
+async def respond_approval(payload: dict[str, Any]):
+    run_id = str(payload.get("run_id") or "").strip()
+    approval_id = str(payload.get("approval_id") or "").strip()
+    decision = str(payload.get("decision") or "").strip()
+    if decision not in {"approve", "deny"}:
+        raise HTTPException(status_code=400, detail="Invalid approval decision")
+    future = _pending_approvals.get((run_id, approval_id))
+    if future is None or future.done():
+        raise HTTPException(status_code=404, detail="MCP approval is no longer pending")
+    future.set_result(decision)
+    return {"status": "accepted", "decision": decision}

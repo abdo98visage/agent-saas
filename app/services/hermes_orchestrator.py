@@ -74,6 +74,15 @@ class HermesOrchestratorClient:
     async def run_agent(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", "/runs", json=payload)
 
+    async def respond_approval(self, run_id: str, approval_id: str, decision: str) -> dict[str, Any]:
+        if decision not in {"approve", "deny"}:
+            raise ValueError("Unsupported approval decision")
+        return await self._request(
+            "POST",
+            "/approvals",
+            json={"run_id": run_id, "approval_id": approval_id, "decision": decision},
+        )
+
     async def run_agent_stream(self, payload: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         if not self.configured:
             raise HermesOrchestratorUnavailable("Agent orchestrator URL is not configured")

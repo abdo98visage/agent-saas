@@ -54,6 +54,8 @@ class HermesRuntime:
         provider: str,
         conversation_history: Optional[list[dict[str, str]]] = None,
         attachments: Optional[list[dict[str, Any]]] = None,
+        mcp_servers: Optional[list[dict[str, Any]]] = None,
+        run_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return {
             "employee": {
@@ -82,6 +84,8 @@ class HermesRuntime:
             "provider": provider,
             "model": model,
             "api_key": api_key,
+            "mcp_servers": mcp_servers or [],
+            "run_id": run_id,
         }
 
     async def complete(
@@ -96,6 +100,8 @@ class HermesRuntime:
         provider: str,
         conversation_history: Optional[list[dict[str, str]]] = None,
         attachments: Optional[list[dict[str, Any]]] = None,
+        mcp_servers: Optional[list[dict[str, Any]]] = None,
+        run_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return await self.orchestrator.run_agent(
             self._payload(
@@ -109,6 +115,8 @@ class HermesRuntime:
                 provider,
                 conversation_history,
                 attachments,
+                mcp_servers,
+                run_id,
             )
         )
 
@@ -124,6 +132,8 @@ class HermesRuntime:
         provider: str,
         conversation_history: Optional[list[dict[str, str]]] = None,
         attachments: Optional[list[dict[str, Any]]] = None,
+        mcp_servers: Optional[list[dict[str, Any]]] = None,
+        run_id: Optional[str] = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.orchestrator.run_agent_stream(
             self._payload(
@@ -137,6 +147,8 @@ class HermesRuntime:
                 provider,
                 conversation_history,
                 attachments,
+                mcp_servers,
+                run_id,
             )
         ):
             yield event
