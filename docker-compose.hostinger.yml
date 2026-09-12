@@ -217,7 +217,6 @@ services:
         condition: service_healthy
     networks:
       - app_net
-      - traefik-proxy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=5)\""]
@@ -234,7 +233,6 @@ services:
     pids_limit: 256
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=traefik-proxy"
       - "traefik.http.routers.agentsaas-api.rule=Host(`${TRAEFIK_HOST}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.agentsaas-api.entrypoints=websecure"
       - "traefik.http.routers.agentsaas-api.priority=100"
@@ -249,7 +247,6 @@ services:
         condition: service_healthy
     networks:
       - app_net
-      - traefik-proxy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 >/dev/null"]
       interval: 15s
@@ -265,7 +262,6 @@ services:
     pids_limit: 128
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=traefik-proxy"
       - "traefik.http.routers.agentsaas-admin.rule=Host(`${TRAEFIK_HOST}`)"
       - "traefik.http.routers.agentsaas-admin.entrypoints=websecure"
       - "traefik.http.routers.agentsaas-admin.priority=10"
@@ -321,5 +317,3 @@ networks:
   runtime_net:
     name: "${AGENTSAAS_RUNTIME_DOCKER_NETWORK:-agentsaas_runtime}"
     internal: true
-  traefik-proxy:
-    external: true
