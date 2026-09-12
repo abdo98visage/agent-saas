@@ -43,3 +43,15 @@ test("desktop bootstrap reconnects chat before optional data initialization", ()
   assert.ok(websocket < assignedProfiles);
   assert.ok(websocket < projectFiles);
 });
+
+test("desktop activation links populate and reveal the activation form", () => {
+  const bootstrap = fs.readFileSync(
+    path.join(__dirname, "../src/renderer/scripts/05-bootstrap.js"),
+    "utf8",
+  );
+
+  assert.match(bootstrap, /onActivationLink\?\.\(\(activation\)/);
+  assert.match(bootstrap, /act-token"\)\.value = activation\?\.token/);
+  assert.match(bootstrap, /act-api-url"\)\.value = activation\?\.apiUrl/);
+  assert.match(bootstrap, /activation-panel"\)\.style\.display = "flex"/);
+});

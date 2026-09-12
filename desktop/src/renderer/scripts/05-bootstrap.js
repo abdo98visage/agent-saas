@@ -1,3 +1,11 @@
+        window.electronAPI.onActivationLink?.((activation) => {
+            document.getElementById("act-token").value = activation?.token || "";
+            document.getElementById("act-api-url").value = activation?.apiUrl || "";
+            document.getElementById("act-status").textContent = "";
+            document.getElementById("activation-panel").style.display = "flex";
+            document.getElementById("act-password").focus();
+        });
+
         async function loadSettings() {
             state.settings = await window.electronAPI.getSettings();
             const defaultWorkspace = window.electronAPI.getDefaultWorkspaceRoot
