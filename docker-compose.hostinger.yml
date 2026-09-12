@@ -168,7 +168,7 @@ services:
       HERMES_RUNTIME_SECRET: "${HERMES_RUNTIME_SECRET:?Set a random HERMES_RUNTIME_SECRET of at least 32 characters}"
       HERMES_ORCHESTRATOR_SECRET: "${HERMES_ORCHESTRATOR_SECRET:?Set a random HERMES_ORCHESTRATOR_SECRET of at least 32 characters}"
       HERMES_ORCHESTRATOR_REQUIRE_SECRET: "true"
-      HERMES_MODEL_PROXY_URL: "http://hermes-orchestrator:8788/internal/model/v1/chat/completions"
+      HERMES_MODEL_PROXY_URL: "http://hermes-orchestrator:8788/internal/model/v1"
       MINIMAX_BASE_URL: "${MINIMAX_BASE_URL:-https://api.minimax.io/v1/chat/completions}"
       HERMES_MANAGED_EXTERNALLY: "true"
       HERMES_RUN_PATH: "/runs"
