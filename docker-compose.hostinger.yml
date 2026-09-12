@@ -233,7 +233,7 @@ services:
     pids_limit: 256
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.agentsaas-api.rule=Host(`${TRAEFIK_HOST}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.agentsaas-api.rule=Host(`${TRAEFIK_HOST}`) && (Path(`/api`) || PathPrefix(`/api/`))"
       - "traefik.http.routers.agentsaas-api.entrypoints=websecure"
       - "traefik.http.routers.agentsaas-api.priority=100"
       - "traefik.http.routers.agentsaas-api.tls.certresolver=letsencrypt"
