@@ -746,6 +746,14 @@ def _extract_first_json_object(text: str) -> dict[str, Any] | None:
     cleaned = text.strip()
     fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", cleaned, flags=re.IGNORECASE)
     candidates = fenced + [cleaned]
+    repaired_candidates = []
+    for candidate in candidates:
+        stripped = candidate.strip()
+        if stripped.startswith('type":'):
+            repaired_candidates.append('{"' + stripped)
+        elif stripped.startswith('{type":'):
+            repaired_candidates.append('{"' + stripped[1:])
+    candidates = repaired_candidates + candidates
     decoder = json.JSONDecoder()
 
     for candidate in candidates:

@@ -19,6 +19,7 @@ from app.local_hermes_runtime_app import (
     _mcp_tool_identity,
     _mcp_proxy_runs,
     _normalized_server_usage,
+    _normalize_cowork_response,
     _pending_approvals,
     _register_mcp_proxy,
     _runtime_env,
@@ -216,6 +217,21 @@ def test_mock_server_event_contract_has_delta_then_complete():
     events = asyncio.run(collect())
     assert [event["type"] for event in events] == ["delta", "complete"]
     assert events[0]["content"] == events[1]["content"]
+
+
+@pytest.mark.parametrize(
+    "raw_response",
+    [
+        'type":"tool_request","tool":"read_multiple_files","args":{"paths":["contract-ar.txt","contract-en.txt"]}}',
+        '{type":"tool_request","tool":"read_multiple_files","args":{"paths":["contract-ar.txt","contract-en.txt"]}}',
+    ],
+)
+def test_cowork_normalizes_tool_request_with_malformed_leading_quote(raw_response: str):
+    result = _normalize_cowork_response(raw_response)
+
+    assert result["type"] == "tool_request"
+    assert result["tool"] == "read_multiple_files"
+    assert result["args"] == {"paths": ["contract-ar.txt", "contract-en.txt"]}
 
 
 def test_explicit_mcp_intent_recognizes_server_and_tool_names():
