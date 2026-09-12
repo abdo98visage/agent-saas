@@ -1,0 +1,4 @@
+{"type":"refresh_rotation","status":"passed"}
+{"type":"refresh_replay_rejected","http_status":401,"detail":"Invalid or expired refresh token"}
+{"type":"refresh_expired_rejected","http_status":401,"detail":"Invalid or expired refresh token"}
+{"type":"concurrent_401_single_rotation","user":"marketing","requests":2,"new_auth_sessions":1}

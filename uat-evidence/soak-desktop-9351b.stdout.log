@@ -1,0 +1,8 @@
+PASS desktop packaged EXE activation
+PASS desktop WebSocket chat
+PASS desktop project scan/context/read/preview/apply write
+PASS desktop Telegram bind UI flow
+PASS desktop offline queue and update status
+PROFILE desktop-hermes-c5109fb19b
+EMPLOYEE desktop-c5109fb19b@example.com
+HOLD_OPEN 50000

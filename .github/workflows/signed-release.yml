@@ -92,8 +92,8 @@ jobs:
           export AGENTSAAS_POSTGRES_IMAGE="$POSTGRES_IMAGE"
           export AGENTSAAS_REDIS_IMAGE="$REDIS_IMAGE"
           export COSIGN_PUBLIC_KEY="$PWD/cosign.pub"
-          export AGENTSAAS_SCHEMA_REVISION="knowledge_connectors"
-          export AGENTSAAS_SCHEMA_COMPATIBLE_FROM="evaluation_gates,knowledge_connectors"
+          export AGENTSAAS_SCHEMA_REVISION="repair_audit_chain_order"
+          export AGENTSAAS_SCHEMA_COMPATIBLE_FROM="evaluation_gates,knowledge_connectors,repair_audit_chain_order"
           export AGENTSAAS_DESKTOP_VERSION="$RELEASE_VERSION"
           export AGENTSAAS_DESKTOP_ARTIFACT="$(find release-input/desktop -type f -name '*.exe' -print -quit)"
           bash deploy/build_offline_bundle.sh "$RELEASE_VERSION" release-output env://COSIGN_PRIVATE_KEY

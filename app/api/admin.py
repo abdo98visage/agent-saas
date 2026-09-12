@@ -7,7 +7,7 @@ import asyncio
 from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, delete, update
+from sqlalchemy import case, select, desc, func, delete, update
 from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
@@ -832,7 +832,10 @@ async def view_session_messages(
         raise HTTPException(status_code=404, detail="Session not found")
     msg_result = await db.execute(
         select(Message).where(Message.session_id == session_id)
-        .order_by(Message.created_at.asc())
+        .order_by(
+            Message.created_at.asc(),
+            case((Message.role == "assistant", 1), else_=0).asc(),
+        )
     )
     messages = msg_result.scalars().all()
     runs_result = await db.execute(

@@ -1,0 +1,3 @@
+{"at":"2026-08-04T14:38:12.972Z","type":"desktop_ready","user":"it","employee_id":"9a03592a-fc66-4ff5-9179-6b0bc82baedf","profile":"Desktop Hermes 07e1469895","port":9344}
+{"at":"2026-08-04T14:38:20.281Z","type":"chat_pass","user":"it","step":"fault recovery probe","latency_ms":7307,"content":"MCP-OUTAGE-ORDINARY-OK"}
+{"at":"2026-08-04T14:38:20.282Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"MCP-OUTAGE-ORDINARY-OK"}

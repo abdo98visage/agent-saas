@@ -1,0 +1,3 @@
+FAIL desktop packaged EXE test: Error: Desktop process exited (code=4294967295, signal=none)
+    at main (C:\Users\windows-server\Desktop\work\Hermes\ai\AgentSaaS\deploy\desktop_e2e_test.js:650:35)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

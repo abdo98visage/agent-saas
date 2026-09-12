@@ -3,6 +3,8 @@
 .codex-hermes-profiles
 .tmp-*
 .pytest_cache
+.pytest-*
+.pytest_tmp*
 .venv
 .venv*
 __pycache__
@@ -21,6 +23,7 @@ frontend/.next
 frontend/tsconfig.tsbuildinfo
 desktop/node_modules
 desktop/dist
+desktop/dist-*
 desktop/src/renderer/dist
 
 backups

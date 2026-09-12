@@ -1,0 +1,4 @@
+services:
+  api:
+    environment:
+      ACCESS_TOKEN_EXPIRE_MINUTES: "2"

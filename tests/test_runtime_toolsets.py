@@ -9,10 +9,12 @@ from pathlib import Path
 import pytest
 import yaml
 import app.local_hermes_runtime_app as runtime_app
+from fastapi import HTTPException
 
 from app.core.runtime_policy import SAFE_RUNTIME_TOOLSETS, effective_profile_policy, normalize_runtime_toolsets
 from app.local_hermes_runtime_app import (
     _authorize_runtime,
+    _cleanup_stale_runtime_directories,
     _config_yaml,
     _mcp_tool_identity,
     _mcp_proxy_runs,
@@ -21,6 +23,7 @@ from app.local_hermes_runtime_app import (
     _register_mcp_proxy,
     _runtime_env,
     _run_hermes_server_events,
+    _has_explicit_mcp_intent,
     _stage_runtime_profile,
     proxy_mcp_request,
     respond_approval,
@@ -32,6 +35,28 @@ from starlette.requests import Request
 def test_profile_defaults_to_safe_runtime_toolsets():
     profile = ProfileCreate(name="Safe", slug="safe")
     assert profile.runtime_toolsets == SAFE_RUNTIME_TOOLSETS
+
+
+def test_runtime_startup_cleanup_removes_only_stale_run_directories(tmp_path: Path):
+    stale = tmp_path / "hermes-run-stale"
+    unrelated = tmp_path / "keep-me"
+    outside = tmp_path / "outside"
+    stale.mkdir()
+    unrelated.mkdir()
+    outside.mkdir()
+    (stale / "artifact.txt").write_text("temporary", encoding="utf-8")
+    link = tmp_path / "hermes-run-link"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        link = None
+
+    removed = _cleanup_stale_runtime_directories(tmp_path)
+
+    assert removed == (2 if link is not None else 1)
+    assert not stale.exists()
+    assert unrelated.is_dir()
+    assert outside.is_dir()
 
 
 def test_profile_rejects_unknown_runtime_toolsets():
@@ -191,6 +216,65 @@ def test_mock_server_event_contract_has_delta_then_complete():
     events = asyncio.run(collect())
     assert [event["type"] for event in events] == ["delta", "complete"]
     assert events[0]["content"] == events[1]["content"]
+
+
+def test_explicit_mcp_intent_recognizes_server_and_tool_names():
+    payload = {
+        "message": "Use Context7 to resolve-library-id for FastAPI",
+        "mcp_servers": [{
+            "name": "Context7",
+            "slug": "context7",
+            "allowed_tools": ["resolve-library-id"],
+        }],
+    }
+    assert _has_explicit_mcp_intent(payload) is True
+    assert _has_explicit_mcp_intent({**payload, "message": "Reply exactly ALIVE"}) is False
+
+
+def test_passive_mcp_failure_retries_ordinary_chat_without_mcp(monkeypatch):
+    calls = []
+
+    async def fake_once(payload):
+        calls.append(payload)
+        if payload.get("mcp_servers"):
+            raise RuntimeError("MCP discovery timed out")
+        yield {"type": "delta", "content": "ALIVE"}
+        yield {"type": "complete", "content": "ALIVE", "usage": {}}
+
+    monkeypatch.setattr(runtime_app, "_run_hermes_server_events_once", fake_once)
+
+    async def collect():
+        return [event async for event in runtime_app._run_hermes_server_events({
+            "message": "Reply exactly ALIVE",
+            "project_context": "existing context",
+            "mcp_servers": [{"name": "Context7", "slug": "context7", "allowed_tools": ["resolve-library-id"]}],
+        })]
+
+    events = asyncio.run(collect())
+    assert [event["type"] for event in events] == ["delta", "complete"]
+    assert calls[1]["mcp_servers"] == []
+    assert "do not claim that an MCP tool was used" in calls[1]["project_context"]
+
+
+def test_explicit_mcp_failure_is_not_silently_retried(monkeypatch):
+    calls = []
+
+    async def fake_once(payload):
+        calls.append(payload)
+        raise RuntimeError("MCP discovery timed out")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(runtime_app, "_run_hermes_server_events_once", fake_once)
+
+    async def collect():
+        return [event async for event in runtime_app._run_hermes_server_events({
+            "message": "Use MCP Context7 now",
+            "mcp_servers": [{"name": "Context7", "slug": "context7", "allowed_tools": ["resolve-library-id"]}],
+        })]
+
+    with pytest.raises(RuntimeError, match="MCP discovery timed out"):
+        asyncio.run(collect())
+    assert len(calls) == 1
 
 
 def test_runtime_mcp_proxy_keeps_credentials_out_of_hermes_config(tmp_path: Path):
@@ -404,7 +488,120 @@ def test_runtime_approval_response_resolves_only_pending_decision(monkeypatch):
             })
             assert response == {"status": "accepted", "decision": "approve"}
             assert await future == "approve"
+            with pytest.raises(HTTPException) as replay:
+                await respond_approval({
+                    "run_id": key[0],
+                    "approval_id": key[1],
+                    "decision": "approve",
+                })
+            assert replay.value.status_code == 404
         finally:
             _pending_approvals.pop(key, None)
+
+    asyncio.run(scenario())
+
+
+def test_interactive_mcp_approval_timeout_denies_without_upstream(monkeypatch):
+    monkeypatch.setattr(runtime_app.settings, "mcp_approval_timeout_seconds", 0.01)
+
+    async def scenario():
+        payload = {
+            "run_id": "run-timeout",
+            "interactive_approvals": True,
+            "mcp_servers": [{
+                "slug": "crm",
+                "url": "https://mcp.example.com/mcp",
+                "auth_type": "none",
+                "credential": "",
+                "allowed_tools": ["update_contact"],
+                "approval_required_tools": ["update_contact"],
+            }],
+        }
+        _, token = _register_mcp_proxy(payload)
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "update_contact", "arguments": {"id": 1}},
+        }).encode()
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        request = Request({
+            "type": "http",
+            "method": "POST",
+            "path": "/internal/mcp/crm",
+            "headers": [(b"content-type", b"application/json"), (b"x-agentsaas-mcp-run", token.encode())],
+            "query_string": b"",
+            "server": ("test", 80),
+            "client": ("test", 1234),
+            "scheme": "http",
+        }, receive)
+        try:
+            response = await proxy_mcp_request("crm", request)
+            assert response.status_code == 200
+            assert b'"isError":true' in response.body
+            assert b"denied by the user" in response.body
+        finally:
+            _mcp_proxy_runs.pop(token, None)
+
+    asyncio.run(scenario())
+
+
+def test_mcp_upstream_failure_during_tool_call_is_explicit(monkeypatch):
+    class FailingClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def build_request(self, *_args, **_kwargs):
+            return object()
+
+        async def send(self, *_args, **_kwargs):
+            raise OSError("connection lost during MCP call")
+
+        async def aclose(self):
+            return None
+
+    async def safe_destination(url):
+        return url
+
+    monkeypatch.setattr(runtime_app, "validate_mcp_destination", safe_destination)
+    monkeypatch.setattr(runtime_app.httpx, "AsyncClient", FailingClient)
+
+    async def scenario():
+        payload = {
+            "run_id": "run-mid-call",
+            "interactive_approvals": True,
+            "mcp_servers": [{
+                "slug": "catalog",
+                "url": "https://mcp.example.com/mcp",
+                "auth_type": "none",
+                "credential": "",
+                "allowed_tools": ["search"],
+                "approval_required_tools": [],
+            }],
+        }
+        _, token = _register_mcp_proxy(payload)
+        body = json.dumps({
+            "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+            "params": {"name": "search", "arguments": {"q": "FastAPI"}},
+        }).encode()
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        request = Request({
+            "type": "http", "method": "POST", "path": "/internal/mcp/catalog",
+            "headers": [(b"content-type", b"application/json"), (b"x-agentsaas-mcp-run", token.encode())],
+            "query_string": b"", "server": ("test", 80), "client": ("test", 1234), "scheme": "http",
+        }, receive)
+        try:
+            with pytest.raises(HTTPException) as failure:
+                await proxy_mcp_request("catalog", request)
+            assert failure.value.status_code == 502
+            assert failure.value.detail == "MCP upstream request failed"
+        finally:
+            _mcp_proxy_runs.pop(token, None)
 
     asyncio.run(scenario())

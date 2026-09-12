@@ -1,0 +1,10 @@
+{"at":"2026-08-04T15:21:16.198Z","type":"desktop_ready","user":"accounting","employee_id":"1d8fef5d-e826-4038-bb6d-544c4125dc6a","profile":"Desktop Hermes 0bfb1fec50","port":9341}
+{"at":"2026-08-04T15:21:16.200Z","type":"desktop_ready","user":"marketing","employee_id":"0599bfbe-14c9-4264-bb8d-7289f8afa305","profile":"Desktop Hermes 49f84a1fd8","port":9342}
+{"at":"2026-08-04T15:21:16.201Z","type":"desktop_ready","user":"hr","employee_id":"3c05bfb9-9f7f-4884-98c2-aaf4dab3e5e7","profile":"Desktop Hermes 70dae34740","port":9343}
+{"at":"2026-08-04T15:21:16.202Z","type":"desktop_ready","user":"it","employee_id":"b9881c31-8002-4689-bcff-a7b497372e58","profile":"Desktop Hermes 95a8b0d1ad","port":9344}
+{"at":"2026-08-04T15:21:23.472Z","type":"chat_pass","user":"accounting","step":"cycle 1","latency_ms":7268,"content":"LIVE-ACCOUNTING-1"}
+{"at":"2026-08-04T15:21:25.735Z","type":"chat_pass","user":"hr","step":"cycle 1","latency_ms":9531,"content":"LIVE-HR-1"}
+{"at":"2026-08-04T15:21:28.619Z","type":"chat_pass","user":"it","step":"cycle 1","latency_ms":12414,"content":"LIVE-IT-1"}
+{"at":"2026-08-04T15:21:31.135Z","type":"chat_pass","user":"marketing","step":"cycle 1","latency_ms":14931,"content":"LIVE-MARKETING-1"}
+{"at":"2026-08-04T15:21:31.135Z","type":"cycle_pass","cycle":1,"elapsed_minutes":0}
+{"at":"2026-08-04T15:21:31.135Z","type":"uat_complete","status":"passed","duration_minutes":0.02,"cycles":1,"latency":{"accounting":{"requests":1,"p50_ms":7268,"p95_ms":7268,"max_ms":7268},"marketing":{"requests":1,"p50_ms":14931,"p95_ms":14931,"max_ms":14931},"hr":{"requests":1,"p50_ms":9531,"p95_ms":9531,"max_ms":9531},"it":{"requests":1,"p50_ms":12414,"p95_ms":12414,"max_ms":12414}}}

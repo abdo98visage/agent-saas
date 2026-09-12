@@ -1,0 +1,5 @@
+services:
+  hermes-orchestrator:
+    environment:
+      OPENAI_BASE_URL: http://host.docker.internal:60010/v1/chat/completions
+      HERMES_REQUEST_TIMEOUT_SECONDS: "2"

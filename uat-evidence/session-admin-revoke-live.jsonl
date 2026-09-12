@@ -1,0 +1,4 @@
+{"type":"session_hr_recovered_for_revoke","status":"passed"}
+{"type":"session_admin_revoke_heartbeat_pass","user":"hr","authRequired":true}
+{"type":"session_admin_revoke_isolation_pass","unaffected_users":["accounting","marketing","it"]}
+{"type":"session_hr_final_reactivation_pass","status":"passed"}

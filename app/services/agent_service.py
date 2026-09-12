@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, AsyncGenerator
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.core.config import settings
 from app.core.audit_context import current_trace_id
@@ -27,8 +27,8 @@ from app.services.api_key_resolver import api_key_resolver
 from app.services.agent_runtime import AgentRuntimeRouter
 from app.services.mcp_policy_resolver import mcp_policy_resolver
 from app.services.pricing_service import pricing_service
-from app.services.attachments import normalize_image_attachments, persist_image_attachments
-from app.services.knowledge_service import render_knowledge_context, retrieve_knowledge
+from app.services.attachments import delete_persisted_attachments, normalize_image_attachments, persist_image_attachments
+from app.services.knowledge_service import build_fallback_search_query, render_knowledge_context, retrieve_knowledge
 from app.services.token_tracker import (
     release_token_reservation,
     reserve_token_quota,
@@ -38,6 +38,13 @@ from app.services.token_tracker import (
 
 class AgentService:
     """Core agent service: profile resolution, per-user API keys, LLM routing, streaming."""
+
+    @staticmethod
+    def _require_nonempty_response(content: Any) -> str:
+        text = str(content or "")
+        if not text.strip():
+            raise RuntimeError("Agent returned an empty response")
+        return text
 
     @staticmethod
     def _resolve_model_for_provider(base_model: str, provider: str) -> str:
@@ -403,6 +410,59 @@ class AgentService:
             ) if message.role == "user" else message.content,
         }
 
+    async def _load_conversation_history(
+        self,
+        db: AsyncSession,
+        session_id: UUID,
+        provider: str,
+        current_query: str,
+    ) -> list[dict[str, Any]]:
+        """Keep recent turns plus bounded anchors/relevant messages from this conversation only."""
+        recent_result = await db.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .order_by(
+                Message.created_at.desc(),
+                case((Message.role == "assistant", 1), else_=0).desc(),
+            )
+            .limit(20)
+        )
+        recent = list(reversed(recent_result.scalars().all()))
+        if len(recent) < 20:
+            return [self._build_history_message(message, provider) for message in recent]
+
+        recent_ids = {message.id for message in recent}
+        anchor_result = await db.execute(
+            select(Message)
+            .where(Message.session_id == session_id, Message.id.notin_(recent_ids))
+            .order_by(
+                Message.created_at.asc(),
+                case((Message.role == "assistant", 1), else_=0).asc(),
+            )
+            .limit(4)
+        )
+        older = list(anchor_result.scalars().all())
+        selected_ids = recent_ids | {message.id for message in older}
+
+        fallback_query = build_fallback_search_query(current_query)
+        if fallback_query:
+            document_vector = func.to_tsvector("simple", Message.content)
+            search_query = func.websearch_to_tsquery("simple", fallback_query)
+            relevant_result = await db.execute(
+                select(Message)
+                .where(
+                    Message.session_id == session_id,
+                    Message.id.notin_(selected_ids),
+                    document_vector.op("@@")(search_query),
+                )
+                .order_by(func.ts_rank_cd(document_vector, search_query).desc(), Message.created_at.desc())
+                .limit(4)
+            )
+            older.extend(relevant_result.scalars().all())
+
+        older = sorted({message.id: message for message in older}.values(), key=lambda message: message.created_at)
+        return [self._build_history_message(message, provider) for message in [*older, *recent]]
+
     def _resolve_usage_tokens(
         self,
         messages: list[dict[str, Any]],
@@ -459,16 +519,10 @@ class AgentService:
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
 
-        # 3. Load conversation history (last 20 messages)
-        history_messages = []
-        result = await db.execute(
-            select(Message)
-            .where(Message.session_id == session_obj.id)
-            .order_by(Message.created_at.desc())
-            .limit(20)
+        # 3. Load recent history plus bounded anchors/relevant older turns.
+        history_messages = await self._load_conversation_history(
+            db, session_obj.id, effective_provider, user_message,
         )
-        for m in reversed(result.scalars().all()):
-            history_messages.append(self._build_history_message(m, effective_provider))
 
         # 4. Build messages payload
         messages = [{"role": "system", "content": full_prompt}]
@@ -528,7 +582,7 @@ class AgentService:
                     mcp_servers=mcp_servers,
                     run_id=str(run.id),
                 )
-                response_text = runtime_result.get("content", "")
+                response_text = self._require_nonempty_response(runtime_result.get("content", ""))
                 tools_used = runtime_result.get("tools_used", [])
                 mcp_servers_used = runtime_result.get("mcp_servers_used", [])
                 runtime_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
@@ -542,7 +596,7 @@ class AgentService:
                     api_key=user_api_key,
                     provider=effective_provider,
                 )
-                response_text = runtime_result.get("content", "")
+                response_text = self._require_nonempty_response(runtime_result.get("content", ""))
                 tools_used = []
                 mcp_servers_used = []
                 runtime_cost = float(runtime_result.get("total_cost", 0.0) or 0.0)
@@ -686,16 +740,10 @@ class AgentService:
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
 
-        # 3. Load conversation history
-        history_messages = []
-        result = await db.execute(
-            select(Message)
-            .where(Message.session_id == session_obj.id)
-            .order_by(Message.created_at.desc())
-            .limit(20)
+        # 3. Load recent history plus bounded anchors/relevant older turns.
+        history_messages = await self._load_conversation_history(
+            db, session_obj.id, effective_provider, user_message,
         )
-        for m in reversed(result.scalars().all()):
-            history_messages.append(self._build_history_message(m, effective_provider))
 
         # 4. Build messages payload
         messages = [{"role": "system", "content": full_prompt}]
@@ -816,9 +864,13 @@ class AgentService:
                         "content": chunk,
                         "message_id": assistant_msg_id,
                     }
+            self._require_nonempty_response(full_response)
         except BaseException as exc:
             await release_token_reservation(reservation_id)
             latency = int((time.time() - start_time) * 1000)
+            # A failed stream is retried with the same client id. Remove only
+            # the unpaired user row while retaining the failed run for audit.
+            await db.delete(user_msg)
             await self._finish_run(
                 db,
                 run,
@@ -829,6 +881,7 @@ class AgentService:
             )
             await db.flush()
             await db.commit()
+            await asyncio.to_thread(delete_persisted_attachments, stored_attachments)
             raise
 
         # 7. Save assistant message after streaming completes
@@ -1029,16 +1082,21 @@ class AgentService:
     ) -> dict[str, Any]:
         """Call OpenAI-compatible API."""
         auth_key = api_key or settings.openai_api_key
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if settings.openai_chat_template_enable_thinking is not None:
+            payload["chat_template_kwargs"] = {
+                "enable_thinking": settings.openai_chat_template_enable_thinking,
+            }
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 settings.openai_base_url,
                 headers={"Authorization": f"Bearer {auth_key}"},
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
+                json=payload,
             )
             response.raise_for_status()
             payload = response.json()
@@ -1057,18 +1115,23 @@ class AgentService:
     ) -> AsyncGenerator[str, None]:
         """Call OpenAI-compatible API with streaming."""
         auth_key = api_key or settings.openai_api_key
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if settings.openai_chat_template_enable_thinking is not None:
+            payload["chat_template_kwargs"] = {
+                "enable_thinking": settings.openai_chat_template_enable_thinking,
+            }
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
                 "POST",
                 settings.openai_base_url,
                 headers={"Authorization": f"Bearer {auth_key}"},
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                },
+                json=payload,
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

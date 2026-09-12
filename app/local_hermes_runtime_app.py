@@ -6,6 +6,7 @@ run to a real hermes-agent profile stored under /data/hermes/profiles/<slug>.
 """
 import asyncio
 import base64
+from contextlib import asynccontextmanager
 import json
 import os
 import re
@@ -71,6 +72,19 @@ def _mcp_approval_tool_names(payload: dict[str, Any]) -> list[str]:
     return names
 
 
+def _has_explicit_mcp_intent(payload: dict[str, Any]) -> bool:
+    """Keep intentional MCP requests strict while allowing ordinary chat to degrade safely."""
+    message = str(payload.get("message") or "").lower()
+    if "mcp" in message:
+        return True
+    for server in payload.get("mcp_servers") or []:
+        identifiers = [server.get("name"), server.get("slug")]
+        identifiers.extend(server.get("allowed_tools") or [])
+        if any(str(value or "").lower() in message for value in identifiers if str(value or "").strip()):
+            return True
+    return False
+
+
 def _register_mcp_proxy(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     servers = payload.get("mcp_servers") or []
     if not servers:
@@ -101,7 +115,30 @@ def _register_mcp_proxy(payload: dict[str, Any]) -> tuple[dict[str, Any], str | 
     }
     return {**payload, "mcp_servers": proxy_servers}, token
 
-app = FastAPI(title="AgentSaaS Agent Runtime", version="0.2.0")
+def _cleanup_stale_runtime_directories(temp_root: Path | None = None) -> int:
+    """Remove only per-run directories left behind by a previous hard stop."""
+    root = (temp_root or Path(tempfile.gettempdir())).resolve()
+    removed = 0
+    for candidate in root.glob("hermes-run-*"):
+        if candidate.parent.resolve() != root:
+            continue
+        if candidate.is_symlink():
+            candidate.unlink()
+        elif candidate.is_dir():
+            shutil.rmtree(candidate)
+        else:
+            candidate.unlink()
+        removed += 1
+    return removed
+
+
+@asynccontextmanager
+async def _runtime_lifespan(_app: FastAPI):
+    _cleanup_stale_runtime_directories()
+    yield
+
+
+app = FastAPI(title="AgentSaaS Agent Runtime", version="0.2.0", lifespan=_runtime_lifespan)
 
 
 def _authorize_runtime(secret: str | None) -> None:
@@ -506,7 +543,10 @@ def _build_prompt(payload: dict[str, Any]) -> str:
     ]
     if history:
         safe_history = []
-        for item in history[-20:]:
+        # The API sends at most 20 recent messages plus up to 8 bounded
+        # anchors/relevant older messages. Keep that complete bounded set so
+        # the runtime does not silently discard the continuity context.
+        for item in history[-28:]:
             role = str(item.get("role") or "").strip()
             content = str(item.get("content") or "").strip()
             if role in {"user", "assistant", "system"} and content:
@@ -899,6 +939,28 @@ def _normalized_server_usage(usage: dict[str, Any] | None) -> dict[str, int]:
 
 
 async def _run_hermes_server_events(payload: dict[str, Any]):
+    emitted_content = False
+    try:
+        async for event in _run_hermes_server_events_once(payload):
+            if event.get("type") == "delta" and event.get("content"):
+                emitted_content = True
+            yield event
+    except RuntimeError:
+        if not payload.get("mcp_servers") or _has_explicit_mcp_intent(payload) or emitted_content:
+            raise
+        fallback_payload = {
+            **payload,
+            "mcp_servers": [],
+            "project_context": "\n\n".join(filter(None, [
+                payload.get("project_context"),
+                "Managed MCP was unavailable for this request. Continue without MCP and do not claim that an MCP tool was used.",
+            ])),
+        }
+        async for event in _run_hermes_server_events_once(fallback_payload):
+            yield event
+
+
+async def _run_hermes_server_events_once(payload: dict[str, Any]):
     if (payload.get("provider") or "").strip().lower() == "mock":
         content = _mock_runtime_response(payload)
         yield {"type": "delta", "content": content}
@@ -1002,10 +1064,13 @@ async def _run_hermes_server_events(payload: dict[str, Any]):
                 raw_streamed_text = ""
                 tools_used: set[str] = set()
                 mcp_servers_used: set[str] = set()
-                deadline = (
-                    asyncio.get_running_loop().time()
-                    + float(os.getenv("HERMES_RUN_TIMEOUT_SECONDS", "120"))
-                )
+                run_timeout = float(os.getenv("HERMES_RUN_TIMEOUT_SECONDS", "120"))
+                if payload.get("mcp_servers") and not _has_explicit_mcp_intent(payload):
+                    run_timeout = min(
+                        run_timeout,
+                        float(os.getenv("HERMES_PASSIVE_MCP_TIMEOUT_SECONDS", "30")),
+                    )
+                deadline = asyncio.get_running_loop().time() + run_timeout
                 proxy_queue = (_mcp_proxy_runs.get(mcp_proxy_token) or {}).get("approval_queue") if mcp_proxy_token else None
                 gateway_message_task = asyncio.create_task(websocket.recv())
                 while complete_payload is None:

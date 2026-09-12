@@ -534,6 +534,16 @@
             return data.access_token;
         }
 
+        function scheduleWebSocketReconnect(delayMs = 3000) {
+            if (state.wsReconnectTimer || state.authRequired || !state.settings.token) {
+                return;
+            }
+            state.wsReconnectTimer = setTimeout(() => {
+                state.wsReconnectTimer = null;
+                void connectWebSocket();
+            }, delayMs);
+        }
+
         async function connectWebSocket() {
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                 return;
@@ -555,6 +565,7 @@
             try {
                 wsToken = await getWebSocketToken();
             } catch {
+                scheduleWebSocketReconnect();
                 return;
             }
             if (!wsToken) {
@@ -572,6 +583,10 @@
             state.ws = new WebSocket(wsUrl);
 
             state.ws.onopen = async () => {
+                if (state.wsReconnectTimer) {
+                    clearTimeout(state.wsReconnectTimer);
+                    state.wsReconnectTimer = null;
+                }
                 if (state.heartbeatInterval) {
                     clearInterval(state.heartbeatInterval);
                 }
@@ -604,9 +619,7 @@
                     void handleAuthFailure("فشل اتصال الديسكتوب لأن جلسة الدخول لم تعد صالحة.");
                     return;
                 }
-                setTimeout(() => {
-                    void connectWebSocket();
-                }, 3000);
+                scheduleWebSocketReconnect();
             };
 
             state.ws.onerror = (error) => {

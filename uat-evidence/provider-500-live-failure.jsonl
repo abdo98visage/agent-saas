@@ -1,0 +1,4 @@
+{"at":"2026-08-04T14:54:11.637Z","type":"desktop_ready","user":"it","employee_id":"9a03592a-fc66-4ff5-9179-6b0bc82baedf","profile":"Desktop Hermes 07e1469895","port":9344}
+{"at":"2026-08-04T14:54:11.653Z","type":"fault_dispatched","user":"it","marker":"PROVIDER-500-RECOVERY-20260804"}
+{"at":"2026-08-04T14:54:13.921Z","type":"fault_observation","user":"it","marker":"PROVIDER-500-RECOVERY-20260804","queue":1,"authRequired":false,"lastRole":"assistant","lastContent":"","systems":["Allow context7-durable-0241f5.resolve-library-id to run once?5:25:05 متمت الموافقة لمرة واحدة","خطأ: Agent request failed. Reference: 2fef7548-dd7d-49d2-9798-7b7224ddca015:54:13 م","تم تحويل الرسالة إلى queue بعد فشل الإرسال: Agent request failed. Reference: 2fef7548-dd7d-49d2-9798-7b7224ddca015:54:13 م"]}
+{"at":"2026-08-04T14:54:13.922Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"PROVIDER-500-RECOVERY-20260804"}

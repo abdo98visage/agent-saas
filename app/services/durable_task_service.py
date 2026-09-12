@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import settings
 from app.core.db import async_session
@@ -358,6 +358,15 @@ async def recover_stale_tasks(now: datetime | None = None) -> dict:
     failed = 0
     task_ids: list[str] = []
     async with async_session.begin() as db:
+        expired_approval_ids = list((await db.execute(
+            update(ApprovalRequest)
+            .where(
+                ApprovalRequest.status == "pending",
+                ApprovalRequest.expires_at <= current,
+            )
+            .values(status="expired", decision="deny", decided_at=current)
+            .returning(ApprovalRequest.id)
+        )).scalars().all())
         result = await db.execute(
             select(DurableTask)
             .where(
@@ -387,4 +396,9 @@ async def recover_stale_tasks(now: datetime | None = None) -> dict:
                 event_type="recovered" if task.status == "queued" else "failed",
                 payload={"reason": task.error_code},
             ))
-    return {"recovered": recovered, "failed": failed, "task_ids": task_ids}
+    return {
+        "recovered": recovered,
+        "failed": failed,
+        "expired_approvals": len(expired_approval_ids),
+        "task_ids": task_ids,
+    }

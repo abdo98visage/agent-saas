@@ -28,6 +28,11 @@
             renderQueueStatus();
             await refreshUpdateStatus();
             await loadCurrentUser();
+            // Chat connectivity must not wait for optional profile, MCP, or
+            // workspace initialization after an access-token refresh.
+            if (state.settings.token && !state.authRequired) {
+                void connectWebSocket();
+            }
             await loadAssignedProfiles();
             await loadAvailableMcpServers();
             await refreshProjectFiles();
@@ -155,8 +160,17 @@
             } catch (error) {
                 resetStreamingState();
                 state.pendingConversationProjectId = null;
+                if (error.retryable === false) {
+                    await handleAuthFailure(error.message);
+                    return;
+                }
+                if (state.authRequired || !state.settings.token) {
+                    await setOfflineQueue([]);
+                    return;
+                }
                 await enqueueMessage(text, profileName, outgoingAttachments, error.queueItem || null);
                 appendSystemMessage(`تم تحويل الرسالة إلى queue بعد فشل الإرسال: ${error.message}`);
+                scheduleQueuedMessageRetry();
             }
         }
 

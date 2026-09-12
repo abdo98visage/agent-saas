@@ -1,0 +1,326 @@
+x-app-environment: &app-environment
+  APP_NAME: "${APP_NAME:-FQ-SaaS}"
+  DEBUG: "false"
+  ENVIRONMENT: "production"
+  ALLOWED_ORIGINS: "[\"https://${TRAEFIK_HOST:?Set TRAEFIK_HOST to the public domain}\"]"
+  PUBLIC_APP_ORIGIN: "https://${TRAEFIK_HOST:?Set TRAEFIK_HOST to the public domain}"
+  SECRET_KEY: "${SECRET_KEY:?Set a random SECRET_KEY of at least 32 characters}"
+  FERNET_KEY: "${FERNET_KEY:?Set a valid Fernet key}"
+  JWT_ALGORITHM: "HS256"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-480}"
+  REFRESH_TOKEN_EXPIRE_DAYS: "${REFRESH_TOKEN_EXPIRE_DAYS:-30}"
+  POSTGRES_USER: "${POSTGRES_USER:-agentsaas}"
+  POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set a strong URL-safe POSTGRES_PASSWORD}"
+  POSTGRES_DB: "${POSTGRES_DB:-agentsaas}"
+  DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-agentsaas}:${POSTGRES_PASSWORD:?Set a strong URL-safe POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-agentsaas}"
+  REDIS_URL: "redis://redis:6379/0"
+  CELERY_BROKER_URL: "redis://redis:6379/1"
+  RATE_LIMIT_BACKEND: "redis"
+  RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-100}"
+  AUTH_RATE_LIMIT_PER_MINUTE: "${AUTH_RATE_LIMIT_PER_MINUTE:-10}"
+  WEBSOCKET_MAX_MESSAGE_BYTES: "${WEBSOCKET_MAX_MESSAGE_BYTES:-8388608}"
+  ATTACHMENT_STORAGE_ROOT: "/data/attachments"
+  KNOWLEDGE_ALLOWED_ROOTS: '["/data/knowledge"]'
+  LLM_PROVIDER: "minimax"
+  DEFAULT_MODEL: "${DEFAULT_MODEL:-MiniMax-M3}"
+  MINIMAX_MODEL: "${MINIMAX_MODEL:-MiniMax-M3}"
+  MINIMAX_BASE_URL: "${MINIMAX_BASE_URL:-https://api.minimax.io/v1/chat/completions}"
+  HERMES_ORCHESTRATOR_URL: "http://hermes-orchestrator:8788"
+  HERMES_ORCHESTRATOR_SECRET: "${HERMES_ORCHESTRATOR_SECRET:?Set a random HERMES_ORCHESTRATOR_SECRET of at least 32 characters}"
+  HERMES_REQUEST_TIMEOUT_SECONDS: "${HERMES_REQUEST_TIMEOUT_SECONDS:-120}"
+  MCP_ENABLED: "${MCP_ENABLED:-true}"
+  TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+  TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET:-}"
+  TELEGRAM_WEBHOOK_URL: "${TELEGRAM_WEBHOOK_URL:-}"
+  SENTRY_DSN: "${SENTRY_DSN:-}"
+  SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-production}"
+  SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0.1}"
+  METRICS_TOKEN: "${METRICS_TOKEN:?Set a random METRICS_TOKEN}"
+  AUDIT_EXPORT_URL: "${AUDIT_EXPORT_URL:-}"
+  AUDIT_EXPORT_TOKEN: "${AUDIT_EXPORT_TOKEN:-}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USERNAME: "${SMTP_USERNAME:-}"
+  SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+  SMTP_FROM_EMAIL: "${SMTP_FROM_EMAIL:-noreply@localhost}"
+  ALERT_NOTIFICATION_EMAILS: "${ALERT_NOTIFICATION_EMAILS:-}"
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  storage-init:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    user: "0:0"
+    command: >-
+      sh -c "mkdir -p /data/attachments /data/hermes/profiles /data/knowledge
+      && chown -R 10001:10001 /data/attachments /data/hermes/profiles /data/knowledge"
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/attachments:/data/attachments"
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/hermes/profiles:/data/hermes/profiles"
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/knowledge:/data/knowledge"
+    restart: "no"
+    network_mode: none
+    logging: *default-logging
+
+  db:
+    image: "${AGENTSAAS_POSTGRES_IMAGE:-postgres:15-alpine}"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-agentsaas}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set a strong URL-safe POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB:-agentsaas}"
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/postgres:/var/lib/postgresql/data"
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    logging: *default-logging
+
+  redis:
+    image: "${AGENTSAAS_REDIS_IMAGE:-redis:7-alpine}"
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/redis:/data"
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    logging: *default-logging
+
+  migrate:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    environment: *app-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_net
+    command: alembic upgrade head
+    restart: "no"
+    logging: *default-logging
+
+  bootstrap:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    environment:
+      <<: *app-environment
+      ADMIN_EMAIL: "${ADMIN_EMAIL:?Set the initial administrator email}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Set a strong initial administrator password}"
+      MINIMAX_API_KEY: "${MINIMAX_API_KEY:?Set the platform MiniMax API key}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - app_net
+    command: python -m scripts.bootstrap_production
+    restart: "no"
+    logging: *default-logging
+
+  hermes-runtime:
+    image: "${AGENTSAAS_HERMES_RUNTIME_IMAGE:?Set AGENTSAAS_HERMES_RUNTIME_IMAGE to the released runtime image}"
+    environment:
+      HERMES_PROFILES_ROOT: "/data/hermes/profiles"
+      HERMES_RUN_TIMEOUT_SECONDS: "${HERMES_RUN_TIMEOUT_SECONDS:-120}"
+      HERMES_RUNTIME_SECRET: "${HERMES_RUNTIME_SECRET:?Set a random HERMES_RUNTIME_SECRET of at least 32 characters}"
+      HERMES_RUNTIME_REQUIRE_SECRET: "true"
+      DEFAULT_MODEL: "${DEFAULT_MODEL:-MiniMax-M3}"
+    command: uvicorn app.local_hermes_runtime_app:app --host 0.0.0.0 --port 8787
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/hermes/profiles:/data/hermes/profiles:ro"
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    networks:
+      - runtime_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    logging: *default-logging
+
+  hermes-orchestrator:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    environment:
+      HERMES_WORKSPACE_ROOT: "/data/hermes/profiles"
+      HERMES_PORT: "8787"
+      HERMES_INTERNAL_URL: "http://hermes-runtime:8787"
+      HERMES_RUNTIME_SECRET: "${HERMES_RUNTIME_SECRET:?Set a random HERMES_RUNTIME_SECRET of at least 32 characters}"
+      HERMES_ORCHESTRATOR_SECRET: "${HERMES_ORCHESTRATOR_SECRET:?Set a random HERMES_ORCHESTRATOR_SECRET of at least 32 characters}"
+      HERMES_ORCHESTRATOR_REQUIRE_SECRET: "true"
+      HERMES_MODEL_PROXY_URL: "http://hermes-orchestrator:8788/internal/model/v1/chat/completions"
+      MINIMAX_BASE_URL: "${MINIMAX_BASE_URL:-https://api.minimax.io/v1/chat/completions}"
+      HERMES_MANAGED_EXTERNALLY: "true"
+      HERMES_RUN_PATH: "/runs"
+      HERMES_RUN_STREAM_PATH: "/runs/stream"
+      HERMES_HEALTH_PATH: "/health"
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/hermes/profiles:/data/hermes/profiles"
+    depends_on:
+      hermes-runtime:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    networks:
+      - app_net
+      - runtime_net
+    command: uvicorn app.hermes_orchestrator_app:app --host 0.0.0.0 --port 8788
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/readyz', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    logging: *default-logging
+
+  api:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    environment: *app-environment
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/attachments:/data/attachments"
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/knowledge:/data/knowledge:ro"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+      hermes-orchestrator:
+        condition: service_healthy
+    networks:
+      - app_net
+      - traefik-proxy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-proxy"
+      - "traefik.http.routers.agentsaas-api.rule=Host(`${TRAEFIK_HOST}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.agentsaas-api.entrypoints=websecure"
+      - "traefik.http.routers.agentsaas-api.priority=100"
+      - "traefik.http.routers.agentsaas-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agentsaas-api.loadbalancer.server.port=8000"
+    logging: *default-logging
+
+  admin:
+    image: "${AGENTSAAS_ADMIN_IMAGE:?Set AGENTSAAS_ADMIN_IMAGE to the released admin image}"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app_net
+      - traefik-proxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-proxy"
+      - "traefik.http.routers.agentsaas-admin.rule=Host(`${TRAEFIK_HOST}`)"
+      - "traefik.http.routers.agentsaas-admin.entrypoints=websecure"
+      - "traefik.http.routers.agentsaas-admin.priority=10"
+      - "traefik.http.routers.agentsaas-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agentsaas-admin.loadbalancer.server.port=3000"
+    logging: *default-logging
+
+  worker:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    environment: *app-environment
+    volumes:
+      - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/knowledge:/data/knowledge:ro"
+    depends_on:
+      redis:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - app_net
+    command: celery -A app.celery_app worker --loglevel=info --pool=solo
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    logging: *default-logging
+
+  beat:
+    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    environment: *app-environment
+    depends_on:
+      redis:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - app_net
+    command: celery -A app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    logging: *default-logging
+
+networks:
+  app_net:
+    name: "${AGENTSAAS_DOCKER_NETWORK:-agentsaas_private}"
+  runtime_net:
+    name: "${AGENTSAAS_RUNTIME_DOCKER_NETWORK:-agentsaas_runtime}"
+    internal: true
+  traefik-proxy:
+    external: true
+

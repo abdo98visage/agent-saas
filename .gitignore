@@ -37,6 +37,7 @@ docker-compose.override.yml
 htmlcov/
 .pytest_cache/
 .pytest_tmp*/
+.pytest-*/
 
 # Node / frontend / desktop build output
 node_modules/
@@ -45,6 +46,7 @@ frontend/.next/
 frontend/tsconfig.tsbuildinfo
 desktop/node_modules/
 desktop/dist/
+desktop/dist-*/
 desktop/src/renderer/dist/
 
 # Database

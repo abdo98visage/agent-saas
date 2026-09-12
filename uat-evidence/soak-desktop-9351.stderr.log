@@ -1,0 +1,11 @@
+FAIL desktop packaged EXE test: Error: Desktop executable not found: C:\Users\windows-server\Desktop\work\Hermes\ai\AgentSaaS\desktop\dist-phase6\win-unpacked\FQ-SaaS
+    at assert (C:\Users\windows-server\Desktop\work\Hermes\ai\AgentSaaS\deploy\desktop_e2e_test.js:66:11)
+    at main (C:\Users\windows-server\Desktop\work\Hermes\ai\AgentSaaS\deploy\desktop_e2e_test.js:355:3)
+    at Object.<anonymous> (C:\Users\windows-server\Desktop\work\Hermes\ai\AgentSaaS\deploy\desktop_e2e_test.js:674:1)
+    at Module._compile (node:internal/modules/cjs/loader:1854:14)
+    at Object..js (node:internal/modules/cjs/loader:1985:10)
+    at Module.load (node:internal/modules/cjs/loader:1577:32)
+    at Module._load (node:internal/modules/cjs/loader:1379:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47

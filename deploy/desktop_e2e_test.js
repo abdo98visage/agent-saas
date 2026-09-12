@@ -21,8 +21,15 @@ function parseArgs() {
     profileSlug: "",
     mcpServerSlug: "",
     mcpOnly: false,
+    provisionMcp: false,
     dev: false,
     visible: false,
+    holdOpenSeconds: 0,
+    memoryTurns: 0,
+    memoryMarker: "DESKTOP-MEM-925",
+    roleLabel: "desktop",
+    knowledgeCanary: "",
+    forbiddenCanaries: [],
     telegramWebhookSecret: "desktop-e2e-telegram-webhook-secret-2026",
   };
   for (let index = 2; index < process.argv.length; index += 1) {
@@ -40,8 +47,15 @@ function parseArgs() {
     else if (arg === "--profile-slug") args.profileSlug = next, index += 1;
     else if (arg === "--mcp-server-slug") args.mcpServerSlug = next, index += 1;
     else if (arg === "--mcp-only") args.mcpOnly = true;
+    else if (arg === "--provision-mcp") args.provisionMcp = true;
     else if (arg === "--dev") args.dev = true;
     else if (arg === "--visible") args.visible = true;
+    else if (arg === "--hold-open-seconds") args.holdOpenSeconds = Number(next), index += 1;
+    else if (arg === "--memory-turns") args.memoryTurns = Number(next), index += 1;
+    else if (arg === "--memory-marker") args.memoryMarker = next, index += 1;
+    else if (arg === "--role-label") args.roleLabel = next, index += 1;
+    else if (arg === "--knowledge-canary") args.knowledgeCanary = next, index += 1;
+    else if (arg === "--forbid-canaries") args.forbiddenCanaries = next.split(",").filter(Boolean), index += 1;
     else if (arg === "--telegram-webhook-secret") args.telegramWebhookSecret = next, index += 1;
   }
   return args;
@@ -116,8 +130,9 @@ class CdpClient {
       if (!message.id || !this.pending.has(message.id)) {
         return;
       }
-      const { resolve, reject } = this.pending.get(message.id);
+      const { resolve, reject, timeout } = this.pending.get(message.id);
       this.pending.delete(message.id);
+      clearTimeout(timeout);
       if (message.error) {
         reject(new Error(message.error.message || JSON.stringify(message.error)));
       } else {
@@ -130,13 +145,13 @@ class CdpClient {
     const id = this.nextId++;
     this.ws.send(JSON.stringify({ id, method, params }));
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`CDP command timed out: ${method}`));
         }
-      }, 90000);
+      }, 240000);
+      this.pending.set(id, { resolve, reject, timeout });
     });
   }
 
@@ -173,6 +188,8 @@ async function waitForDebugger(port) {
 
 async function createDesktopEmployee(args) {
   const suffix = crypto.randomBytes(5).toString("hex");
+  const uatTokenBudget = args.memoryTurns > 0 ? 1_000_000_000 : 100_000;
+  const uatRequestBudget = args.memoryTurns > 0 ? 100_000 : 1_000;
   const adminLogin = await apiRequest(args.apiUrl, "POST", "/api/auth/login", {
     email: args.adminEmail,
     password: args.adminPassword,
@@ -206,8 +223,8 @@ async function createDesktopEmployee(args) {
       soul_md: "Reliable desktop QA assistant.",
       skills: [],
       system_prompt: "Respond briefly for packaged desktop validation.",
-      max_tokens_per_day: 100000,
-      max_requests_per_day: 1000,
+      max_tokens_per_day: uatTokenBudget,
+      max_requests_per_day: uatRequestBudget,
       daily_cost_budget: 100000,
       allowed_providers: [args.provider],
       allowed_tools: ["local_runtime"],
@@ -218,7 +235,7 @@ async function createDesktopEmployee(args) {
       profile_id: profile.id,
       provider: args.provider,
       api_key: "sk-desktop-e2e-profile-key",
-      daily_budget: 100000,
+      daily_budget: uatTokenBudget,
     }, adminToken);
   }
 
@@ -227,8 +244,8 @@ async function createDesktopEmployee(args) {
     full_name: "Desktop E2E Employee",
     department: "qa",
     role: "employee",
-    max_tokens_per_day: 100000,
-    max_requests_per_day: 1000,
+    max_tokens_per_day: uatTokenBudget,
+    max_requests_per_day: uatRequestBudget,
   }, adminToken);
 
   await apiRequest(args.apiUrl, "POST", "/api/admin/assignments", {
@@ -242,7 +259,7 @@ async function createDesktopEmployee(args) {
     user_id: employee.id,
     provider: args.provider,
     api_key: "sk-desktop-e2e-user-key",
-    daily_budget: 100000,
+    daily_budget: uatTokenBudget,
   }, adminToken);
 
   let mcpServerId = "";
@@ -251,7 +268,17 @@ async function createDesktopEmployee(args) {
     const server = serverResponse.servers.find((item) => item.slug === args.mcpServerSlug);
     assert(server, `MCP server not found: ${args.mcpServerSlug}`);
     const bindingResponse = await apiRequest(args.apiUrl, "GET", `/api/admin/mcp/profiles/${profile.id}/bindings`, undefined, adminToken);
-    const binding = bindingResponse.bindings.find((item) => item.server_id === server.id);
+    let binding = bindingResponse.bindings.find((item) => item.server_id === server.id);
+    if (!binding && args.provisionMcp) {
+      const allowedTools = (server.discovered_tools || []).map((tool) => tool.name);
+      assert(allowedTools.length > 0, `MCP server has no discovered tools: ${server.name}`);
+      binding = await apiRequest(args.apiUrl, "POST", `/api/admin/mcp/profiles/${profile.id}/bindings`, {
+        server_id: server.id,
+        allowed_tools: allowedTools,
+        approval_required_tools: allowedTools,
+        is_active: true,
+      }, adminToken);
+    }
     assert(binding?.is_active && binding.allowed_tools.length > 0, `MCP server is not enabled for profile: ${profileName}`);
     mcpServerId = server.id;
   }
@@ -267,8 +294,57 @@ async function createDesktopEmployee(args) {
   };
 }
 
+async function createEmployeeKnowledge(args, employee) {
+  if (!args.knowledgeCanary) {
+    return;
+  }
+  const source = await apiRequest(args.apiUrl, "POST", "/api/admin/knowledge/sources", {
+    name: `${args.roleLabel} UAT knowledge`,
+    slug: `${employee.profileSlug}-knowledge`,
+    source_type: "managed_upload",
+    classification: "internal",
+    allowed_user_ids: [employee.employeeId],
+  }, employee.adminToken);
+  await apiRequest(args.apiUrl, "POST", `/api/admin/knowledge/sources/${source.id}/documents`, {
+    replace_all: true,
+    documents: [{
+      external_id: "verification-policy",
+      title: `${args.roleLabel} UAT verification policy`,
+      content: `The ${args.roleLabel} UAT verification code is ${args.knowledgeCanary}. The approved retention period is seven years.`,
+      metadata: { uat: true },
+    }],
+  }, employee.adminToken);
+}
+
 function jsString(value) {
   return JSON.stringify(value);
+}
+
+async function sendDesktopChat(cdp, prompt, label) {
+  const beforeCount = await cdp.evaluate("state.currentMessages.length");
+  await cdp.evaluate(`
+    (async () => {
+      document.getElementById("message-input").value = ${jsString(prompt)};
+      await sendMessage();
+    })()
+  `);
+  await waitFor(
+    () => cdp.evaluate(`state.currentMessages.length > ${beforeCount} && state.currentMessages.some((message, index) => index >= ${beforeCount} && message.role === "user" && message.content === ${jsString(prompt)})`),
+    10000,
+    `${label} dispatch`,
+  );
+  return waitFor(
+    () => cdp.evaluate(`
+      (() => {
+        const last = state.currentMessages[state.currentMessages.length - 1];
+        return !state.isStreaming && state.currentMessages.length > ${beforeCount + 1}
+          && last?.role === "assistant" && last.content.trim().length > 0
+          ? last.content : "";
+      })()
+    `),
+    180000,
+    `${label} response`,
+  );
 }
 
 async function main() {
@@ -295,6 +371,14 @@ async function main() {
     stdio: "ignore",
     windowsHide: !args.visible,
   });
+  let expectedDesktopShutdown = false;
+  const desktopExit = new Promise((resolve, reject) => {
+    child.once("exit", (code, signal) => {
+      const detail = `Desktop process exited (code=${code ?? "null"}, signal=${signal ?? "none"})`;
+      resolve({ unexpected: !expectedDesktopShutdown, detail });
+    });
+    child.once("error", reject);
+  });
 
   let cdp;
   try {
@@ -304,7 +388,7 @@ async function main() {
     await cdp.send("Runtime.enable");
 
     await waitFor(
-      () => cdp.evaluate("Boolean(window.electronAPI && document.getElementById('activation-panel'))"),
+      () => cdp.evaluate("Boolean(window.electronAPI && document.getElementById('activation-panel') && typeof state !== 'undefined')"),
       15000,
       "desktop renderer preload",
     );
@@ -359,38 +443,60 @@ async function main() {
       15000,
       "desktop WebSocket connection",
     );
+    await createEmployeeKnowledge(args, employee);
 
-    await cdp.evaluate(`
-      (async () => {
-        document.getElementById("message-input").value = "Write one short packaged desktop E2E response.";
-        await sendMessage();
-      })()
-    `);
-    await waitFor(
-      () => cdp.evaluate(`
-        (() => {
-          return state.currentMessages.some((message) => (
-            message.role === "user" && message.content.includes("packaged desktop E2E response")
-          ));
-        })()
-      `),
-      10000,
-      "desktop user message dispatch",
-    );
-    const assistantContent = await waitFor(
-      () => cdp.evaluate(`
-        (() => {
-          const last = state.currentMessages[state.currentMessages.length - 1];
-          if (!state.isStreaming && last && last.role === "assistant" && last.content.trim().length > 0) {
-            return last.content;
-          }
-          return "";
-        })()
-      `),
-      60000,
-      "desktop WebSocket chat response",
-    );
+    const chatPrompt = args.knowledgeCanary
+      ? `Using enterprise knowledge only, what is the ${args.roleLabel} UAT verification code and approved retention period? Cite the [K#] marker.`
+      : "Write one short packaged desktop E2E response.";
+    const assistantContent = await sendDesktopChat(cdp, chatPrompt, "desktop WebSocket chat");
     assert(assistantContent.trim().length > 0, "Desktop chat did not render Hermes response");
+    if (args.knowledgeCanary) {
+      assert(assistantContent.includes(args.knowledgeCanary), "Desktop Agent did not return its assigned knowledge canary");
+      assert(assistantContent.includes("[K1]"), "Desktop Agent did not cite its assigned knowledge source");
+      for (const forbidden of args.forbiddenCanaries) {
+        assert(!assistantContent.includes(forbidden), `Desktop Agent leaked another user's canary: ${forbidden}`);
+      }
+      const employeeToken = await cdp.evaluate("state.settings.token");
+      const ownSearch = await apiRequest(args.apiUrl, "GET", `/api/knowledge/search?q=${encodeURIComponent(args.knowledgeCanary)}&provider=openai`, undefined, employeeToken);
+      assert(ownSearch.count >= 1, "Assigned knowledge was not searchable by its employee");
+      for (const forbidden of args.forbiddenCanaries) {
+        const forbiddenSearch = await apiRequest(args.apiUrl, "GET", `/api/knowledge/search?q=${encodeURIComponent(forbidden)}&provider=openai`, undefined, employeeToken);
+        assert(forbiddenSearch.count === 0, `Employee could search another user's canary: ${forbidden}`);
+      }
+      const unknownContent = await sendDesktopChat(
+        cdp,
+        "Answer only from enterprise knowledge. What is policy QUASAR-UNKNOWN-000? If it is unavailable, reply exactly NOT_FOUND.",
+        "desktop unknown knowledge refusal",
+      );
+      assert(unknownContent.trim() === "NOT_FOUND", `Agent did not safely refuse unknown knowledge: ${unknownContent}`);
+      console.log("PASS desktop knowledge correctness and citation");
+      console.log("PASS desktop cross-user knowledge isolation");
+      console.log("PASS desktop unknown knowledge refusal");
+    }
+
+    if (args.memoryTurns > 0) {
+      assert(args.memoryTurns >= 3, "--memory-turns must be at least 3");
+      await sendDesktopChat(
+        cdp,
+        `Remember this private marker for this conversation: ${args.memoryMarker}. Reply exactly ACK.`,
+        "desktop memory anchor",
+      );
+      for (let turn = 2; turn < args.memoryTurns; turn += 1) {
+        const filler = await sendDesktopChat(
+          cdp,
+          `Desktop filler turn ${turn}. Reply exactly UI-PING-${turn}.`,
+          `desktop memory filler ${turn}`,
+        );
+        assert(filler.includes(`UI-PING-${turn}`), `Desktop memory filler ${turn} was incorrect: ${filler}`);
+      }
+      const recalled = await sendDesktopChat(
+        cdp,
+        "What private marker did I give you earlier? Reply with only that marker.",
+        "desktop memory recall",
+      );
+      assert(recalled.includes(args.memoryMarker), `Desktop Agent forgot ${args.memoryMarker}: ${recalled}`);
+      console.log(`PASS desktop ${args.memoryTurns}-turn conversation memory`);
+    }
 
     if (args.mcpServerSlug) {
       await cdp.evaluate(`
@@ -461,6 +567,17 @@ async function main() {
       console.log("PASS desktop MCP approval UI");
       console.log("PASS Hermes live MCP tool call");
       if (args.mcpOnly) {
+        await cdp.evaluate("window.__desktopE2eHold = true");
+        console.log(`PROFILE ${employee.profileSlug}`);
+        console.log(`EMPLOYEE ${employee.employeeEmail}`);
+        if (args.holdOpenSeconds > 0) {
+          console.log(`HOLD_OPEN ${args.holdOpenSeconds}`);
+          const exit = await Promise.race([
+            new Promise((resolve) => setTimeout(() => resolve(null), args.holdOpenSeconds * 1000)),
+            desktopExit,
+          ]);
+          if (exit?.unexpected) throw new Error(exit.detail);
+        }
         return;
       }
     }
@@ -515,6 +632,7 @@ async function main() {
 
     const conversations = await apiRequest(args.apiUrl, "GET", "/api/chat/conversations", undefined, await cdp.evaluate("state.settings.token"));
     assert(conversations.count >= 1, "Desktop chat did not create a persisted conversation");
+    await cdp.evaluate("window.__desktopE2eHold = true");
 
     console.log("PASS desktop packaged EXE activation");
     console.log("PASS desktop WebSocket chat");
@@ -523,7 +641,16 @@ async function main() {
     console.log("PASS desktop offline queue and update status");
     console.log(`PROFILE ${employee.profileSlug}`);
     console.log(`EMPLOYEE ${employee.employeeEmail}`);
+    if (args.holdOpenSeconds > 0) {
+      console.log(`HOLD_OPEN ${args.holdOpenSeconds}`);
+      const exit = await Promise.race([
+        new Promise((resolve) => setTimeout(() => resolve(null), args.holdOpenSeconds * 1000)),
+        desktopExit,
+      ]);
+      if (exit?.unexpected) throw new Error(exit.detail);
+    }
   } finally {
+    expectedDesktopShutdown = true;
     if (cdp) {
       try {
         await cdp.send("Browser.close");

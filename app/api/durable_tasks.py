@@ -263,6 +263,7 @@ async def update_schedule(
     ) if schedule.enabled else None
     await db.flush()
     await log_audit_event(db, user.id, "schedule_updated", {"enabled": schedule.enabled}, event_category="task", subject_type="task_schedule", subject_id=str(schedule.id))
+    await db.refresh(schedule)
     return schedule_response(schedule)
 
 

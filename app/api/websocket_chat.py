@@ -37,7 +37,7 @@ from app.services.token_tracker import (
     TokenQuotaExceeded,
 )
 from app.services.presence_service import presence_service
-from app.services.attachments import normalize_image_attachments, persist_image_attachments
+from app.services.attachments import delete_persisted_attachments, normalize_image_attachments, persist_image_attachments
 from app.services.knowledge_service import render_knowledge_context, retrieve_knowledge
 
 router = APIRouter()
@@ -70,21 +70,11 @@ async def _reserve_cowork_token_quota(
             user.id,
             profile,
         )
-        history_result = await db.execute(
-            select(Message)
-            .join(Session, Session.id == Message.session_id)
-            .where(
-                Session.user_id == user.id,
-                Session.id == UUID(conversation_id),
-            )
-            .order_by(Message.created_at.desc())
-            .limit(20)
+        history = await agent_service._load_conversation_history(
+            db, UUID(conversation_id), provider, user_message,
         )
         messages = [{"role": "system", "content": full_prompt}]
-        messages.extend(
-            {"role": message.role, "content": message.content}
-            for message in reversed(history_result.scalars().all())
-        )
+        messages.extend(history)
         if project_context:
             messages.append({"role": "system", "content": project_context})
         messages.append({"role": "user", "content": user_message})
@@ -168,6 +158,31 @@ class WebSocketUser:
     is_activated: bool
     max_requests_per_day: int
     max_tokens_per_day: int
+    token_version: int
+
+
+async def refresh_websocket_user(db, connected_user: WebSocketUser) -> Optional[WebSocketUser]:
+    """Reload mutable user policy for every message on a long-lived socket."""
+    result = await db.execute(
+        select(User)
+        .where(User.id == connected_user.id)
+        .execution_options(populate_existing=True)
+    )
+    current = result.scalar_one_or_none()
+    if not current or not current.is_active or int(current.token_version or 0) != connected_user.token_version:
+        return None
+    return WebSocketUser(
+        id=current.id,
+        email=current.email,
+        full_name=current.full_name,
+        department=current.department,
+        role=current.role,
+        is_active=current.is_active,
+        is_activated=current.is_activated,
+        max_requests_per_day=current.max_requests_per_day,
+        max_tokens_per_day=current.max_tokens_per_day,
+        token_version=int(current.token_version or 0),
+    )
 
 
 async def get_websocket_user(token: str, app=None) -> Optional[WebSocketUser]:
@@ -202,6 +217,7 @@ async def get_websocket_user(token: str, app=None) -> Optional[WebSocketUser]:
             is_activated=user.is_activated,
             max_requests_per_day=user.max_requests_per_day,
             max_tokens_per_day=user.max_tokens_per_day,
+            token_version=int(user.token_version or 0),
         )
 
 
@@ -441,16 +457,9 @@ async def _run_cowork_loop(
             session_obj.profile_id = profile.id
             session_obj.profile_version = profile.version
 
-        history_result = await db.execute(
-            select(Message)
-            .where(Message.session_id == session_obj.id)
-            .order_by(Message.created_at.desc())
-            .limit(20)
+        conversation_history = await agent_service._load_conversation_history(
+            db, session_obj.id, effective_provider, user_message,
         )
-        conversation_history = [
-            {"role": message.role, "content": message.content}
-            for message in reversed(history_result.scalars().all())
-        ]
 
         user_message_id = uuid4()
         stored_attachments = await asyncio.to_thread(
@@ -790,6 +799,20 @@ async def websocket_chat(
 
             msg_type = msg.get("type", "message")
 
+            # Long-lived sockets must observe administrative revocation even
+            # when the client is only sending its periodic heartbeat.
+            async with async_session.begin() as db:
+                live_user = await refresh_websocket_user(db, user)
+            if live_user is None:
+                await websocket.send_json({
+                    "type": "error",
+                    "detail": "Authentication session ended",
+                    "retryable": False,
+                })
+                await websocket.close(code=4001, reason="Authentication session ended")
+                return
+            user = live_user
+
             if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
                 await update_last_seen(user.id)
@@ -878,6 +901,7 @@ async def websocket_chat(
                 continue
 
             if client_message_id:
+                failed_duplicate_attachments: list[dict] = []
                 async with async_session.begin() as db:
                     duplicate_result = await db.execute(
                         select(Message).where(
@@ -889,17 +913,35 @@ async def websocket_chat(
                     duplicate_user_message = duplicate_result.scalar_one_or_none()
                     duplicate_assistant_message = None
                     if duplicate_user_message:
-                        assistant_result = await db.execute(
-                            select(Message)
+                        run_result = await db.execute(
+                            select(AgentRun)
                             .where(
-                                Message.session_id == duplicate_user_message.session_id,
-                                Message.role == "assistant",
-                                Message.created_at >= duplicate_user_message.created_at,
+                                AgentRun.session_id == duplicate_user_message.session_id,
+                                AgentRun.user_id == user.id,
+                                AgentRun.created_at >= duplicate_user_message.created_at,
                             )
-                            .order_by(Message.created_at.asc())
+                            .order_by(AgentRun.created_at.asc())
                             .limit(1)
                         )
-                        duplicate_assistant_message = assistant_result.scalar_one_or_none()
+                        duplicate_run = run_result.scalar_one_or_none()
+                        if duplicate_run and duplicate_run.status == "failed":
+                            failed_duplicate_attachments = duplicate_user_message.attachments or []
+                            await db.delete(duplicate_user_message)
+                            duplicate_user_message = None
+                        else:
+                            assistant_result = await db.execute(
+                                select(Message)
+                                .where(
+                                    Message.session_id == duplicate_user_message.session_id,
+                                    Message.role == "assistant",
+                                    Message.created_at >= duplicate_user_message.created_at,
+                                )
+                                .order_by(Message.created_at.asc())
+                                .limit(1)
+                            )
+                            duplicate_assistant_message = assistant_result.scalar_one_or_none()
+                if failed_duplicate_attachments:
+                    await asyncio.to_thread(delete_persisted_attachments, failed_duplicate_attachments)
                 if duplicate_user_message:
                     if duplicate_assistant_message:
                         await websocket.send_json({

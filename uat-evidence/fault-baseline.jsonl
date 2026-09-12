@@ -1,0 +1,4 @@
+{"at":"2026-08-04T13:46:53.096Z","type":"desktop_ready","user":"hr","employee_id":"a113b632-8c6b-4549-814b-53e03ddaf733","profile":"Desktop Hermes b4763a235e","port":9343}
+{"at":"2026-08-04T13:46:53.168Z","type":"quota_setup_pass","users":1,"api_keys":2}
+{"at":"2026-08-04T13:46:58.607Z","type":"chat_pass","user":"hr","step":"fault recovery probe","latency_ms":5438,"content":"FAULT-BASELINE-OK"}
+{"at":"2026-08-04T13:46:58.608Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"FAULT-BASELINE-OK"}

@@ -3,6 +3,7 @@ FQ-SaaS - Enterprise AI Agent Platform
 Main application entry point.
 """
 import json
+import hashlib
 import logging
 import time
 import uuid
@@ -24,6 +25,7 @@ except ImportError:  # optional until runtime deps are refreshed
 
 from app.core.config import settings
 from app.core.audit_context import correlation_id_context, trace_id_context
+from app.core.security import decode_access_token
 from app.api import health, auth, chat, admin, telegram, websocket_chat, mcp_admin, mcp_user, durable_tasks, observability, evaluations, knowledge
 
 # Structured request logging
@@ -145,46 +147,74 @@ def _is_auth_endpoint(path: str) -> bool:
     return any(p in path for p in ["/auth/login", "/auth/activate", "/auth/register"])
 
 
+def _authenticated_rate_subject(request: Request, client_ip: str) -> str:
+    token = request.cookies.get("access_token")
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    payload = decode_access_token(token) if token else None
+    subject = str((payload or {}).get("sub") or "").strip()
+    return f"user:{subject}" if subject else f"ip:{client_ip}"
+
+
+async def _rate_limit_keys(request: Request, client_ip: str) -> list[tuple[str, int]]:
+    if not _is_auth_endpoint(request.url.path):
+        subject = _authenticated_rate_subject(request, client_ip)
+        return [(f"rate-limit:{subject}:global", _RATE_LIMIT)]
+
+    identity = ""
+    try:
+        payload = json.loads((await request.body()) or b"{}")
+        identity = str(payload.get("email") or payload.get("token") or "").strip().lower()
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+    identity_hash = hashlib.sha256(identity.encode("utf-8")).hexdigest() if identity else "anonymous"
+    ip_limit = _RATE_LIMIT if identity else _AUTH_RATE_LIMIT
+    return [
+        (f"rate-limit:auth-ip:{client_ip}:{request.url.path}", ip_limit),
+        (f"rate-limit:auth-id:{identity_hash}:{request.url.path}", _AUTH_RATE_LIMIT),
+    ]
+
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Rate limiter with stricter limits for auth endpoints."""
+    """Per-user limits for authenticated traffic; per-identity auth limits behind shared NAT."""
     client_ip = request.client.host if request.client else "unknown"
-    limit = _AUTH_RATE_LIMIT if _is_auth_endpoint(request.url.path) else _RATE_LIMIT
+    rate_keys = await _rate_limit_keys(request, client_ip)
 
     redis_client = getattr(request.app.state, "redis", None)
     if redis_client:
-        key = f"rate-limit:{client_ip}:{request.url.path if _is_auth_endpoint(request.url.path) else 'global'}"
         try:
-            count = await redis_client.incr(key)
-            if count == 1:
-                await redis_client.expire(key, int(_RATE_WINDOW))
+            exceeded_limit = None
+            for key, limit in rate_keys:
+                count = await redis_client.incr(key)
+                if count == 1:
+                    await redis_client.expire(key, int(_RATE_WINDOW))
+                if count > limit:
+                    exceeded_limit = limit
         except Exception:
             redis_client = None
         else:
-            if count > limit:
+            if exceeded_limit is not None:
                 return JSONResponse(
                     status_code=429,
-                    content={
-                        "detail": f"Rate limit exceeded. {limit} requests per minute."
-                    },
+                    content={"detail": f"Rate limit exceeded. {exceeded_limit} requests per minute."},
+                    headers={"Retry-After": str(int(_RATE_WINDOW))},
                 )
             return await call_next(request)
 
     now = time.time()
     window_start = now - _RATE_WINDOW
-
-    # Prune old entries for this IP
-    _rate_store[client_ip] = [t for t in _rate_store[client_ip] if t > window_start]
-
-    if len(_rate_store[client_ip]) >= limit:
-        return JSONResponse(
-            status_code=429,
-            content={
-                "detail": f"Rate limit exceeded. {limit} requests per minute."
-            },
-        )
-
-    _rate_store[client_ip].append(now)
+    for key, limit in rate_keys:
+        _rate_store[key] = [timestamp for timestamp in _rate_store[key] if timestamp > window_start]
+        if len(_rate_store[key]) >= limit:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"Rate limit exceeded. {limit} requests per minute."},
+                headers={"Retry-After": str(int(_RATE_WINDOW))},
+            )
+    for key, _limit in rate_keys:
+        _rate_store[key].append(now)
     response = await call_next(request)
     return response
 

@@ -53,7 +53,45 @@ async def _user_connection(db: AsyncSession, user_id: UUID, server_id: UUID) -> 
     return result.scalar_one_or_none()
 
 
-def _available_payload(profile: Profile, binding: ProfileMcpBinding, server: McpServer, connection: McpConnection | None) -> dict:
+def _connection_payload(
+    server: McpServer,
+    connection: McpConnection | None,
+    platform_connection: McpConnection | None,
+) -> dict | None:
+    if connection is None:
+        return None
+    status = connection.status
+    last_error = connection.last_error
+    last_checked_at = connection.last_checked_at
+    if server.credential_mode == "platform" and (
+        platform_connection is None
+        or not platform_connection.is_active
+        or platform_connection.status != "connected"
+    ):
+        status = "error"
+        last_error = (
+            platform_connection.last_error
+            if platform_connection and platform_connection.last_error
+            else "The administrator connection is not ready"
+        )
+        if platform_connection and platform_connection.last_checked_at:
+            last_checked_at = platform_connection.last_checked_at
+    return {
+        "id": str(connection.id),
+        "status": status,
+        "credential_hint": connection.credential_hint,
+        "last_checked_at": str(last_checked_at) if last_checked_at else None,
+        "last_error": last_error,
+    }
+
+
+def _available_payload(
+    profile: Profile,
+    binding: ProfileMcpBinding,
+    server: McpServer,
+    connection: McpConnection | None,
+    platform_connection: McpConnection | None = None,
+) -> dict:
     return {
         "profile_id": str(profile.id),
         "profile_name": profile.name,
@@ -65,13 +103,7 @@ def _available_payload(profile: Profile, binding: ProfileMcpBinding, server: Mcp
         "credential_mode": server.credential_mode,
         "allowed_tools": binding.allowed_tools or [],
         "approval_required_tools": binding.approval_required_tools or [],
-        "connection": {
-            "id": str(connection.id),
-            "status": connection.status,
-            "credential_hint": connection.credential_hint,
-            "last_checked_at": str(connection.last_checked_at) if connection.last_checked_at else None,
-            "last_error": connection.last_error,
-        } if connection else None,
+        "connection": _connection_payload(server, connection, platform_connection),
     }
 
 
@@ -89,7 +121,26 @@ async def list_available_mcp_servers(
         )
     )
     connections = {item.server_id: item for item in connections_result.scalars().all()}
-    payload = [_available_payload(profile, binding, server, connections.get(server.id)) for profile, binding, server in rows]
+    server_ids = {server.id for _, _, server in rows if server.credential_mode == "platform"}
+    platform_connections = {}
+    if server_ids:
+        platform_result = await db.execute(
+            select(McpConnection).where(
+                McpConnection.server_id.in_(server_ids),
+                McpConnection.owner_type == "platform",
+            )
+        )
+        platform_connections = {item.server_id: item for item in platform_result.scalars().all()}
+    payload = [
+        _available_payload(
+            profile,
+            binding,
+            server,
+            connections.get(server.id),
+            platform_connections.get(server.id),
+        )
+        for profile, binding, server in rows
+    ]
     return {"servers": payload, "count": len(payload)}
 
 
@@ -119,7 +170,7 @@ async def connect_mcp_server(
             )
         )
         platform_connection = platform_result.scalar_one_or_none()
-        if server.auth_type != "none" and not platform_connection:
+        if not platform_connection:
             connection.status = "error"
             connection.last_error = "The administrator connection is not ready"
         else:

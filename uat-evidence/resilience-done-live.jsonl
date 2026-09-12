@@ -1,0 +1,3 @@
+{"at":"2026-08-04T15:13:59.159Z","type":"desktop_ready","user":"it","employee_id":"b9881c31-8002-4689-bcff-a7b497372e58","profile":"Desktop Hermes 95a8b0d1ad","port":9344}
+{"at":"2026-08-04T15:14:10.535Z","type":"network_cut_pass","phase":"done","user":"it","marker":"RESILIENCE-DONE-20260804","user_count":1,"assistant_count":1,"queue":0,"lastContent":"RESILIENCE-DONE-20260804","conversationId":"785850ae-26fc-4799-967d-8b81eb8ef881"}
+{"at":"2026-08-04T15:14:10.536Z","type":"uat_complete","status":"passed","scenario":"network cut after done"}

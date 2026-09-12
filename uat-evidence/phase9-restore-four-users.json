@@ -1,0 +1,49 @@
+﻿{
+    "status":  "passed",
+    "restored_api":  "http://127.0.0.1:8012",
+    "source_counts":  "86|87|1083|6430|3255|1388|33|33|32|1|8",
+    "restored_counts":  "86|87|1083|6430|3255|1388|33|33|32|1|8",
+    "audit_chain_valid":  true,
+    "measured_rto_seconds":  11,
+    "rto_target_seconds":  300,
+    "volume_file_counts":  {
+                               "profiles":  {
+                                                "source":  468,
+                                                "restored":  468
+                                            },
+                               "attachments":  {
+                                                   "source":  1,
+                                                   "restored":  1
+                                               },
+                               "knowledge":  {
+                                                 "source":  1,
+                                                 "restored":  1
+                                             }
+                           },
+    "users":  [
+                  {
+                      "email":  "desktop-c5109fb19b@example.com",
+                      "conversation_id":  "d159139a-9a9b-4c1d-905f-877421ceb5d2",
+                      "marker":  "CAP-8-0-1448985785",
+                      "status":  "passed"
+                  },
+                  {
+                      "email":  "desktop-ce8b5a0321@example.com",
+                      "conversation_id":  "9d6ee63f-e9ed-4717-b716-1c9dc3eaf847",
+                      "marker":  "CAP-8-7-1448985785",
+                      "status":  "passed"
+                  },
+                  {
+                      "email":  "desktop-edf2a0edfb@example.com",
+                      "conversation_id":  "6764a063-8515-4214-8494-ed055c1a39dc",
+                      "marker":  "CAP-8-6-1448985785",
+                      "status":  "passed"
+                  },
+                  {
+                      "email":  "desktop-1e22f1c0eb@example.com",
+                      "conversation_id":  "dde90e2d-1f89-41e0-bb4d-a4e4cb2b0b5e",
+                      "marker":  "CAP-8-5-1448985785",
+                      "status":  "passed"
+                  }
+              ]
+}

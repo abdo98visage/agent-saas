@@ -27,3 +27,19 @@ test("workspace paths reject traversal and symlink/junction escapes", (t) => {
   assert.throws(() => resolveWorkspaceFile(workspace, "external/secret.txt"), /outside/);
   assert.throws(() => resolveWorkspaceFile(workspace, "external/new.txt"), /outside/);
 });
+
+test("desktop bootstrap reconnects chat before optional data initialization", () => {
+  const bootstrap = fs.readFileSync(
+    path.join(__dirname, "../src/renderer/scripts/05-bootstrap.js"),
+    "utf8",
+  );
+  const currentUser = bootstrap.indexOf("await loadCurrentUser();");
+  const websocket = bootstrap.indexOf("void connectWebSocket();", currentUser);
+  const assignedProfiles = bootstrap.indexOf("await loadAssignedProfiles();", currentUser);
+  const projectFiles = bootstrap.indexOf("await refreshProjectFiles();", currentUser);
+
+  assert.ok(currentUser >= 0);
+  assert.ok(websocket > currentUser);
+  assert.ok(websocket < assignedProfiles);
+  assert.ok(websocket < projectFiles);
+});

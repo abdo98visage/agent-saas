@@ -5,6 +5,7 @@ import pytest
 
 from app.core.config import settings
 from app.services.attachments import (
+    delete_persisted_attachments,
     normalize_image_attachments,
     persist_image_attachments,
     resolve_signed_attachment,
@@ -51,3 +52,27 @@ def test_attachment_rejects_tampered_signature(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "attachment_storage_root", str(tmp_path))
     with pytest.raises(ValueError, match="Invalid or expired"):
         resolve_signed_attachment("payload.invalid-signature")
+
+
+def test_failed_message_attachment_cleanup_is_scoped_to_its_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "attachment_storage_root", str(tmp_path))
+    first = persist_image_attachments(
+        normalize_image_attachments([{
+            "name": "failed.png",
+            "mime_type": "image/png",
+            "data_url": _data_url("image/png"),
+            "size_bytes": len(PNG_BYTES),
+        }]),
+        user_id=uuid4(),
+        session_id=uuid4(),
+        message_id=uuid4(),
+    )
+    unrelated = tmp_path / "keep.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    failed_file = tmp_path / first[0]["object_key"]
+    assert failed_file.is_file()
+    delete_persisted_attachments(first)
+
+    assert not failed_file.exists()
+    assert unrelated.read_text(encoding="utf-8") == "keep"

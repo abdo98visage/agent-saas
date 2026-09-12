@@ -1,0 +1,5 @@
+{"at":"2026-08-04T13:47:40.634Z","type":"desktop_ready","user":"hr","employee_id":"a113b632-8c6b-4549-814b-53e03ddaf733","profile":"Desktop Hermes b4763a235e","port":9343}
+{"at":"2026-08-04T13:47:40.691Z","type":"quota_setup_pass","users":1,"api_keys":2}
+{"at":"2026-08-04T13:47:40.708Z","type":"fault_dispatched","user":"hr","marker":"FAULT-RUNTIME-MIDRUN"}
+{"at":"2026-08-04T13:47:41.968Z","type":"fault_observation","user":"hr","marker":"FAULT-RUNTIME-MIDRUN","queue":1,"authRequired":false,"lastRole":"assistant","lastContent":"","systems":["خطأ: Authentication session ended4:41:39 م","خطأ: Agent request failed. Reference: e2ed5055-20fe-4ce5-91bc-91374a8b617a4:47:41 م","تم تحويل الرسالة إلى queue بعد فشل الإرسال: Agent request failed. Reference: e2ed5055-20fe-4ce5-91bc-91374a8b617a4:47:41 م"]}
+{"at":"2026-08-04T13:47:41.969Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"FAULT-RUNTIME-MIDRUN"}

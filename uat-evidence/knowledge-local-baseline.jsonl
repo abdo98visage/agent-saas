@@ -1,0 +1,3 @@
+{"at":"2026-08-04T14:40:58.084Z","type":"desktop_ready","user":"it","employee_id":"9a03592a-fc66-4ff5-9179-6b0bc82baedf","profile":"Desktop Hermes 07e1469895","port":9344}
+{"at":"2026-08-04T14:41:09.463Z","type":"chat_pass","user":"it","step":"fault recovery probe","latency_ms":11376,"content":"The current outage continuity code is **KNOWLEDGE-LAST-GOOD-20260804** [K1]."}
+{"at":"2026-08-04T14:41:09.464Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"KNOWLEDGE-LAST-GOOD-20260804"}

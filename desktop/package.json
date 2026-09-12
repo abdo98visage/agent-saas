@@ -7,10 +7,10 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
-    "build": "electron-builder --config electron-builder.js",
-    "build:mac": "electron-builder --config electron-builder.js --mac dmg zip",
-    "build:release": "electron-builder --config electron-builder.js --publish never",
-    "build:release:mac": "electron-builder --config electron-builder.js --mac dmg zip --publish never",
+    "build": "node ./node_modules/electron-builder/out/cli/cli.js --config electron-builder.js",
+    "build:mac": "node ./node_modules/electron-builder/out/cli/cli.js --config electron-builder.js --mac dmg zip",
+    "build:release": "node ./node_modules/electron-builder/out/cli/cli.js --config electron-builder.js --publish never",
+    "build:release:mac": "node ./node_modules/electron-builder/out/cli/cli.js --config electron-builder.js --mac dmg zip --publish never",
     "release:check": "node ./scripts/release-check.js"
   },
   "dependencies": {

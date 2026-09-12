@@ -1,0 +1,5 @@
+{"at":"2026-08-05T04:43:28.516Z","type":"pre_upgrade_pass","users":4}
+{"at":"2026-08-05T04:43:45.797Z","type":"upgrade_pass","api_ready_ms":2830,"desktops_reconnected_ms":4120,"users":4}
+{"at":"2026-08-05T04:43:47.253Z","type":"postflight_failure_detected","candidate_exit_code":42}
+{"at":"2026-08-05T04:44:02.504Z","type":"rollback_pass","api_ready_ms":1849,"desktops_reconnected_ms":2367,"users":4}
+{"at":"2026-08-05T04:44:02.505Z","type":"phase9_upgrade_complete","status":"passed"}

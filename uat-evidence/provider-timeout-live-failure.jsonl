@@ -1,0 +1,4 @@
+{"at":"2026-08-04T15:06:59.446Z","type":"desktop_ready","user":"it","employee_id":"b9881c31-8002-4689-bcff-a7b497372e58","profile":"Desktop Hermes 95a8b0d1ad","port":9344}
+{"at":"2026-08-04T15:06:59.464Z","type":"fault_dispatched","user":"it","marker":"PROVIDER-TIMEOUT-20260804"}
+{"at":"2026-08-04T15:07:01.730Z","type":"fault_observation","user":"it","marker":"PROVIDER-TIMEOUT-20260804","queue":1,"authRequired":false,"lastRole":"assistant","lastContent":"","systems":["تعذر إرسال رسالة معلقة: Agent request failed. Reference: 8a46d9a0-993d-4e2c-8b25-1dbffa4bfcf06:06:10 م","خطأ: Agent request failed. Reference: c4409159-3b2d-4c49-b5f0-d4ef7fc3ea8b6:07:01 م","تم تحويل الرسالة إلى queue بعد فشل الإرسال: Agent request failed. Reference: c4409159-3b2d-4c49-b5f0-d4ef7fc3ea8b6:07:01 م"]}
+{"at":"2026-08-04T15:07:01.731Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"PROVIDER-TIMEOUT-20260804"}

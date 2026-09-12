@@ -1,0 +1,5 @@
+{"at":"2026-08-04T13:41:38.994Z","type":"desktop_ready","user":"hr","employee_id":"a113b632-8c6b-4549-814b-53e03ddaf733","profile":"Desktop Hermes b4763a235e","port":9343}
+{"at":"2026-08-04T13:41:39.063Z","type":"quota_setup_pass","users":1,"api_keys":2}
+{"at":"2026-08-04T13:41:39.358Z","type":"expected_rejection","user":"hr","detail":"Authentication revoked; rejected message was not queued"}
+{"at":"2026-08-04T13:41:45.236Z","type":"chat_pass","user":"hr","step":"re-enabled user","latency_ms":5418,"content":"REACTIVATED-OK"}
+{"at":"2026-08-04T13:41:45.250Z","type":"uat_complete","status":"passed","scenario":"auth queue boundary"}

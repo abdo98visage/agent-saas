@@ -1,0 +1,3 @@
+{"at":"2026-08-04T13:39:57.741Z","type":"desktop_ready","user":"hr","employee_id":"e6a34e98-b2d2-44d4-b83a-66a860c5b2b1","profile":"Desktop Hermes 2566860fc8","port":9343}
+{"at":"2026-08-04T13:39:57.798Z","type":"quota_setup_pass","users":1,"api_keys":2}
+{"at":"2026-08-04T13:39:58.104Z","type":"uat_complete","status":"failed","error":"Error: Disabled HR message remained queued (1)\n    at disableAndRestoreHr (C:\\Users\\windows-server\\Desktop\\work\\Hermes\\ai\\AgentSaaS\\deploy\\live_desktop_uat_controller.js:244:41)\n    at async main (C:\\Users\\windows-server\\Desktop\\work\\Hermes\\ai\\AgentSaaS\\deploy\\live_desktop_uat_controller.js:274:7)"}

@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from app.celery_app import celery_app
 from app.core.audit_context import correlation_id_context, trace_id_context
@@ -63,3 +64,18 @@ def test_request_context_accepts_valid_ids_and_returns_trace_headers():
         assert trace_id_context.get() is None
 
     asyncio.run(scenario())
+
+
+def test_audit_chain_migration_handles_concurrent_insert_order():
+    migration = (
+        Path(__file__).parents[1]
+        / "migrations"
+        / "versions"
+        / "repair_audit_chain_order.py"
+    ).read_text(encoding="utf-8")
+
+    assert "NOT EXISTS (" in migration
+    assert "child.previous_hash = candidate.event_hash" in migration
+    assert "WITH RECURSIVE chain" in migration
+    assert "ARRAY[event_hash]::text[]" in migration
+    assert "forks = 0" in migration

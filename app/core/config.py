@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     minimax_base_url: str = "https://api.minimax.io/v1/chat/completions"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1/chat/completions"
+    openai_chat_template_enable_thinking: bool | None = None
     ollama_base_url: str = "http://localhost:11434"
 
     # Hermes runtime / orchestrator

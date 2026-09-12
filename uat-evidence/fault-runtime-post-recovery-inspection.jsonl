@@ -1,0 +1,3 @@
+{"at":"2026-08-04T13:48:10.814Z","type":"desktop_ready","user":"hr","employee_id":"a113b632-8c6b-4549-814b-53e03ddaf733","profile":"Desktop Hermes b4763a235e","port":9343}
+{"at":"2026-08-04T13:48:10.816Z","type":"fault_inspection","user":"hr","queue":1,"authRequired":false,"isStreaming":false,"wsReadyState":1}
+{"at":"2026-08-04T13:48:10.816Z","type":"uat_complete","status":"passed","scenario":"fault inspection"}

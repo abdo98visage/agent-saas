@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import case, select, desc
 
 from app.core.config import settings
 from app.core.db import async_session, get_db
@@ -298,7 +298,10 @@ async def get_messages(
     result = await db.execute(
         select(Message)
         .where(Message.session_id == conversation_id)
-        .order_by(Message.created_at.desc())
+        .order_by(
+            Message.created_at.desc(),
+            case((Message.role == "assistant", 1), else_=0).desc(),
+        )
         .limit(limit)
     )
     messages = list(reversed(result.scalars().all()))

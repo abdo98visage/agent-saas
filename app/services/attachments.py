@@ -126,6 +126,29 @@ def persist_image_attachments(
     return records
 
 
+def delete_persisted_attachments(items: list[dict[str, Any]]) -> None:
+    """Remove attachment files for a message that failed before completion."""
+    root = Path(settings.attachment_storage_root).resolve()
+    candidate_dirs: set[Path] = set()
+    for item in items:
+        object_key = str(item.get("object_key") or "")
+        if not object_key:
+            continue
+        target = (root / object_key).resolve()
+        if root not in target.parents:
+            continue
+        candidate_dirs.add(target.parent)
+        target.unlink(missing_ok=True)
+    for directory in sorted(candidate_dirs, key=lambda path: len(path.parts), reverse=True):
+        current = directory
+        while current != root and root in current.parents:
+            try:
+                current.rmdir()
+            except OSError:
+                break
+            current = current.parent
+
+
 def sign_attachment_path(object_key: str) -> str:
     expires_at = int(time.time()) + settings.attachment_url_ttl_seconds
     payload = json.dumps(

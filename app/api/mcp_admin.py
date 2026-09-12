@@ -269,6 +269,7 @@ async def update_mcp_server(
         server.last_error = "Tool discovery is required with a user credential"
     db.add(AuditLog(user_id=admin.id, action="mcp_server_updated", details={"server_id": str(server.id), "slug": server.slug}))
     await db.flush()
+    await db.refresh(server, attribute_names=["updated_at"])
     return _server_payload(server)
 
 

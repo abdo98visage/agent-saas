@@ -1,0 +1,5 @@
+{"at":"2026-08-04T13:47:17.269Z","type":"desktop_ready","user":"hr","employee_id":"a113b632-8c6b-4549-814b-53e03ddaf733","profile":"Desktop Hermes b4763a235e","port":9343}
+{"at":"2026-08-04T13:47:17.335Z","type":"quota_setup_pass","users":1,"api_keys":2}
+{"at":"2026-08-04T13:47:17.350Z","type":"fault_dispatched","user":"hr","marker":"FAULT-RUNTIME-INTERRUPTED"}
+{"at":"2026-08-04T13:47:23.395Z","type":"fault_observation","user":"hr","marker":"FAULT-RUNTIME-INTERRUPTED","queue":0,"authRequired":false,"lastRole":"assistant","lastContent":"FAULT-RUNTIME-INTERRUPTED","systems":["خطأ: Authentication session ended4:41:39 م"]}
+{"at":"2026-08-04T13:47:23.396Z","type":"uat_complete","status":"passed","scenario":"fault probe","marker":"FAULT-RUNTIME-INTERRUPTED"}

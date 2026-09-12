@@ -1,0 +1,16 @@
+{"at":"2026-08-04T15:53:53.049Z","type":"desktop_ready","user":"accounting","employee_id":"1d8fef5d-e826-4038-bb6d-544c4125dc6a","profile":"Desktop Hermes 0bfb1fec50","port":9341}
+{"at":"2026-08-04T15:53:53.051Z","type":"desktop_ready","user":"marketing","employee_id":"0599bfbe-14c9-4264-bb8d-7289f8afa305","profile":"Desktop Hermes 49f84a1fd8","port":9342}
+{"at":"2026-08-04T15:53:53.052Z","type":"desktop_ready","user":"hr","employee_id":"3c05bfb9-9f7f-4884-98c2-aaf4dab3e5e7","profile":"Desktop Hermes 70dae34740","port":9343}
+{"at":"2026-08-04T15:53:53.052Z","type":"desktop_ready","user":"it","employee_id":"b9881c31-8002-4689-bcff-a7b497372e58","profile":"Desktop Hermes 95a8b0d1ad","port":9344}
+{"at":"2026-08-04T15:53:53.078Z","type":"session_short_tokens_primed","tokens":[{"user":"accounting","expires_at":1785858953},{"user":"marketing","expires_at":1785858953},{"user":"hr","expires_at":1785858953},{"user":"it","expires_at":1785858953}]}
+{"at":"2026-08-04T15:53:55.079Z","type":"session_expiry_wait","remaining_seconds":120}
+{"at":"2026-08-04T15:54:25.090Z","type":"session_expiry_wait","remaining_seconds":90}
+{"at":"2026-08-04T15:54:55.100Z","type":"session_expiry_wait","remaining_seconds":60}
+{"at":"2026-08-04T15:55:25.115Z","type":"session_expiry_wait","remaining_seconds":30}
+{"at":"2026-08-04T15:55:55.132Z","type":"session_access_tokens_naturally_expired","expired_at":1785858953}
+{"at":"2026-08-04T15:55:55.187Z","type":"session_rest_refresh_pass","user":"accounting","employee_id":"1d8fef5d-e826-4038-bb6d-544c4125dc6a"}
+{"at":"2026-08-04T15:55:55.231Z","type":"session_concurrent_401_pass","user":"marketing","requests":2}
+{"at":"2026-08-04T15:55:55.513Z","type":"session_websocket_refresh_pass","user":"hr"}
+{"at":"2026-08-04T15:55:55.784Z","type":"session_desktop_reopen_pass","user":"it"}
+{"at":"2026-08-04T15:55:59.184Z","type":"session_repeated_rotation_pass","user":"accounting","rotations":3,"expiries":[1785859076,1785859078,1785859079]}
+{"at":"2026-08-04T15:56:29.520Z","type":"uat_complete","status":"failed","error":"Error: Timed out waiting for HR administrative session revocation\n    at waitFor (C:\\Users\\windows-server\\Desktop\\work\\Hermes\\ai\\AgentSaaS\\deploy\\live_desktop_uat_controller.js:66:9)\n    at async sessionExpiryRound (C:\\Users\\windows-server\\Desktop\\work\\Hermes\\ai\\AgentSaaS\\deploy\\live_desktop_uat_controller.js:358:3)\n    at async main (C:\\Users\\windows-server\\Desktop\\work\\Hermes\\ai\\AgentSaaS\\deploy\\live_desktop_uat_controller.js:526:7)"}

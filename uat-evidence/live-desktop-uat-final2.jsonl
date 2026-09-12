@@ -1,0 +1,317 @@
+{"at":"2026-08-04T10:58:42.843Z","type":"desktop_ready","user":"accounting","employee_id":"17f8bb90-8375-46b7-9612-935699367470","profile":"Desktop Hermes c703b1d8a1","port":9341}
+{"at":"2026-08-04T10:58:42.853Z","type":"desktop_ready","user":"marketing","employee_id":"2d44884a-1352-455c-9337-b0945054d705","profile":"Desktop Hermes c620559766","port":9342}
+{"at":"2026-08-04T10:58:42.860Z","type":"desktop_ready","user":"hr","employee_id":"691b29db-eae0-4c62-8e39-1eb527ef9405","profile":"Desktop Hermes da24b9ce29","port":9343}
+{"at":"2026-08-04T10:58:42.869Z","type":"desktop_ready","user":"it","employee_id":"52b1fe17-5883-46ac-84af-1dc665158875","profile":"Desktop Hermes 9ebfec849d","port":9344}
+{"at":"2026-08-04T10:58:42.981Z","type":"quota_setup_pass","users":4,"api_keys":8}
+{"at":"2026-08-04T10:58:48.765Z","type":"chat_pass","user":"accounting","step":"cycle 1","latency_ms":5782,"content":"LIVE-ACCOUNTING-1"}
+{"at":"2026-08-04T10:58:51.600Z","type":"chat_pass","user":"hr","step":"cycle 1","latency_ms":8617,"content":"LIVE-HR-1"}
+{"at":"2026-08-04T10:58:54.386Z","type":"chat_pass","user":"marketing","step":"cycle 1","latency_ms":11403,"content":"LIVE-MARKETING-1"}
+{"at":"2026-08-04T10:58:57.771Z","type":"chat_pass","user":"it","step":"cycle 1","latency_ms":14788,"content":"LIVE-IT-1"}
+{"at":"2026-08-04T10:58:57.771Z","type":"cycle_pass","cycle":1,"elapsed_minutes":0}
+{"at":"2026-08-04T11:01:51.018Z","type":"chat_pass","user":"hr","step":"cycle 2","latency_ms":8033,"content":"LIVE-HR-2"}
+{"at":"2026-08-04T11:01:53.814Z","type":"chat_pass","user":"accounting","step":"cycle 2","latency_ms":10829,"content":"LIVE-ACCOUNTING-2"}
+{"at":"2026-08-04T11:01:56.890Z","type":"chat_pass","user":"marketing","step":"cycle 2","latency_ms":13905,"content":"LIVE-MARKETING-2"}
+{"at":"2026-08-04T11:02:00.062Z","type":"chat_pass","user":"it","step":"cycle 2","latency_ms":17077,"content":"LIVE-IT-2"}
+{"at":"2026-08-04T11:02:00.062Z","type":"cycle_pass","cycle":2,"elapsed_minutes":3}
+{"at":"2026-08-04T11:04:49.223Z","type":"chat_pass","user":"accounting","step":"cycle 3","latency_ms":6238,"content":"LIVE-ACCOUNTING-3"}
+{"at":"2026-08-04T11:04:52.104Z","type":"chat_pass","user":"hr","step":"cycle 3","latency_ms":9118,"content":"LIVE-HR-3"}
+{"at":"2026-08-04T11:04:54.899Z","type":"chat_pass","user":"marketing","step":"cycle 3","latency_ms":11914,"content":"LIVE-MARKETING-3"}
+{"at":"2026-08-04T11:04:58.344Z","type":"chat_pass","user":"it","step":"cycle 3","latency_ms":15358,"content":"LIVE-IT-3"}
+{"at":"2026-08-04T11:04:58.345Z","type":"cycle_pass","cycle":3,"elapsed_minutes":6}
+{"at":"2026-08-04T11:07:49.233Z","type":"chat_pass","user":"hr","step":"cycle 4","latency_ms":6250,"content":"LIVE-HR-4"}
+{"at":"2026-08-04T11:07:51.923Z","type":"chat_pass","user":"accounting","step":"cycle 4","latency_ms":8940,"content":"LIVE-ACCOUNTING-4"}
+{"at":"2026-08-04T11:07:54.401Z","type":"chat_pass","user":"marketing","step":"cycle 4","latency_ms":11418,"content":"LIVE-MARKETING-4"}
+{"at":"2026-08-04T11:07:57.816Z","type":"chat_pass","user":"it","step":"cycle 4","latency_ms":14833,"content":"LIVE-IT-4"}
+{"at":"2026-08-04T11:07:57.817Z","type":"cycle_pass","cycle":4,"elapsed_minutes":9}
+{"at":"2026-08-04T11:10:48.757Z","type":"chat_pass","user":"accounting","step":"cycle 5","latency_ms":5771,"content":"LIVE-ACCOUNTING-5"}
+{"at":"2026-08-04T11:10:51.445Z","type":"chat_pass","user":"marketing","step":"cycle 5","latency_ms":8459,"content":"LIVE-MARKETING-5"}
+{"at":"2026-08-04T11:10:54.075Z","type":"chat_pass","user":"hr","step":"cycle 5","latency_ms":11088,"content":"LIVE-HR-5"}
+{"at":"2026-08-04T11:10:57.239Z","type":"chat_pass","user":"it","step":"cycle 5","latency_ms":14252,"content":"LIVE-IT-5"}
+{"at":"2026-08-04T11:10:57.240Z","type":"cycle_pass","cycle":5,"elapsed_minutes":12}
+{"at":"2026-08-04T11:13:48.842Z","type":"chat_pass","user":"accounting","step":"cycle 6","latency_ms":5852,"content":"LIVE-ACCOUNTING-6"}
+{"at":"2026-08-04T11:13:51.611Z","type":"chat_pass","user":"marketing","step":"cycle 6","latency_ms":8620,"content":"LIVE-MARKETING-6"}
+{"at":"2026-08-04T11:13:54.426Z","type":"chat_pass","user":"hr","step":"cycle 6","latency_ms":11437,"content":"LIVE-HR-6"}
+{"at":"2026-08-04T11:13:58.173Z","type":"chat_pass","user":"it","step":"cycle 6","latency_ms":15180,"content":"LIVE-IT-6"}
+{"at":"2026-08-04T11:13:58.174Z","type":"cycle_pass","cycle":6,"elapsed_minutes":15}
+{"at":"2026-08-04T11:16:49.241Z","type":"chat_pass","user":"marketing","step":"cycle 7","latency_ms":6249,"content":"LIVE-MARKETING-7"}
+{"at":"2026-08-04T11:16:51.938Z","type":"chat_pass","user":"accounting","step":"cycle 7","latency_ms":8948,"content":"LIVE-ACCOUNTING-7"}
+{"at":"2026-08-04T11:16:54.962Z","type":"chat_pass","user":"hr","step":"cycle 7","latency_ms":11970,"content":"LIVE-HR-7"}
+{"at":"2026-08-04T11:16:58.615Z","type":"chat_pass","user":"it","step":"cycle 7","latency_ms":15623,"content":"LIVE-IT-7"}
+{"at":"2026-08-04T11:16:58.616Z","type":"cycle_pass","cycle":7,"elapsed_minutes":18}
+{"at":"2026-08-04T11:19:49.243Z","type":"chat_pass","user":"marketing","step":"cycle 8","latency_ms":6258,"content":"LIVE-MARKETING-8"}
+{"at":"2026-08-04T11:19:52.180Z","type":"chat_pass","user":"accounting","step":"cycle 8","latency_ms":9196,"content":"LIVE-ACCOUNTING-8"}
+{"at":"2026-08-04T11:19:55.210Z","type":"chat_pass","user":"hr","step":"cycle 8","latency_ms":12225,"content":"LIVE-HR-8"}
+{"at":"2026-08-04T11:19:58.852Z","type":"chat_pass","user":"it","step":"cycle 8","latency_ms":15867,"content":"LIVE-IT-8"}
+{"at":"2026-08-04T11:19:58.853Z","type":"cycle_pass","cycle":8,"elapsed_minutes":21}
+{"at":"2026-08-04T11:22:49.341Z","type":"chat_pass","user":"accounting","step":"cycle 9","latency_ms":6351,"content":"LIVE-ACCOUNTING-9"}
+{"at":"2026-08-04T11:22:51.854Z","type":"chat_pass","user":"hr","step":"cycle 9","latency_ms":8863,"content":"LIVE-HR-9"}
+{"at":"2026-08-04T11:22:54.676Z","type":"chat_pass","user":"marketing","step":"cycle 9","latency_ms":11685,"content":"LIVE-MARKETING-9"}
+{"at":"2026-08-04T11:22:58.177Z","type":"chat_pass","user":"it","step":"cycle 9","latency_ms":15185,"content":"LIVE-IT-9"}
+{"at":"2026-08-04T11:22:58.179Z","type":"cycle_pass","cycle":9,"elapsed_minutes":24}
+{"at":"2026-08-04T11:25:49.061Z","type":"chat_pass","user":"marketing","step":"cycle 10","latency_ms":6067,"content":"LIVE-MARKETING-10"}
+{"at":"2026-08-04T11:25:52.089Z","type":"chat_pass","user":"accounting","step":"cycle 10","latency_ms":9099,"content":"LIVE-ACCOUNTING-10"}
+{"at":"2026-08-04T11:25:55.125Z","type":"chat_pass","user":"hr","step":"cycle 10","latency_ms":12131,"content":"LIVE-HR-10"}
+{"at":"2026-08-04T11:25:58.572Z","type":"chat_pass","user":"it","step":"cycle 10","latency_ms":15577,"content":"LIVE-IT-10"}
+{"at":"2026-08-04T11:25:58.573Z","type":"cycle_pass","cycle":10,"elapsed_minutes":27}
+{"at":"2026-08-04T11:28:48.854Z","type":"chat_pass","user":"marketing","step":"cycle 11","latency_ms":5861,"content":"LIVE-MARKETING-11"}
+{"at":"2026-08-04T11:28:51.512Z","type":"chat_pass","user":"hr","step":"cycle 11","latency_ms":8519,"content":"LIVE-HR-11"}
+{"at":"2026-08-04T11:28:54.207Z","type":"chat_pass","user":"accounting","step":"cycle 11","latency_ms":11215,"content":"LIVE-ACCOUNTING-11"}
+{"at":"2026-08-04T11:28:57.827Z","type":"chat_pass","user":"it","step":"cycle 11","latency_ms":14834,"content":"LIVE-IT-11"}
+{"at":"2026-08-04T11:28:57.828Z","type":"cycle_pass","cycle":11,"elapsed_minutes":30}
+{"at":"2026-08-04T11:31:49.607Z","type":"chat_pass","user":"accounting","step":"cycle 12","latency_ms":6617,"content":"LIVE-ACCOUNTING-12"}
+{"at":"2026-08-04T11:31:52.341Z","type":"chat_pass","user":"hr","step":"cycle 12","latency_ms":9350,"content":"LIVE-HR-12"}
+{"at":"2026-08-04T11:31:55.474Z","type":"chat_pass","user":"marketing","step":"cycle 12","latency_ms":12482,"content":"LIVE-MARKETING-12"}
+{"at":"2026-08-04T11:31:58.989Z","type":"chat_pass","user":"it","step":"cycle 12","latency_ms":15997,"content":"LIVE-IT-12"}
+{"at":"2026-08-04T11:31:58.989Z","type":"cycle_pass","cycle":12,"elapsed_minutes":33}
+{"at":"2026-08-04T11:34:49.080Z","type":"chat_pass","user":"marketing","step":"cycle 13","latency_ms":6090,"content":"LIVE-MARKETING-13"}
+{"at":"2026-08-04T11:34:51.809Z","type":"chat_pass","user":"accounting","step":"cycle 13","latency_ms":8819,"content":"LIVE-ACCOUNTING-13"}
+{"at":"2026-08-04T11:34:54.493Z","type":"chat_pass","user":"hr","step":"cycle 13","latency_ms":11502,"content":"LIVE-HR-13"}
+{"at":"2026-08-04T11:34:58.161Z","type":"chat_pass","user":"it","step":"cycle 13","latency_ms":15171,"content":"LIVE-IT-13"}
+{"at":"2026-08-04T11:34:58.161Z","type":"cycle_pass","cycle":13,"elapsed_minutes":36}
+{"at":"2026-08-04T11:37:49.433Z","type":"chat_pass","user":"accounting","step":"cycle 14","latency_ms":6442,"content":"LIVE-ACCOUNTING-14"}
+{"at":"2026-08-04T11:37:52.482Z","type":"chat_pass","user":"marketing","step":"cycle 14","latency_ms":9491,"content":"LIVE-MARKETING-14"}
+{"at":"2026-08-04T11:37:55.003Z","type":"chat_pass","user":"hr","step":"cycle 14","latency_ms":12012,"content":"LIVE-HR-14"}
+{"at":"2026-08-04T11:37:58.788Z","type":"chat_pass","user":"it","step":"cycle 14","latency_ms":15797,"content":"LIVE-IT-14"}
+{"at":"2026-08-04T11:37:58.788Z","type":"cycle_pass","cycle":14,"elapsed_minutes":39}
+{"at":"2026-08-04T11:40:49.245Z","type":"chat_pass","user":"accounting","step":"cycle 15","latency_ms":6257,"content":"LIVE-ACCOUNTING-15"}
+{"at":"2026-08-04T11:40:52.125Z","type":"chat_pass","user":"hr","step":"cycle 15","latency_ms":9136,"content":"LIVE-HR-15"}
+{"at":"2026-08-04T11:40:55.508Z","type":"chat_pass","user":"marketing","step":"cycle 15","latency_ms":12520,"content":"LIVE-MARKETING-15"}
+{"at":"2026-08-04T11:40:59.277Z","type":"chat_pass","user":"it","step":"cycle 15","latency_ms":16288,"content":"LIVE-IT-15"}
+{"at":"2026-08-04T11:40:59.278Z","type":"cycle_pass","cycle":15,"elapsed_minutes":42}
+{"at":"2026-08-04T11:43:49.267Z","type":"chat_pass","user":"accounting","step":"cycle 16","latency_ms":6273,"content":"LIVE-ACCOUNTING-16"}
+{"at":"2026-08-04T11:43:52.181Z","type":"chat_pass","user":"marketing","step":"cycle 16","latency_ms":9183,"content":"LIVE-MARKETING-16"}
+{"at":"2026-08-04T11:43:55.239Z","type":"chat_pass","user":"hr","step":"cycle 16","latency_ms":12243,"content":"LIVE-HR-16"}
+{"at":"2026-08-04T11:43:59.218Z","type":"chat_pass","user":"it","step":"cycle 16","latency_ms":16219,"content":"LIVE-IT-16"}
+{"at":"2026-08-04T11:43:59.221Z","type":"cycle_pass","cycle":16,"elapsed_minutes":45}
+{"at":"2026-08-04T11:46:48.894Z","type":"chat_pass","user":"marketing","step":"cycle 17","latency_ms":5907,"content":"LIVE-MARKETING-17"}
+{"at":"2026-08-04T11:46:51.849Z","type":"chat_pass","user":"accounting","step":"cycle 17","latency_ms":8862,"content":"LIVE-ACCOUNTING-17"}
+{"at":"2026-08-04T11:46:54.885Z","type":"chat_pass","user":"hr","step":"cycle 17","latency_ms":11898,"content":"LIVE-HR-17"}
+{"at":"2026-08-04T11:46:58.700Z","type":"chat_pass","user":"it","step":"cycle 17","latency_ms":15713,"content":"LIVE-IT-17"}
+{"at":"2026-08-04T11:46:58.700Z","type":"cycle_pass","cycle":17,"elapsed_minutes":48}
+{"at":"2026-08-04T11:49:49.565Z","type":"chat_pass","user":"marketing","step":"cycle 18","latency_ms":6566,"content":"LIVE-MARKETING-18"}
+{"at":"2026-08-04T11:49:52.221Z","type":"chat_pass","user":"hr","step":"cycle 18","latency_ms":9225,"content":"LIVE-HR-18"}
+{"at":"2026-08-04T11:49:55.385Z","type":"chat_pass","user":"accounting","step":"cycle 18","latency_ms":12389,"content":"LIVE-ACCOUNTING-18"}
+{"at":"2026-08-04T11:49:58.870Z","type":"chat_pass","user":"it","step":"cycle 18","latency_ms":15873,"content":"LIVE-IT-18"}
+{"at":"2026-08-04T11:49:58.870Z","type":"cycle_pass","cycle":18,"elapsed_minutes":51}
+{"at":"2026-08-04T11:52:49.357Z","type":"chat_pass","user":"accounting","step":"cycle 19","latency_ms":6368,"content":"LIVE-ACCOUNTING-19"}
+{"at":"2026-08-04T11:52:52.660Z","type":"chat_pass","user":"marketing","step":"cycle 19","latency_ms":9671,"content":"LIVE-MARKETING-19"}
+{"at":"2026-08-04T11:52:55.182Z","type":"chat_pass","user":"hr","step":"cycle 19","latency_ms":12193,"content":"LIVE-HR-19"}
+{"at":"2026-08-04T11:52:58.570Z","type":"chat_pass","user":"it","step":"cycle 19","latency_ms":15581,"content":"LIVE-IT-19"}
+{"at":"2026-08-04T11:52:58.570Z","type":"cycle_pass","cycle":19,"elapsed_minutes":54}
+{"at":"2026-08-04T11:55:48.777Z","type":"chat_pass","user":"hr","step":"cycle 20","latency_ms":5787,"content":"LIVE-HR-20"}
+{"at":"2026-08-04T11:55:51.385Z","type":"chat_pass","user":"marketing","step":"cycle 20","latency_ms":8395,"content":"LIVE-MARKETING-20"}
+{"at":"2026-08-04T11:55:54.555Z","type":"chat_pass","user":"accounting","step":"cycle 20","latency_ms":11565,"content":"LIVE-ACCOUNTING-20"}
+{"at":"2026-08-04T11:55:58.118Z","type":"chat_pass","user":"it","step":"cycle 20","latency_ms":15128,"content":"LIVE-IT-20"}
+{"at":"2026-08-04T11:55:58.119Z","type":"cycle_pass","cycle":20,"elapsed_minutes":57}
+{"at":"2026-08-04T11:58:48.829Z","type":"chat_pass","user":"accounting","step":"cycle 21","latency_ms":5838,"content":"LIVE-ACCOUNTING-21"}
+{"at":"2026-08-04T11:58:51.725Z","type":"chat_pass","user":"marketing","step":"cycle 21","latency_ms":8734,"content":"LIVE-MARKETING-21"}
+{"at":"2026-08-04T11:58:54.549Z","type":"chat_pass","user":"hr","step":"cycle 21","latency_ms":11558,"content":"LIVE-HR-21"}
+{"at":"2026-08-04T11:58:57.994Z","type":"chat_pass","user":"it","step":"cycle 21","latency_ms":15003,"content":"LIVE-IT-21"}
+{"at":"2026-08-04T11:58:57.996Z","type":"cycle_pass","cycle":21,"elapsed_minutes":60}
+{"at":"2026-08-04T11:59:04.278Z","type":"chat_pass","user":"accounting","step":"admin knowledge update","latency_ms":6236,"content":"LIVE-ACCT-KNOWLEDGE-1785844737997 [K1]"}
+{"at":"2026-08-04T11:59:04.340Z","type":"admin_change_pass","step":"IT MCP revoked while Desktop remained open","user":"it"}
+{"at":"2026-08-04T12:01:49.319Z","type":"chat_pass","user":"hr","step":"cycle 22","latency_ms":6318,"content":"LIVE-HR-22"}
+{"at":"2026-08-04T12:01:52.118Z","type":"chat_pass","user":"it","step":"cycle 22","latency_ms":9116,"content":"LIVE-IT-22"}
+{"at":"2026-08-04T12:01:55.003Z","type":"chat_pass","user":"marketing","step":"cycle 22","latency_ms":12003,"content":"LIVE-MARKETING-22"}
+{"at":"2026-08-04T12:01:58.176Z","type":"chat_pass","user":"accounting","step":"cycle 22","latency_ms":15179,"content":"LIVE-ACCOUNTING-22"}
+{"at":"2026-08-04T12:01:58.178Z","type":"cycle_pass","cycle":22,"elapsed_minutes":63}
+{"at":"2026-08-04T12:04:48.814Z","type":"chat_pass","user":"it","step":"cycle 23","latency_ms":5811,"content":"LIVE-IT-23"}
+{"at":"2026-08-04T12:04:51.654Z","type":"chat_pass","user":"accounting","step":"cycle 23","latency_ms":8656,"content":"LIVE-ACCOUNTING-23"}
+{"at":"2026-08-04T12:04:54.814Z","type":"chat_pass","user":"marketing","step":"cycle 23","latency_ms":11814,"content":"LIVE-MARKETING-23"}
+{"at":"2026-08-04T12:04:57.662Z","type":"chat_pass","user":"hr","step":"cycle 23","latency_ms":14661,"content":"LIVE-HR-23"}
+{"at":"2026-08-04T12:04:57.663Z","type":"cycle_pass","cycle":23,"elapsed_minutes":66}
+{"at":"2026-08-04T12:07:48.909Z","type":"chat_pass","user":"marketing","step":"cycle 24","latency_ms":5912,"content":"LIVE-MARKETING-24"}
+{"at":"2026-08-04T12:07:52.343Z","type":"chat_pass","user":"accounting","step":"cycle 24","latency_ms":9347,"content":"LIVE-ACCOUNTING-24"}
+{"at":"2026-08-04T12:07:55.426Z","type":"chat_pass","user":"it","step":"cycle 24","latency_ms":12425,"content":"LIVE-IT-24"}
+{"at":"2026-08-04T12:07:58.543Z","type":"chat_pass","user":"hr","step":"cycle 24","latency_ms":15544,"content":"LIVE-HR-24"}
+{"at":"2026-08-04T12:07:58.546Z","type":"cycle_pass","cycle":24,"elapsed_minutes":69}
+{"at":"2026-08-04T12:10:48.877Z","type":"chat_pass","user":"accounting","step":"cycle 25","latency_ms":5876,"content":"LIVE-ACCOUNTING-25"}
+{"at":"2026-08-04T12:10:51.843Z","type":"chat_pass","user":"marketing","step":"cycle 25","latency_ms":8839,"content":"LIVE-MARKETING-25"}
+{"at":"2026-08-04T12:10:54.748Z","type":"chat_pass","user":"hr","step":"cycle 25","latency_ms":11742,"content":"LIVE-HR-25"}
+{"at":"2026-08-04T12:10:57.565Z","type":"chat_pass","user":"it","step":"cycle 25","latency_ms":14560,"content":"LIVE-IT-25"}
+{"at":"2026-08-04T12:10:57.566Z","type":"cycle_pass","cycle":25,"elapsed_minutes":72}
+{"at":"2026-08-04T12:13:48.549Z","type":"chat_pass","user":"it","step":"cycle 26","latency_ms":5551,"content":"LIVE-IT-26"}
+{"at":"2026-08-04T12:13:51.583Z","type":"chat_pass","user":"hr","step":"cycle 26","latency_ms":8585,"content":"LIVE-HR-26"}
+{"at":"2026-08-04T12:13:54.677Z","type":"chat_pass","user":"marketing","step":"cycle 26","latency_ms":11679,"content":"LIVE-MARKETING-26"}
+{"at":"2026-08-04T12:13:58.071Z","type":"chat_pass","user":"accounting","step":"cycle 26","latency_ms":15073,"content":"LIVE-ACCOUNTING-26"}
+{"at":"2026-08-04T12:13:58.072Z","type":"cycle_pass","cycle":26,"elapsed_minutes":75}
+{"at":"2026-08-04T12:16:48.627Z","type":"chat_pass","user":"accounting","step":"cycle 27","latency_ms":5628,"content":"LIVE-ACCOUNTING-27"}
+{"at":"2026-08-04T12:16:51.400Z","type":"chat_pass","user":"marketing","step":"cycle 27","latency_ms":8400,"content":"LIVE-MARKETING-27"}
+{"at":"2026-08-04T12:16:54.310Z","type":"chat_pass","user":"hr","step":"cycle 27","latency_ms":11307,"content":"LIVE-HR-27"}
+{"at":"2026-08-04T12:16:57.734Z","type":"chat_pass","user":"it","step":"cycle 27","latency_ms":14732,"content":"LIVE-IT-27"}
+{"at":"2026-08-04T12:16:57.737Z","type":"cycle_pass","cycle":27,"elapsed_minutes":78}
+{"at":"2026-08-04T12:19:48.992Z","type":"chat_pass","user":"marketing","step":"cycle 28","latency_ms":5992,"content":"LIVE-MARKETING-28"}
+{"at":"2026-08-04T12:19:52.184Z","type":"chat_pass","user":"it","step":"cycle 28","latency_ms":9183,"content":"LIVE-IT-28"}
+{"at":"2026-08-04T12:19:55.010Z","type":"chat_pass","user":"hr","step":"cycle 28","latency_ms":12008,"content":"LIVE-HR-28"}
+{"at":"2026-08-04T12:19:57.545Z","type":"chat_pass","user":"accounting","step":"cycle 28","latency_ms":14547,"content":"LIVE-ACCOUNTING-28"}
+{"at":"2026-08-04T12:19:57.546Z","type":"cycle_pass","cycle":28,"elapsed_minutes":81}
+{"at":"2026-08-04T12:22:48.274Z","type":"chat_pass","user":"marketing","step":"cycle 29","latency_ms":5275,"content":"LIVE-MARKETING-29"}
+{"at":"2026-08-04T12:22:50.819Z","type":"chat_pass","user":"it","step":"cycle 29","latency_ms":7820,"content":"LIVE-IT-29"}
+{"at":"2026-08-04T12:22:53.742Z","type":"chat_pass","user":"hr","step":"cycle 29","latency_ms":10743,"content":"LIVE-HR-29"}
+{"at":"2026-08-04T12:22:56.703Z","type":"chat_pass","user":"accounting","step":"cycle 29","latency_ms":13705,"content":"LIVE-ACCOUNTING-29"}
+{"at":"2026-08-04T12:22:56.704Z","type":"cycle_pass","cycle":29,"elapsed_minutes":84}
+{"at":"2026-08-04T12:25:48.633Z","type":"chat_pass","user":"it","step":"cycle 30","latency_ms":5637,"content":"LIVE-IT-30"}
+{"at":"2026-08-04T12:25:51.506Z","type":"chat_pass","user":"accounting","step":"cycle 30","latency_ms":8511,"content":"LIVE-ACCOUNTING-30"}
+{"at":"2026-08-04T12:25:54.013Z","type":"chat_pass","user":"hr","step":"cycle 30","latency_ms":11018,"content":"LIVE-HR-30"}
+{"at":"2026-08-04T12:25:56.561Z","type":"chat_pass","user":"marketing","step":"cycle 30","latency_ms":13566,"content":"LIVE-MARKETING-30"}
+{"at":"2026-08-04T12:25:56.563Z","type":"cycle_pass","cycle":30,"elapsed_minutes":87}
+{"at":"2026-08-04T12:28:48.617Z","type":"chat_pass","user":"it","step":"cycle 31","latency_ms":5609,"content":"LIVE-IT-31"}
+{"at":"2026-08-04T12:28:51.391Z","type":"chat_pass","user":"accounting","step":"cycle 31","latency_ms":8384,"content":"LIVE-ACCOUNTING-31"}
+{"at":"2026-08-04T12:28:54.129Z","type":"chat_pass","user":"hr","step":"cycle 31","latency_ms":11120,"content":"LIVE-HR-31"}
+{"at":"2026-08-04T12:28:57.012Z","type":"chat_pass","user":"marketing","step":"cycle 31","latency_ms":14006,"content":"LIVE-MARKETING-31"}
+{"at":"2026-08-04T12:28:57.014Z","type":"cycle_pass","cycle":31,"elapsed_minutes":90}
+{"at":"2026-08-04T12:29:02.686Z","type":"chat_pass","user":"marketing","step":"Desktop reopen continuity","latency_ms":5346,"content":"REOPENED-OK"}
+{"at":"2026-08-04T12:31:02.699Z","type":"offline_queue_pass","user":"hr","marker":"OFFLINE-ONCE-1785846537014","persisted_count":1}
+{"at":"2026-08-04T12:31:48.622Z","type":"chat_pass","user":"marketing","step":"cycle 32","latency_ms":5617,"content":"LIVE-MARKETING-32"}
+{"at":"2026-08-04T12:31:51.344Z","type":"chat_pass","user":"it","step":"cycle 32","latency_ms":8335,"content":"LIVE-IT-32"}
+{"at":"2026-08-04T12:31:53.904Z","type":"chat_pass","user":"hr","step":"cycle 32","latency_ms":10895,"content":"LIVE-HR-32"}
+{"at":"2026-08-04T12:31:56.787Z","type":"chat_pass","user":"accounting","step":"cycle 32","latency_ms":13783,"content":"LIVE-ACCOUNTING-32"}
+{"at":"2026-08-04T12:31:56.788Z","type":"cycle_pass","cycle":32,"elapsed_minutes":93}
+{"at":"2026-08-04T12:34:48.604Z","type":"chat_pass","user":"hr","step":"cycle 33","latency_ms":5595,"content":"LIVE-HR-33"}
+{"at":"2026-08-04T12:34:51.447Z","type":"chat_pass","user":"it","step":"cycle 33","latency_ms":8437,"content":"LIVE-IT-33"}
+{"at":"2026-08-04T12:34:54.554Z","type":"chat_pass","user":"accounting","step":"cycle 33","latency_ms":11548,"content":"LIVE-ACCOUNTING-33"}
+{"at":"2026-08-04T12:34:57.493Z","type":"chat_pass","user":"marketing","step":"cycle 33","latency_ms":14484,"content":"LIVE-MARKETING-33"}
+{"at":"2026-08-04T12:34:57.494Z","type":"cycle_pass","cycle":33,"elapsed_minutes":96}
+{"at":"2026-08-04T12:37:48.838Z","type":"chat_pass","user":"accounting","step":"cycle 34","latency_ms":5827,"content":"LIVE-ACCOUNTING-34"}
+{"at":"2026-08-04T12:37:51.327Z","type":"chat_pass","user":"it","step":"cycle 34","latency_ms":8316,"content":"LIVE-IT-34"}
+{"at":"2026-08-04T12:37:54.164Z","type":"chat_pass","user":"marketing","step":"cycle 34","latency_ms":11153,"content":"LIVE-MARKETING-34"}
+{"at":"2026-08-04T12:37:56.544Z","type":"chat_pass","user":"hr","step":"cycle 34","latency_ms":13533,"content":"LIVE-HR-34"}
+{"at":"2026-08-04T12:37:56.544Z","type":"cycle_pass","cycle":34,"elapsed_minutes":99}
+{"at":"2026-08-04T12:40:48.195Z","type":"chat_pass","user":"accounting","step":"cycle 35","latency_ms":5194,"content":"LIVE-ACCOUNTING-35"}
+{"at":"2026-08-04T12:40:50.633Z","type":"chat_pass","user":"it","step":"cycle 35","latency_ms":7632,"content":"LIVE-IT-35"}
+{"at":"2026-08-04T12:40:53.510Z","type":"chat_pass","user":"hr","step":"cycle 35","latency_ms":10509,"content":"LIVE-HR-35"}
+{"at":"2026-08-04T12:40:55.819Z","type":"chat_pass","user":"marketing","step":"cycle 35","latency_ms":12819,"content":"LIVE-MARKETING-35"}
+{"at":"2026-08-04T12:40:55.820Z","type":"cycle_pass","cycle":35,"elapsed_minutes":102}
+{"at":"2026-08-04T12:43:48.609Z","type":"chat_pass","user":"marketing","step":"cycle 36","latency_ms":5605,"content":"LIVE-MARKETING-36"}
+{"at":"2026-08-04T12:43:50.912Z","type":"chat_pass","user":"accounting","step":"cycle 36","latency_ms":7910,"content":"LIVE-ACCOUNTING-36"}
+{"at":"2026-08-04T12:43:53.642Z","type":"chat_pass","user":"it","step":"cycle 36","latency_ms":10637,"content":"LIVE-IT-36"}
+{"at":"2026-08-04T12:43:56.550Z","type":"chat_pass","user":"hr","step":"cycle 36","latency_ms":13546,"content":"LIVE-HR-36"}
+{"at":"2026-08-04T12:43:56.551Z","type":"cycle_pass","cycle":36,"elapsed_minutes":105}
+{"at":"2026-08-04T12:46:48.755Z","type":"chat_pass","user":"marketing","step":"cycle 37","latency_ms":5750,"content":"LIVE-MARKETING-37"}
+{"at":"2026-08-04T12:46:51.518Z","type":"chat_pass","user":"hr","step":"cycle 37","latency_ms":8510,"content":"LIVE-HR-37"}
+{"at":"2026-08-04T12:46:54.167Z","type":"chat_pass","user":"it","step":"cycle 37","latency_ms":11160,"content":"LIVE-IT-37"}
+{"at":"2026-08-04T12:46:57.132Z","type":"chat_pass","user":"accounting","step":"cycle 37","latency_ms":14125,"content":"LIVE-ACCOUNTING-37"}
+{"at":"2026-08-04T12:46:57.133Z","type":"cycle_pass","cycle":37,"elapsed_minutes":108}
+{"at":"2026-08-04T12:49:48.790Z","type":"chat_pass","user":"it","step":"cycle 38","latency_ms":5781,"content":"LIVE-IT-38"}
+{"at":"2026-08-04T12:49:51.586Z","type":"chat_pass","user":"marketing","step":"cycle 38","latency_ms":8575,"content":"LIVE-MARKETING-38"}
+{"at":"2026-08-04T12:49:54.667Z","type":"chat_pass","user":"hr","step":"cycle 38","latency_ms":11656,"content":"LIVE-HR-38"}
+{"at":"2026-08-04T12:49:57.020Z","type":"chat_pass","user":"accounting","step":"cycle 38","latency_ms":14015,"content":"LIVE-ACCOUNTING-38"}
+{"at":"2026-08-04T12:49:57.021Z","type":"cycle_pass","cycle":38,"elapsed_minutes":111}
+{"at":"2026-08-04T12:52:48.596Z","type":"chat_pass","user":"it","step":"cycle 39","latency_ms":5593,"content":"LIVE-IT-39"}
+{"at":"2026-08-04T12:52:51.624Z","type":"chat_pass","user":"hr","step":"cycle 39","latency_ms":8620,"content":"LIVE-HR-39"}
+{"at":"2026-08-04T12:52:54.459Z","type":"chat_pass","user":"accounting","step":"cycle 39","latency_ms":11456,"content":"LIVE-ACCOUNTING-39"}
+{"at":"2026-08-04T12:52:57.227Z","type":"chat_pass","user":"marketing","step":"cycle 39","latency_ms":14224,"content":"LIVE-MARKETING-39"}
+{"at":"2026-08-04T12:52:57.228Z","type":"cycle_pass","cycle":39,"elapsed_minutes":114}
+{"at":"2026-08-04T12:55:48.649Z","type":"chat_pass","user":"accounting","step":"cycle 40","latency_ms":5643,"content":"LIVE-ACCOUNTING-40"}
+{"at":"2026-08-04T12:55:51.392Z","type":"chat_pass","user":"it","step":"cycle 40","latency_ms":8385,"content":"LIVE-IT-40"}
+{"at":"2026-08-04T12:55:54.113Z","type":"chat_pass","user":"hr","step":"cycle 40","latency_ms":11107,"content":"LIVE-HR-40"}
+{"at":"2026-08-04T12:55:56.626Z","type":"chat_pass","user":"marketing","step":"cycle 40","latency_ms":13620,"content":"LIVE-MARKETING-40"}
+{"at":"2026-08-04T12:55:56.627Z","type":"cycle_pass","cycle":40,"elapsed_minutes":117}
+{"at":"2026-08-04T12:58:48.455Z","type":"chat_pass","user":"accounting","step":"cycle 41","latency_ms":5453,"content":"LIVE-ACCOUNTING-41"}
+{"at":"2026-08-04T12:58:50.787Z","type":"chat_pass","user":"hr","step":"cycle 41","latency_ms":7783,"content":"LIVE-HR-41"}
+{"at":"2026-08-04T12:58:53.346Z","type":"chat_pass","user":"it","step":"cycle 41","latency_ms":10343,"content":"LIVE-IT-41"}
+{"at":"2026-08-04T12:58:56.128Z","type":"chat_pass","user":"marketing","step":"cycle 41","latency_ms":13125,"content":"LIVE-MARKETING-41"}
+{"at":"2026-08-04T12:58:56.128Z","type":"cycle_pass","cycle":41,"elapsed_minutes":120}
+{"at":"2026-08-04T13:00:56.368Z","type":"expected_rejection","user":"hr","detail":"Timed out waiting for hr disabled user rejection response"}
+{"at":"2026-08-04T13:01:07.084Z","type":"chat_pass","user":"hr","step":"re-enabled user","latency_ms":10217,"content":"REACTIVATED-OK"}
+{"at":"2026-08-04T13:01:48.332Z","type":"chat_pass","user":"accounting","step":"cycle 42","latency_ms":5323,"content":"LIVE-ACCOUNTING-42"}
+{"at":"2026-08-04T13:01:51.202Z","type":"chat_pass","user":"hr","step":"cycle 42","latency_ms":8187,"content":"LIVE-HR-42"}
+{"at":"2026-08-04T13:01:54.281Z","type":"chat_pass","user":"it","step":"cycle 42","latency_ms":11265,"content":"LIVE-IT-42"}
+{"at":"2026-08-04T13:01:57.352Z","type":"chat_pass","user":"marketing","step":"cycle 42","latency_ms":14339,"content":"LIVE-MARKETING-42"}
+{"at":"2026-08-04T13:01:57.352Z","type":"cycle_pass","cycle":42,"elapsed_minutes":123}
+{"at":"2026-08-04T13:04:49.574Z","type":"chat_pass","user":"marketing","step":"cycle 43","latency_ms":6571,"content":"LIVE-MARKETING-43"}
+{"at":"2026-08-04T13:04:52.545Z","type":"chat_pass","user":"hr","step":"cycle 43","latency_ms":9542,"content":"LIVE-HR-43"}
+{"at":"2026-08-04T13:04:55.085Z","type":"chat_pass","user":"it","step":"cycle 43","latency_ms":12082,"content":"LIVE-IT-43"}
+{"at":"2026-08-04T13:04:58.187Z","type":"chat_pass","user":"accounting","step":"cycle 43","latency_ms":15184,"content":"LIVE-ACCOUNTING-43"}
+{"at":"2026-08-04T13:04:58.187Z","type":"cycle_pass","cycle":43,"elapsed_minutes":126}
+{"at":"2026-08-04T13:07:48.828Z","type":"chat_pass","user":"marketing","step":"cycle 44","latency_ms":5818,"content":"LIVE-MARKETING-44"}
+{"at":"2026-08-04T13:07:51.650Z","type":"chat_pass","user":"hr","step":"cycle 44","latency_ms":8640,"content":"LIVE-HR-44"}
+{"at":"2026-08-04T13:07:54.522Z","type":"chat_pass","user":"it","step":"cycle 44","latency_ms":11511,"content":"LIVE-IT-44"}
+{"at":"2026-08-04T13:07:57.452Z","type":"chat_pass","user":"accounting","step":"cycle 44","latency_ms":14444,"content":"LIVE-ACCOUNTING-44"}
+{"at":"2026-08-04T13:07:57.453Z","type":"cycle_pass","cycle":44,"elapsed_minutes":129}
+{"at":"2026-08-04T13:10:48.777Z","type":"chat_pass","user":"it","step":"cycle 45","latency_ms":5771,"content":"LIVE-IT-45"}
+{"at":"2026-08-04T13:10:51.492Z","type":"chat_pass","user":"marketing","step":"cycle 45","latency_ms":8486,"content":"LIVE-MARKETING-45"}
+{"at":"2026-08-04T13:10:54.445Z","type":"chat_pass","user":"hr","step":"cycle 45","latency_ms":11439,"content":"LIVE-HR-45"}
+{"at":"2026-08-04T13:10:57.330Z","type":"chat_pass","user":"accounting","step":"cycle 45","latency_ms":14325,"content":"LIVE-ACCOUNTING-45"}
+{"at":"2026-08-04T13:10:57.330Z","type":"cycle_pass","cycle":45,"elapsed_minutes":132}
+{"at":"2026-08-04T13:13:49.511Z","type":"chat_pass","user":"marketing","step":"cycle 46","latency_ms":6505,"content":"LIVE-MARKETING-46"}
+{"at":"2026-08-04T13:13:52.474Z","type":"chat_pass","user":"accounting","step":"cycle 46","latency_ms":9468,"content":"LIVE-ACCOUNTING-46"}
+{"at":"2026-08-04T13:13:55.439Z","type":"chat_pass","user":"it","step":"cycle 46","latency_ms":12431,"content":"LIVE-IT-46"}
+{"at":"2026-08-04T13:13:58.585Z","type":"chat_pass","user":"hr","step":"cycle 46","latency_ms":15578,"content":"LIVE-HR-46"}
+{"at":"2026-08-04T13:13:58.585Z","type":"cycle_pass","cycle":46,"elapsed_minutes":135}
+{"at":"2026-08-04T13:16:49.318Z","type":"chat_pass","user":"hr","step":"cycle 47","latency_ms":6305,"content":"LIVE-HR-47"}
+{"at":"2026-08-04T13:16:52.500Z","type":"chat_pass","user":"it","step":"cycle 47","latency_ms":9489,"content":"LIVE-IT-47"}
+{"at":"2026-08-04T13:16:55.800Z","type":"chat_pass","user":"accounting","step":"cycle 47","latency_ms":12791,"content":"LIVE-ACCOUNTING-47"}
+{"at":"2026-08-04T13:16:59.299Z","type":"chat_pass","user":"marketing","step":"cycle 47","latency_ms":16287,"content":"LIVE-MARKETING-47"}
+{"at":"2026-08-04T13:16:59.300Z","type":"cycle_pass","cycle":47,"elapsed_minutes":138}
+{"at":"2026-08-04T13:19:49.286Z","type":"chat_pass","user":"accounting","step":"cycle 48","latency_ms":6273,"content":"LIVE-ACCOUNTING-48"}
+{"at":"2026-08-04T13:19:52.821Z","type":"chat_pass","user":"hr","step":"cycle 48","latency_ms":9808,"content":"LIVE-HR-48"}
+{"at":"2026-08-04T13:19:55.949Z","type":"chat_pass","user":"marketing","step":"cycle 48","latency_ms":12937,"content":"LIVE-MARKETING-48"}
+{"at":"2026-08-04T13:19:59.101Z","type":"chat_pass","user":"it","step":"cycle 48","latency_ms":16088,"content":"LIVE-IT-48"}
+{"at":"2026-08-04T13:19:59.102Z","type":"cycle_pass","cycle":48,"elapsed_minutes":141}
+{"at":"2026-08-04T13:22:48.711Z","type":"chat_pass","user":"hr","step":"cycle 49","latency_ms":5702,"content":"LIVE-HR-49"}
+{"at":"2026-08-04T13:22:51.845Z","type":"chat_pass","user":"it","step":"cycle 49","latency_ms":8837,"content":"LIVE-IT-49"}
+{"at":"2026-08-04T13:22:54.807Z","type":"chat_pass","user":"marketing","step":"cycle 49","latency_ms":11798,"content":"LIVE-MARKETING-49"}
+{"at":"2026-08-04T13:22:57.808Z","type":"chat_pass","user":"accounting","step":"cycle 49","latency_ms":14800,"content":"LIVE-ACCOUNTING-49"}
+{"at":"2026-08-04T13:22:57.809Z","type":"cycle_pass","cycle":49,"elapsed_minutes":144}
+{"at":"2026-08-04T13:25:49.325Z","type":"chat_pass","user":"accounting","step":"cycle 50","latency_ms":6318,"content":"LIVE-ACCOUNTING-50"}
+{"at":"2026-08-04T13:25:52.296Z","type":"chat_pass","user":"marketing","step":"cycle 50","latency_ms":9289,"content":"LIVE-MARKETING-50"}
+{"at":"2026-08-04T13:25:55.109Z","type":"chat_pass","user":"it","step":"cycle 50","latency_ms":12102,"content":"LIVE-IT-50"}
+{"at":"2026-08-04T13:25:57.920Z","type":"chat_pass","user":"hr","step":"cycle 50","latency_ms":14912,"content":"LIVE-HR-50"}
+{"at":"2026-08-04T13:25:57.921Z","type":"cycle_pass","cycle":50,"elapsed_minutes":147}
+{"at":"2026-08-04T13:26:04.007Z","type":"chat_pass","user":"it","step":"cycle 51","latency_ms":6084,"content":"LIVE-IT-51"}
+{"at":"2026-08-04T13:26:06.917Z","type":"chat_pass","user":"hr","step":"cycle 51","latency_ms":8994,"content":"LIVE-HR-51"}
+{"at":"2026-08-04T13:26:09.929Z","type":"chat_pass","user":"accounting","step":"cycle 51","latency_ms":12006,"content":"LIVE-ACCOUNTING-51"}
+{"at":"2026-08-04T13:26:12.840Z","type":"chat_pass","user":"marketing","step":"cycle 51","latency_ms":14917,"content":"LIVE-MARKETING-51"}
+{"at":"2026-08-04T13:26:12.840Z","type":"cycle_pass","cycle":51,"elapsed_minutes":147.25}
+{"at":"2026-08-04T13:26:19.139Z","type":"chat_pass","user":"accounting","step":"cycle 52","latency_ms":6298,"content":"LIVE-ACCOUNTING-52"}
+{"at":"2026-08-04T13:26:21.977Z","type":"chat_pass","user":"it","step":"cycle 52","latency_ms":9133,"content":"LIVE-IT-52"}
+{"at":"2026-08-04T13:26:25.028Z","type":"chat_pass","user":"marketing","step":"cycle 52","latency_ms":12187,"content":"LIVE-MARKETING-52"}
+{"at":"2026-08-04T13:26:27.945Z","type":"chat_pass","user":"hr","step":"cycle 52","latency_ms":15103,"content":"LIVE-HR-52"}
+{"at":"2026-08-04T13:26:27.945Z","type":"cycle_pass","cycle":52,"elapsed_minutes":147.5}
+{"at":"2026-08-04T13:26:34.248Z","type":"chat_pass","user":"accounting","step":"cycle 53","latency_ms":6301,"content":"LIVE-ACCOUNTING-53"}
+{"at":"2026-08-04T13:26:37.037Z","type":"chat_pass","user":"marketing","step":"cycle 53","latency_ms":9090,"content":"LIVE-MARKETING-53"}
+{"at":"2026-08-04T13:26:40.032Z","type":"chat_pass","user":"hr","step":"cycle 53","latency_ms":12085,"content":"LIVE-HR-53"}
+{"at":"2026-08-04T13:26:42.990Z","type":"chat_pass","user":"it","step":"cycle 53","latency_ms":15043,"content":"LIVE-IT-53"}
+{"at":"2026-08-04T13:26:42.990Z","type":"cycle_pass","cycle":53,"elapsed_minutes":147.75}
+{"at":"2026-08-04T13:26:49.305Z","type":"chat_pass","user":"hr","step":"cycle 54","latency_ms":6314,"content":"LIVE-HR-54"}
+{"at":"2026-08-04T13:26:51.994Z","type":"chat_pass","user":"it","step":"cycle 54","latency_ms":9002,"content":"LIVE-IT-54"}
+{"at":"2026-08-04T13:26:54.936Z","type":"chat_pass","user":"marketing","step":"cycle 54","latency_ms":11945,"content":"LIVE-MARKETING-54"}
+{"at":"2026-08-04T13:26:58.062Z","type":"chat_pass","user":"accounting","step":"cycle 54","latency_ms":15071,"content":"LIVE-ACCOUNTING-54"}
+{"at":"2026-08-04T13:26:58.062Z","type":"cycle_pass","cycle":54,"elapsed_minutes":148}
+{"at":"2026-08-04T13:27:04.111Z","type":"chat_pass","user":"hr","step":"cycle 55","latency_ms":6046,"content":"LIVE-HR-55"}
+{"at":"2026-08-04T13:27:07.243Z","type":"chat_pass","user":"marketing","step":"cycle 55","latency_ms":9176,"content":"LIVE-MARKETING-55"}
+{"at":"2026-08-04T13:27:10.147Z","type":"chat_pass","user":"it","step":"cycle 55","latency_ms":12081,"content":"LIVE-IT-55"}
+{"at":"2026-08-04T13:27:13.427Z","type":"chat_pass","user":"accounting","step":"cycle 55","latency_ms":15361,"content":"LIVE-ACCOUNTING-55"}
+{"at":"2026-08-04T13:27:13.427Z","type":"cycle_pass","cycle":55,"elapsed_minutes":148.25}
+{"at":"2026-08-04T13:27:19.713Z","type":"chat_pass","user":"it","step":"cycle 56","latency_ms":6284,"content":"LIVE-IT-56"}
+{"at":"2026-08-04T13:27:22.385Z","type":"chat_pass","user":"marketing","step":"cycle 56","latency_ms":8957,"content":"LIVE-MARKETING-56"}
+{"at":"2026-08-04T13:27:25.178Z","type":"chat_pass","user":"hr","step":"cycle 56","latency_ms":11749,"content":"LIVE-HR-56"}
+{"at":"2026-08-04T13:27:28.167Z","type":"chat_pass","user":"accounting","step":"cycle 56","latency_ms":14739,"content":"LIVE-ACCOUNTING-56"}
+{"at":"2026-08-04T13:27:28.167Z","type":"cycle_pass","cycle":56,"elapsed_minutes":148.51}
+{"at":"2026-08-04T13:27:34.244Z","type":"chat_pass","user":"marketing","step":"cycle 57","latency_ms":6074,"content":"LIVE-MARKETING-57"}
+{"at":"2026-08-04T13:27:37.314Z","type":"chat_pass","user":"it","step":"cycle 57","latency_ms":9143,"content":"LIVE-IT-57"}
+{"at":"2026-08-04T13:27:40.707Z","type":"chat_pass","user":"hr","step":"cycle 57","latency_ms":12537,"content":"LIVE-HR-57"}
+{"at":"2026-08-04T13:27:43.708Z","type":"chat_pass","user":"accounting","step":"cycle 57","latency_ms":15539,"content":"LIVE-ACCOUNTING-57"}
+{"at":"2026-08-04T13:27:43.708Z","type":"cycle_pass","cycle":57,"elapsed_minutes":148.75}
+{"at":"2026-08-04T13:27:50.213Z","type":"chat_pass","user":"it","step":"cycle 58","latency_ms":6501,"content":"LIVE-IT-58"}
+{"at":"2026-08-04T13:27:52.956Z","type":"chat_pass","user":"accounting","step":"cycle 58","latency_ms":9245,"content":"LIVE-ACCOUNTING-58"}
+{"at":"2026-08-04T13:27:56.079Z","type":"chat_pass","user":"hr","step":"cycle 58","latency_ms":12368,"content":"LIVE-HR-58"}
+{"at":"2026-08-04T13:27:59.140Z","type":"chat_pass","user":"marketing","step":"cycle 58","latency_ms":15428,"content":"LIVE-MARKETING-58"}
+{"at":"2026-08-04T13:27:59.140Z","type":"cycle_pass","cycle":58,"elapsed_minutes":149.01}
+{"at":"2026-08-04T13:28:05.432Z","type":"chat_pass","user":"marketing","step":"cycle 59","latency_ms":6289,"content":"LIVE-MARKETING-59"}
+{"at":"2026-08-04T13:28:08.453Z","type":"chat_pass","user":"hr","step":"cycle 59","latency_ms":9310,"content":"LIVE-HR-59"}
+{"at":"2026-08-04T13:28:11.447Z","type":"chat_pass","user":"accounting","step":"cycle 59","latency_ms":12304,"content":"LIVE-ACCOUNTING-59"}
+{"at":"2026-08-04T13:28:14.296Z","type":"chat_pass","user":"it","step":"cycle 59","latency_ms":15153,"content":"LIVE-IT-59"}
+{"at":"2026-08-04T13:28:14.296Z","type":"cycle_pass","cycle":59,"elapsed_minutes":149.27}
+{"at":"2026-08-04T13:28:21.081Z","type":"chat_pass","user":"marketing","step":"cycle 60","latency_ms":6783,"content":"LIVE-MARKETING-60"}
+{"at":"2026-08-04T13:28:24.047Z","type":"chat_pass","user":"accounting","step":"cycle 60","latency_ms":9749,"content":"LIVE-ACCOUNTING-60"}
+{"at":"2026-08-04T13:28:27.177Z","type":"chat_pass","user":"it","step":"cycle 60","latency_ms":12879,"content":"LIVE-IT-60"}
+{"at":"2026-08-04T13:28:30.301Z","type":"chat_pass","user":"hr","step":"cycle 60","latency_ms":16003,"content":"LIVE-HR-60"}
+{"at":"2026-08-04T13:28:30.301Z","type":"cycle_pass","cycle":60,"elapsed_minutes":149.52}
+{"at":"2026-08-04T13:28:36.636Z","type":"chat_pass","user":"hr","step":"cycle 61","latency_ms":6334,"content":"LIVE-HR-61"}
+{"at":"2026-08-04T13:28:39.587Z","type":"chat_pass","user":"marketing","step":"cycle 61","latency_ms":9285,"content":"LIVE-MARKETING-61"}
+{"at":"2026-08-04T13:28:42.862Z","type":"chat_pass","user":"it","step":"cycle 61","latency_ms":12560,"content":"LIVE-IT-61"}
+{"at":"2026-08-04T13:28:46.060Z","type":"chat_pass","user":"accounting","step":"cycle 61","latency_ms":15758,"content":"LIVE-ACCOUNTING-61"}
+{"at":"2026-08-04T13:28:46.061Z","type":"cycle_pass","cycle":61,"elapsed_minutes":149.79}
+{"at":"2026-08-04T13:28:46.061Z","type":"uat_complete","status":"passed","duration_minutes":150,"cycles":61,"latency":{"accounting":{"requests":61,"p50_ms":9099,"p95_ms":15184,"max_ms":15758},"marketing":{"requests":61,"p50_ms":9183,"p95_ms":14484,"max_ms":16287},"hr":{"requests":61,"p50_ms":11018,"p95_ms":15103,"max_ms":16003},"it":{"requests":61,"p50_ms":12102,"p95_ms":16088,"max_ms":17077}}}

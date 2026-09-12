@@ -23,6 +23,7 @@
             pendingWriteToken: null,
             isStreaming: false,
             ws: null,
+            wsReconnectTimer: null,
             heartbeatInterval: null,
             authRequired: false,
             typingElement: null,
@@ -34,6 +35,9 @@
             messageApprovalGranted: false,
             composerAttachments: [],
             pendingMessageAcks: new Map(),
+            queueRetryTimer: null,
+            queueRetryAttempt: 0,
+            queueFlushInProgress: false,
         };
 
         const els = {
@@ -617,7 +621,19 @@
         async function handleAuthFailure(message = "") {
             state.authRequired = true;
             state.currentUser = null;
+            if (state.queueRetryTimer) {
+                clearTimeout(state.queueRetryTimer);
+                state.queueRetryTimer = null;
+            }
+            if (state.wsReconnectTimer) {
+                clearTimeout(state.wsReconnectTimer);
+                state.wsReconnectTimer = null;
+            }
+            state.queueRetryAttempt = 0;
             rejectPendingMessageAcks("Authentication session ended before server acknowledgement");
+            // Queued work must never cross an authentication boundary. A message
+            // rejected after an admin disables a user must not run after login.
+            state.settings.offlineQueue = [];
             await window.electronAPI.clearSession();
             resetStreamingState();
             if (state.heartbeatInterval) {
@@ -640,7 +656,9 @@
                 ...state.settings,
                 token: "",
                 refreshToken: "",
+                offlineQueue: [],
             });
+            renderQueueStatus();
             renderHeaderIdentity();
         }
 
@@ -654,7 +672,33 @@
 
         async function setOfflineQueue(queue) {
             state.settings.offlineQueue = queue;
+            if (queue.length === 0) {
+                state.queueRetryAttempt = 0;
+                if (state.queueRetryTimer) {
+                    clearTimeout(state.queueRetryTimer);
+                    state.queueRetryTimer = null;
+                }
+            }
             await persistSettings();
+        }
+
+        function scheduleQueuedMessageRetry() {
+            if (state.queueRetryTimer || state.authRequired || !state.settings.token) {
+                return;
+            }
+            const delayMs = Math.min(60000, 3000 * (2 ** state.queueRetryAttempt));
+            state.queueRetryAttempt += 1;
+            state.queueRetryTimer = setTimeout(async () => {
+                state.queueRetryTimer = null;
+                if (state.authRequired || !state.settings.token) {
+                    return;
+                }
+                if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                    await flushQueuedMessages();
+                } else {
+                    connectWebSocket();
+                }
+            }, delayMs);
         }
 
         async function createQueueItem(content, profileName = "", attachments = [], existingItem = null) {
@@ -687,33 +731,52 @@
 
         async function flushQueuedMessages() {
             const queue = [...getOfflineQueue()];
-            if (!state.ws || state.ws.readyState !== WebSocket.OPEN || queue.length === 0) {
+            if (
+                state.queueFlushInProgress
+                || !state.ws
+                || state.ws.readyState !== WebSocket.OPEN
+                || queue.length === 0
+            ) {
                 return;
             }
 
-            const remaining = [];
-            for (const item of queue) {
-                try {
-                    let sendItem = item;
-                    if (!sendItem.id || !sendItem.workspace) {
-                        sendItem = await createQueueItem(
-                            item.content,
-                            item.profileName || "",
-                            item.attachments || [],
+            state.queueFlushInProgress = true;
+            try {
+                const remaining = [];
+                for (const item of queue) {
+                    try {
+                        let sendItem = item;
+                        if (!sendItem.id || !sendItem.workspace) {
+                            sendItem = await createQueueItem(
+                                item.content,
+                                item.profileName || "",
+                                item.attachments || [],
+                            );
+                        }
+                        await sendWebSocketMessage(
+                            sendItem.content,
+                            sendItem.profileName || "",
+                            sendItem.attachments || [],
+                            sendItem,
                         );
+                    } catch (error) {
+                        if (error.retryable === false) {
+                            await handleAuthFailure(error.message);
+                            break;
+                        }
+                        if (!state.authRequired && state.settings.token) {
+                            remaining.push(error.queueItem || item);
+                        }
+                        appendSystemMessage(`تعذر إرسال رسالة معلقة: ${error.message}`);
                     }
-                    await sendWebSocketMessage(
-                        sendItem.content,
-                        sendItem.profileName || "",
-                        sendItem.attachments || [],
-                        sendItem,
-                    );
-                } catch (error) {
-                    remaining.push(error.queueItem || item);
-                    appendSystemMessage(`تعذر إرسال رسالة معلقة: ${error.message}`);
                 }
+                await setOfflineQueue(state.authRequired || !state.settings.token ? [] : remaining);
+                if (remaining.length > 0 && !state.authRequired && state.settings.token) {
+                    scheduleQueuedMessageRetry();
+                }
+            } finally {
+                state.queueFlushInProgress = false;
             }
-            await setOfflineQueue(remaining);
         }
 
         function renderUpdateStatus(status) {
