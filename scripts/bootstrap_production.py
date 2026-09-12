@@ -167,8 +167,6 @@ async def bootstrap() -> None:
 
     print("Production bootstrap complete.")
     print(f"Admin: {admin_email} ({admin_status})")
-    if admin_status == "created":
-        print(f"Admin password: {admin_password}")
     print(f"Templates created: {templates_created}")
     print(f"Skills created: {skills_created}")
     print(f"MiniMax platform key: {platform_key_status}")
