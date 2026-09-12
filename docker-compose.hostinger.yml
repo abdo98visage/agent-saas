@@ -53,7 +53,7 @@ x-default-logging: &default-logging
 
 services:
   storage-init:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     user: "0:0"
     command: >-
       sh -c "mkdir -p /data/attachments /data/hermes/profiles /data/knowledge
@@ -101,7 +101,7 @@ services:
     logging: *default-logging
 
   migrate:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     environment: *app-environment
     depends_on:
       db:
@@ -113,7 +113,7 @@ services:
     logging: *default-logging
 
   bootstrap:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     environment:
       <<: *app-environment
       ADMIN_EMAIL: "${ADMIN_EMAIL:?Set the initial administrator email}"
@@ -129,7 +129,7 @@ services:
     logging: *default-logging
 
   hermes-runtime:
-    image: "${AGENTSAAS_HERMES_RUNTIME_IMAGE:?Set AGENTSAAS_HERMES_RUNTIME_IMAGE to the released runtime image}"
+    image: "${AGENTSAAS_HERMES_RUNTIME_IMAGE:-ghcr.io/abdo98visage/agent-saas/runtime:latest}"
     environment:
       HERMES_PROFILES_ROOT: "/data/hermes/profiles"
       HERMES_RUN_TIMEOUT_SECONDS: "${HERMES_RUN_TIMEOUT_SECONDS:-120}"
@@ -160,7 +160,7 @@ services:
     logging: *default-logging
 
   hermes-orchestrator:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     environment:
       HERMES_WORKSPACE_ROOT: "/data/hermes/profiles"
       HERMES_PORT: "8787"
@@ -201,7 +201,7 @@ services:
     logging: *default-logging
 
   api:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     environment: *app-environment
     volumes:
       - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/attachments:/data/attachments"
@@ -243,7 +243,7 @@ services:
     logging: *default-logging
 
   admin:
-    image: "${AGENTSAAS_ADMIN_IMAGE:?Set AGENTSAAS_ADMIN_IMAGE to the released admin image}"
+    image: "${AGENTSAAS_ADMIN_IMAGE:-ghcr.io/abdo98visage/agent-saas/admin:latest}"
     depends_on:
       api:
         condition: service_healthy
@@ -274,7 +274,7 @@ services:
     logging: *default-logging
 
   worker:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     environment: *app-environment
     volumes:
       - "${AGENTSAAS_DATA_DIR:-/opt/agentsaas/data}/knowledge:/data/knowledge:ro"
@@ -296,7 +296,7 @@ services:
     logging: *default-logging
 
   beat:
-    image: "${AGENTSAAS_API_IMAGE:?Set AGENTSAAS_API_IMAGE to the released API image}"
+    image: "${AGENTSAAS_API_IMAGE:-ghcr.io/abdo98visage/agent-saas/api:latest}"
     environment: *app-environment
     depends_on:
       redis:
@@ -323,4 +323,3 @@ networks:
     internal: true
   traefik-proxy:
     external: true
-
