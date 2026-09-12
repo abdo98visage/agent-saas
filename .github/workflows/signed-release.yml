@@ -32,6 +32,11 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+      - name: Configure desktop API
+        shell: pwsh
+        run: |
+          $config = @{ apiUrl = $env:API_URL; allowedApiOrigins = @(([uri]$env:API_URL).GetLeftPart('Authority')) }
+          $config | ConvertTo-Json | Set-Content -Encoding utf8 desktop-config.json
       - run: npm ci
       - run: npm run release:check
       - run: npm run build:release

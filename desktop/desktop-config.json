@@ -1,4 +1,4 @@
 {
-  "apiUrl": "http://localhost:8001/api",
-  "allowedApiOrigins": ["http://localhost:8001"]
+  "apiUrl": "https://agent-saas.srv1970121.hstgr.cloud/api",
+  "allowedApiOrigins": ["https://agent-saas.srv1970121.hstgr.cloud"]
 }
